@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from wodata import get_cache_path
+from .model import StrategyPlan, StintSegment
 
 MODEL_VERSION = "strategy_sim_mvp_v1"
 SCHEMA = "schema_v1"
@@ -77,37 +78,117 @@ class WoStrategyRaceModelAdapter:
         compound: str,
         initial_tyre_age: int,
     ) -> pd.DataFrame:
-        model = self.load_model(year=year, round_number=round_number, session_name=session_name)
-        driver_rows = model.loc[
-            (model["driver"].astype(str) == str(driver))
-            & (model["compound"].astype(str).str.upper() == str(compound).upper())
-        ]
-        if driver_rows.empty:
-            raise ValueError(f"No strategy model row for {driver} on {compound}")
-        row = driver_rows.iloc[0]
+        strategy_plan = StrategyPlan(
+            driver=str(driver),
+            team=str(team),
+            start_after_lap=int(start_lap) - 1,
+            end_lap=int(end_lap),
+            segments=[
+                StintSegment(
+                    start_lap=int(start_lap),
+                    end_lap=int(end_lap),
+                    compound=str(compound).upper(),
+                    initial_tyre_age=int(initial_tyre_age),
+                )
+            ],
+            pit_stops=[],
+        )
+        return self.predict_strategy_plan(
+            year=year,
+            round_number=round_number,
+            session_name=session_name,
+            strategy_plan=strategy_plan,
+        ).drop(columns=["pit_loss_s", "predicted_total_lap_time_s"])
 
-        laps = pd.Series(range(int(start_lap), int(end_lap) + 1), dtype="int64")
-        tyre_age = laps - int(start_lap) + int(initial_tyre_age)
-        predicted = (
-            float(row["baseline_pace_s"])
-            + float(row["compound_delta_s"])
-            + float(row["team_compound_degradation_s_per_lap"])
-            * (tyre_age.astype(float) - float(row["tyre_age_reference"]))
-            + float(row["fuel_rate_s_per_lap"])
-            * (float(row["fuel_reference"]) - laps.astype(float))
-            + float(row["track_rate_s_per_lap"])
-            * (laps.astype(float) - float(row["reference_lap"]))
+    def predict_strategy_plan(
+        self,
+        *,
+        year: int,
+        round_number: int,
+        session_name: str,
+        strategy_plan: StrategyPlan,
+    ) -> pd.DataFrame:
+        model = self.load_model(year=year, round_number=round_number, session_name=session_name)
+        frames = []
+        for segment in strategy_plan.segments:
+            compound = str(segment.compound).upper()
+            driver_rows = model.loc[
+                (model["driver"].astype(str) == str(strategy_plan.driver))
+                & (model["compound"].astype(str).str.upper() == compound)
+            ]
+            if driver_rows.empty:
+                raise ValueError(f"No strategy model row for {strategy_plan.driver} on {compound}")
+            row = driver_rows.iloc[0]
+            laps = pd.Series(
+                range(int(segment.start_lap), int(segment.end_lap) + 1),
+                dtype="int64",
+            )
+            if laps.empty:
+                continue
+            tyre_age = laps - int(segment.start_lap) + int(segment.initial_tyre_age)
+            predicted = (
+                float(row["baseline_pace_s"])
+                + float(row["compound_delta_s"])
+                + float(row["team_compound_degradation_s_per_lap"])
+                * (tyre_age.astype(float) - float(row["tyre_age_reference"]))
+                + float(row["fuel_rate_s_per_lap"])
+                * (float(row["fuel_reference"]) - laps.astype(float))
+                + float(row["track_rate_s_per_lap"])
+                * (laps.astype(float) - float(row["reference_lap"]))
+            )
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "driver": str(strategy_plan.driver),
+                        "team": str(strategy_plan.team),
+                        "lap": laps,
+                        "compound": compound,
+                        "tyre_age": tyre_age,
+                        "predicted_clean_lap_time_s": predicted,
+                    }
+                )
+            )
+
+        if frames:
+            output = pd.concat(frames, ignore_index=True).sort_values(
+                "lap",
+                kind="mergesort",
+            )
+        else:
+            output = pd.DataFrame(
+                columns=[
+                    "driver",
+                    "team",
+                    "lap",
+                    "compound",
+                    "tyre_age",
+                    "predicted_clean_lap_time_s",
+                ]
+            )
+        output["pit_loss_s"] = 0.0
+        pit_losses = {
+            int(pit_stop.first_lap_after_stop): float(pit_stop.pit_loss_s)
+            for pit_stop in strategy_plan.pit_stops
+        }
+        if pit_losses and not output.empty:
+            output["pit_loss_s"] = output["lap"].astype(int).map(pit_losses).fillna(0.0)
+        output["predicted_total_lap_time_s"] = (
+            pd.to_numeric(output["predicted_clean_lap_time_s"], errors="coerce")
+            + pd.to_numeric(output["pit_loss_s"], errors="coerce").fillna(0.0)
         )
-        return pd.DataFrame(
-            {
-                "driver": str(driver),
-                "team": str(team),
-                "lap": laps,
-                "compound": str(compound).upper(),
-                "tyre_age": tyre_age,
-                "predicted_clean_lap_time_s": predicted,
-            }
-        )
+        return output.loc[
+            :,
+            [
+                "driver",
+                "team",
+                "lap",
+                "compound",
+                "tyre_age",
+                "predicted_clean_lap_time_s",
+                "pit_loss_s",
+                "predicted_total_lap_time_s",
+            ],
+        ].reset_index(drop=True)
 
     def _locate_source_paths(
         self,

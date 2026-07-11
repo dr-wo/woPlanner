@@ -18,6 +18,7 @@ NORMALIZED_LAP_COLUMNS = [
     "pit_in",
     "pit_out",
     "is_valid",
+    "track_status",
     "result_rank",
     "start_position",
 ]
@@ -42,6 +43,7 @@ def normalize_race_laps(
     laps["pit_in"] = _notna(_column(raw_laps, "PitInTime"))
     laps["pit_out"] = _notna(_column(raw_laps, "PitOutTime"))
     laps["is_valid"] = _valid_lap_mask(raw_laps, laps)
+    laps["track_status"] = _track_status(raw_laps)
     laps["result_rank"] = pd.to_numeric(
         _column(raw_laps, "SessionResultRank"),
         errors="coerce",
@@ -86,6 +88,13 @@ def _seconds(values: pd.Series) -> pd.Series:
 
 def _notna(values: pd.Series) -> pd.Series:
     return values.notna().astype(bool)
+
+
+def _track_status(raw_laps: pd.DataFrame) -> pd.Series:
+    for column in ("TrackStatus", "TrackStatusCode", "track_status"):
+        if column in raw_laps.columns:
+            return raw_laps[column]
+    return pd.Series(pd.NA, index=raw_laps.index)
 
 
 def _valid_lap_mask(raw_laps: pd.DataFrame, laps: pd.DataFrame) -> pd.Series:

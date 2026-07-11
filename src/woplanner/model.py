@@ -4,6 +4,14 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+COMPARISON_MODE_MODELLED_REAL_STRATEGY = "modelled_real_strategy"
+COMPARISON_MODE_OBSERVED_REAL_DATA = "observed_real_data"
+
+COMPARISON_MODE_LABELS = {
+    COMPARISON_MODE_MODELLED_REAL_STRATEGY: "Modelled real strategy",
+    COMPARISON_MODE_OBSERVED_REAL_DATA: "Observed real data",
+}
+
 
 @dataclass
 class PlannerRaceSession:
@@ -16,15 +24,26 @@ class PlannerRaceSession:
 
 
 @dataclass
-class PitStopScenario:
+class StrategyEdit:
+    edit_id: str
+    edit_type: str
+    stop_after_lap: int
+    compound: str | None
+    initial_tyre_age: int | None
+    pit_loss_s: float | None
+    pit_loss_source: str | None = None
+
+
+@dataclass
+class DriverStrategyScenario:
     scenario_id: str
     driver: str
-    stop_after_lap: int
-    first_simulated_lap: int
-    compound: str
-    initial_tyre_age: int
-    pit_loss_s: float
+    edits: list[StrategyEdit]
+    comparison_mode: str = COMPARISON_MODE_MODELLED_REAL_STRATEGY
     is_active: bool = True
+
+
+PitStopScenario = DriverStrategyScenario
 
 
 @dataclass
@@ -32,3 +51,38 @@ class ScenarioTrajectory:
     scenario_id: str
     driver: str
     laps: pd.DataFrame
+
+
+@dataclass
+class StintSegment:
+    start_lap: int
+    end_lap: int
+    compound: str
+    initial_tyre_age: int
+
+
+@dataclass
+class PlannedPitStop:
+    stop_after_lap: int
+    first_lap_after_stop: int
+    pit_loss_s: float
+
+
+@dataclass
+class StrategyPlan:
+    driver: str
+    team: str
+    start_after_lap: int
+    end_lap: int
+    segments: list[StintSegment]
+    pit_stops: list[PlannedPitStop]
+
+
+@dataclass
+class StrategyComparison:
+    scenario_id: str
+    driver: str
+    comparison_mode: str
+    what_if_laps: pd.DataFrame
+    comparison_laps: pd.DataFrame
+    warnings: list[str] | None = None
