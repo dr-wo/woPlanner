@@ -15,6 +15,7 @@ from woplanner.service import (
     add_driver_ranks,
     starting_driver_order,
 )
+from woplanner.strategy_model import MissingStrategyModelError, WoStrategyRaceModelAdapter
 
 
 def test_normalize_race_laps_calculates_cumulative_time():
@@ -163,6 +164,61 @@ def test_tyre_event_data_marks_stint_changes_but_not_starting_tyres():
     ]
 
 
+def test_tyre_event_data_marks_only_first_simulated_lap():
+    plot_data = pd.DataFrame(
+        {
+            "driver": ["AAA", "AAA", "AAA", "AAA", "AAA", "AAA"],
+            "lap": [1, 2, 3, 2, 3, 4],
+            "delta_s": [0.0, 1.0, 2.0, 20.0, 21.0, 22.0],
+            "compound": ["MEDIUM", "MEDIUM", "MEDIUM", "HARD", "HARD", "HARD"],
+            "stint": [1, 1, 1, 2, 2, 2],
+            "tyre_age": [1, 2, 3, 0, 1, 2],
+            "pit_out": [True, False, False, True, False, False],
+            "plot_role": ["actual", "actual", "actual", "simulation", "simulation", "simulation"],
+            "scenario_id": [pd.NA, pd.NA, pd.NA, "sim-1", "sim-1", "sim-1"],
+            "is_simulated": [False, False, False, True, True, True],
+        }
+    )
+
+    events = build_tyre_event_data(plot_data)
+
+    assert events[["driver", "lap", "compound", "tyre_age_label", "is_simulated"]].to_dict(
+        "records"
+    ) == [
+        {
+            "driver": "AAA",
+            "lap": 2,
+            "compound": "HARD",
+            "tyre_age_label": "0",
+            "is_simulated": True,
+        },
+    ]
+
+
+def test_tyre_event_data_preserves_faded_actual_marker_state():
+    plot_data = pd.DataFrame(
+        {
+            "driver": ["AAA", "AAA"],
+            "lap": [1, 2],
+            "delta_s": [0.0, 1.0],
+            "compound": ["MEDIUM", "HARD"],
+            "stint": [1, 2],
+            "tyre_age": [1, 0],
+            "pit_out": [False, True],
+            "plot_role": ["actual", "actual"],
+            "scenario_id": [pd.NA, pd.NA],
+            "is_simulated": [False, False],
+            "is_faded": [False, True],
+        }
+    )
+
+    events = build_tyre_event_data(plot_data)
+
+    assert events[["driver", "lap", "is_faded"]].to_dict("records") == [
+        {"driver": "AAA", "lap": 2, "is_faded": True}
+    ]
+
+
 def test_add_driver_ranks_includes_start_and_latest_tyre_labels():
     laps = pd.DataFrame(
         {
@@ -223,3 +279,173 @@ def test_team_colour_and_teammate_line_style_assignment():
     assert styled.loc[styled["driver"] == "HAM", "line_style"].iloc[0] == "solid"
     assert styled.loc[styled["driver"] == "RUS", "line_style"].iloc[0] == "dash"
     assert styled.loc[styled["driver"] == "VER", "colour"].iloc[0] == "#3671C6"
+
+
+def test_strategy_model_adapter_reads_weighted_median_cache(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    prefix = "race_performance_2026_7_R"
+    (source / f"{prefix}_summary_baseline_pace.csv").write_text(
+        "Team,Driver,P10,Median,P90,SampleCount,WeightSum\nMercedes,HAM,80,81,82,10,5\n"
+    )
+    (source / f"{prefix}_summary_fuel_rate.csv").write_text(
+        "P10,Median,P90,SampleCount,WeightSum\n0.01,0.05,0.09,10,5\n"
+    )
+    (source / f"{prefix}_summary_track_rate.csv").write_text(
+        "P10,Median,P90,SampleCount,WeightSum\n0.00,0.02,0.04,10,5\n"
+    )
+    (source / f"{prefix}_summary_compound_delta.csv").write_text(
+        "Compound,CompoundDeltaReference,P10,Median,P90,SampleCount,WeightSum\n"
+        "HARD,HARD,0,0,0,10,5\nMEDIUM,HARD,-0.5,-0.2,0,10,5\n"
+    )
+    (source / f"{prefix}_summary_team_compound_degradation.csv").write_text(
+        "Team,Compound,P10,Median,P90,SampleCount,WeightSum\n"
+        "Mercedes,HARD,0.02,0.10,0.20,10,5\n"
+        "Mercedes,MEDIUM,0.04,0.15,0.25,10,5\n"
+    )
+    (source / f"{prefix}_clean_laps.csv").write_text(
+        "Driver,Team,LapNumber,TyreAgeLaps,FuelLapNumber\n"
+        "HAM,Mercedes,10,3,40\nHAM,Mercedes,20,5,30\n"
+    )
+    adapter = WoStrategyRaceModelAdapter(data_root=tmp_path / "data", source_cache_dir=source)
+
+    model = adapter.load_model(year=2026, round_number=7, session_name="R")
+    hard = model.loc[model["compound"] == "HARD"].iloc[0]
+
+    assert hard["driver"] == "HAM"
+    assert hard["baseline_pace_s"] == 81.0
+    assert hard["fuel_rate_s_per_lap"] == 0.05
+    assert hard["track_rate_s_per_lap"] == 0.02
+    assert hard["team_compound_degradation_s_per_lap"] == 0.10
+    assert hard["reference_lap"] == 15.0
+    assert hard["fuel_reference"] == 35.0
+    assert hard["tyre_age_reference"] == 4.0
+
+
+def test_strategy_model_adapter_reports_missing_cache_files(tmp_path):
+    adapter = WoStrategyRaceModelAdapter(data_root=tmp_path / "data", source_cache_dir=tmp_path)
+
+    try:
+        adapter.load_model(year=2026, round_number=7, session_name="R")
+    except MissingStrategyModelError as exc:
+        assert "race_performance_2026_7_R_summary_baseline_pace.csv" in str(exc)
+        assert "race_performance_review" in str(exc) or str(tmp_path) in str(exc)
+    else:
+        raise AssertionError("Expected MissingStrategyModelError")
+
+
+def test_service_creates_simulation_without_mutating_base_session():
+    class FakeStrategyModel:
+        def predict_future_laps(self, **kwargs):
+            laps = list(range(kwargs["start_lap"], kwargs["end_lap"] + 1))
+            return pd.DataFrame(
+                {
+                    "driver": kwargs["driver"],
+                    "team": kwargs["team"],
+                    "lap": laps,
+                    "compound": kwargs["compound"],
+                    "tyre_age": [kwargs["initial_tyre_age"] + index for index, _ in enumerate(laps)],
+                    "predicted_clean_lap_time_s": [88.0 for _ in laps],
+                }
+            )
+
+    service = RacePlannerService()
+    service.strategy_model = FakeStrategyModel()
+    service.session = normalize_race_laps(
+        pd.DataFrame(
+            {
+                "Driver": ["AAA", "AAA", "AAA", "BBB", "BBB", "BBB"],
+                "Team": ["Team A", "Team A", "Team A", "Team B", "Team B", "Team B"],
+                "LapNumber": [1, 2, 3, 1, 2, 3],
+                "LapTime": [90.0, 91.0, 92.0, 91.0, 91.0, 91.0],
+                "Compound": ["MEDIUM", "MEDIUM", "MEDIUM", "HARD", "HARD", "HARD"],
+                "Stint": [1, 1, 1, 1, 1, 1],
+                "TyreLife": [1, 2, 3, 1, 2, 3],
+            }
+        ),
+        year=2026,
+        round_number=1,
+        session_name="R",
+    )
+    base_laps = service.session.laps.copy(deep=True)
+
+    scenario = service.create_pit_stop_simulation(
+        driver="AAA",
+        stop_after_lap=1,
+        compound="HARD",
+        initial_tyre_age=5,
+        pit_loss_s=20.0,
+    )
+    plot_data = service.build_plot_data("BBB")
+
+    pd.testing.assert_frame_equal(service.session.laps, base_laps)
+    simulation_curve = plot_data.loc[plot_data["scenario_id"] == scenario.scenario_id]
+    assert simulation_curve["lap"].tolist() == [1, 2, 3]
+    assert simulation_curve["plot_role"].tolist() == ["simulation", "simulation", "simulation"]
+    assert simulation_curve["is_simulated"].tolist() == [False, True, True]
+    simulated = simulation_curve.loc[simulation_curve["is_simulated"]]
+    assert simulated["lap_time_s"].tolist() == [108.0, 88.0]
+    assert simulated["tyre_age"].tolist() == [5, 6]
+    faded_actual = plot_data.loc[
+        (plot_data["driver"] == "AAA")
+        & (plot_data["plot_role"] == "actual")
+        & (plot_data["is_faded"])
+    ]
+    assert faded_actual["lap"].tolist() == [1, 2, 3]
+    assert plot_data.loc[
+        (plot_data["driver"] == "AAA")
+        & (plot_data["plot_role"] == "actual")
+        & (plot_data["lap"] > 1),
+        "is_faded",
+    ].tolist() == [True, True]
+
+
+def test_service_replaces_existing_driver_simulation():
+    class FakeStrategyModel:
+        def predict_future_laps(self, **kwargs):
+            return pd.DataFrame(
+                {
+                    "driver": kwargs["driver"],
+                    "team": kwargs["team"],
+                    "lap": [kwargs["start_lap"]],
+                    "compound": kwargs["compound"],
+                    "tyre_age": [kwargs["initial_tyre_age"]],
+                    "predicted_clean_lap_time_s": [90.0],
+                }
+            )
+
+    service = RacePlannerService()
+    service.strategy_model = FakeStrategyModel()
+    service.session = normalize_race_laps(
+        pd.DataFrame(
+            {
+                "Driver": ["AAA", "AAA"],
+                "Team": ["Team A", "Team A"],
+                "LapNumber": [1, 2],
+                "LapTime": [90.0, 91.0],
+            }
+        ),
+        year=2026,
+        round_number=1,
+        session_name="R",
+    )
+
+    first = service.create_pit_stop_simulation(
+        driver="AAA",
+        stop_after_lap=1,
+        compound="HARD",
+        initial_tyre_age=0,
+        pit_loss_s=20.0,
+    )
+    second = service.create_pit_stop_simulation(
+        driver="AAA",
+        stop_after_lap=1,
+        compound="MEDIUM",
+        initial_tyre_age=2,
+        pit_loss_s=18.0,
+    )
+
+    assert [scenario.scenario_id for scenario in service.scenarios.active_scenarios()] == [
+        second.scenario_id
+    ]
+    assert first.scenario_id != second.scenario_id

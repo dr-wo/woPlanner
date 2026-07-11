@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
 
-from .model import PlannerRaceSession
+from .model import PitStopScenario, PlannerRaceSession, ScenarioTrajectory
 from .normalize import normalize_race_laps
+from .strategy_model import WoStrategyRaceModelAdapter
 
 TEAM_COLOURS = {
     "Red Bull Racing": "#3671C6",
@@ -40,6 +42,8 @@ class RacePlannerService:
         self.data_root = data_root
         self.session: PlannerRaceSession | None = None
         self._last_plot_data: pd.DataFrame | None = None
+        self.scenarios = ScenarioManager()
+        self.strategy_model = WoStrategyRaceModelAdapter(data_root=data_root)
 
     def load_race(
         self,
@@ -63,6 +67,8 @@ class RacePlannerService:
         )
         self.session.drivers = assign_driver_styles(self.session.drivers)
         self.session.drivers = add_driver_ranks(self.session.laps, self.session.drivers)
+        self.scenarios.clear_all()
+        self._last_plot_data = None
         return self.session
 
     def load_latest_race(self, session_name: str = "R") -> PlannerRaceSession:
@@ -71,8 +77,14 @@ class RacePlannerService:
 
     def build_plot_data(self, reference_driver: str) -> pd.DataFrame:
         session = self._require_session()
-        self._last_plot_data = build_reference_delta_data(
+        base_plot_data = build_reference_delta_data(
             session.laps,
+            reference_driver=reference_driver,
+        )
+        self._last_plot_data = merge_scenario_plot_data(
+            base_plot_data,
+            session.laps,
+            self.scenarios.active_trajectories(),
             reference_driver=reference_driver,
         )
         return self._last_plot_data
@@ -94,6 +106,8 @@ class RacePlannerService:
             else self.build_plot_data(selected_driver)
         )
         selected = plot_data.loc[plot_data["driver"] == selected_driver].copy()
+        if "plot_role" in selected.columns:
+            selected = selected.loc[selected["plot_role"] == "actual"].copy()
         return build_pit_window_data(
             selected,
             normal_pit_loss_s=normal_pit_loss_s,
@@ -103,10 +117,74 @@ class RacePlannerService:
     def build_tyre_event_data(self) -> pd.DataFrame:
         self._require_session()
         if self._last_plot_data is None:
-            return pd.DataFrame(
-                columns=["driver", "lap", "delta_s", "compound", "tyre_age_label"]
-            )
+            return _empty_tyre_event_data()
         return build_tyre_event_data(self._last_plot_data)
+
+    def create_pit_stop_simulation(
+        self,
+        *,
+        driver: str,
+        stop_after_lap: int,
+        compound: str,
+        initial_tyre_age: int,
+        pit_loss_s: float,
+    ) -> PitStopScenario:
+        session = self._require_session()
+        driver_laps = session.laps.loc[session.laps["driver"] == driver]
+        if driver_laps.empty:
+            raise ValueError(f"Driver not found in loaded session: {driver}")
+        max_lap = int(pd.to_numeric(driver_laps["lap"], errors="coerce").max())
+        stop_after_lap = int(stop_after_lap)
+        first_simulated_lap = stop_after_lap + 1
+        if first_simulated_lap > max_lap:
+            raise ValueError("Simulation must start before the driver's final recorded lap")
+        team = str(driver_laps["team"].dropna().iloc[0]) if driver_laps["team"].notna().any() else ""
+
+        predicted = self.strategy_model.predict_future_laps(
+            year=session.year,
+            round_number=session.round_number,
+            session_name=session.session_name,
+            driver=driver,
+            team=team,
+            start_lap=first_simulated_lap,
+            end_lap=max_lap,
+            compound=compound,
+            initial_tyre_age=int(initial_tyre_age),
+        )
+        simulated = predicted.rename(
+            columns={"predicted_clean_lap_time_s": "lap_time_s"}
+        ).copy()
+        simulated.loc[simulated.index[0], "lap_time_s"] += float(pit_loss_s)
+
+        scenario = PitStopScenario(
+            scenario_id=f"{driver}-{uuid4().hex[:8]}",
+            driver=driver,
+            stop_after_lap=stop_after_lap,
+            first_simulated_lap=first_simulated_lap,
+            compound=str(compound).upper(),
+            initial_tyre_age=int(initial_tyre_age),
+            pit_loss_s=float(pit_loss_s),
+        )
+        trajectory = ScenarioTrajectory(
+            scenario_id=scenario.scenario_id,
+            driver=driver,
+            laps=simulated.loc[:, ["driver", "team", "lap", "lap_time_s", "compound", "tyre_age"]],
+        )
+        self.scenarios.upsert(scenario, trajectory)
+        self._last_plot_data = None
+        return scenario
+
+    def clear_simulation(self, scenario_id: str) -> None:
+        self.scenarios.clear(scenario_id)
+        self._last_plot_data = None
+
+    def clear_driver_simulation(self, driver: str) -> None:
+        self.scenarios.clear_driver(driver)
+        self._last_plot_data = None
+
+    def clear_all_simulations(self) -> None:
+        self.scenarios.clear_all()
+        self._last_plot_data = None
 
     def build_lap_delta_guide_data(
         self,
@@ -132,6 +210,41 @@ class RacePlannerService:
         return self.session
 
 
+class ScenarioManager:
+    def __init__(self) -> None:
+        self._scenarios: dict[str, PitStopScenario] = {}
+        self._trajectories: dict[str, ScenarioTrajectory] = {}
+
+    def active_scenarios(self) -> list[PitStopScenario]:
+        return [scenario for scenario in self._scenarios.values() if scenario.is_active]
+
+    def active_trajectories(self) -> list[ScenarioTrajectory]:
+        active_ids = {scenario.scenario_id for scenario in self.active_scenarios()}
+        return [
+            trajectory
+            for scenario_id, trajectory in self._trajectories.items()
+            if scenario_id in active_ids
+        ]
+
+    def upsert(self, scenario: PitStopScenario, trajectory: ScenarioTrajectory) -> None:
+        self.clear_driver(scenario.driver)
+        self._scenarios[scenario.scenario_id] = scenario
+        self._trajectories[scenario.scenario_id] = trajectory
+
+    def clear(self, scenario_id: str) -> None:
+        self._scenarios.pop(scenario_id, None)
+        self._trajectories.pop(scenario_id, None)
+
+    def clear_driver(self, driver: str) -> None:
+        for scenario in list(self._scenarios.values()):
+            if scenario.driver == driver:
+                self.clear(scenario.scenario_id)
+
+    def clear_all(self) -> None:
+        self._scenarios.clear()
+        self._trajectories.clear()
+
+
 def build_reference_delta_data(laps: pd.DataFrame, *, reference_driver: str) -> pd.DataFrame:
     required = {"driver", "lap", "cumulative_time_s"}
     missing = required.difference(laps.columns)
@@ -150,7 +263,103 @@ def build_reference_delta_data(laps: pd.DataFrame, *, reference_driver: str) -> 
     plot_data["delta_s"] = (
         plot_data["cumulative_time_s"] - plot_data["reference_cumulative_time_s"]
     )
+    plot_data["plot_role"] = "actual"
+    plot_data["scenario_id"] = pd.NA
+    plot_data["is_simulated"] = False
+    plot_data["is_faded"] = False
     return plot_data.sort_values(["driver", "lap"], kind="mergesort").reset_index(drop=True)
+
+
+def merge_scenario_plot_data(
+    base_plot_data: pd.DataFrame,
+    base_laps: pd.DataFrame,
+    trajectories: list[ScenarioTrajectory],
+    *,
+    reference_driver: str,
+) -> pd.DataFrame:
+    if not trajectories:
+        return base_plot_data
+
+    reference = (
+        base_laps.loc[base_laps["driver"] == reference_driver, ["lap", "cumulative_time_s"]]
+        .dropna(subset=["lap", "cumulative_time_s"])
+        .rename(columns={"cumulative_time_s": "reference_cumulative_time_s"})
+    )
+    output_frames = [base_plot_data.copy()]
+    faded_drivers = set()
+    for trajectory in trajectories:
+        scenario_laps = trajectory.laps.copy()
+        if scenario_laps.empty:
+            continue
+        base_driver_laps = base_laps.loc[base_laps["driver"] == trajectory.driver]
+        stop_after_lap = int(pd.to_numeric(scenario_laps["lap"], errors="coerce").min()) - 1
+        base_before_stop = base_driver_laps.loc[
+            pd.to_numeric(base_driver_laps["lap"], errors="coerce") == stop_after_lap,
+            "cumulative_time_s",
+        ]
+        if base_before_stop.empty or pd.isna(base_before_stop.iloc[0]):
+            continue
+        scenario_laps["cumulative_time_s"] = (
+            float(base_before_stop.iloc[0])
+            + pd.to_numeric(scenario_laps["lap_time_s"], errors="coerce").cumsum()
+        )
+        scenario_laps["stint"] = _next_driver_stint(base_driver_laps)
+        scenario_laps["pit_in"] = False
+        scenario_laps["pit_out"] = False
+        scenario_laps.loc[scenario_laps.index[0], "pit_out"] = True
+        scenario_plot = scenario_laps.merge(reference, on="lap", how="inner")
+        scenario_plot["delta_s"] = (
+            scenario_plot["cumulative_time_s"] - scenario_plot["reference_cumulative_time_s"]
+        )
+        scenario_plot["plot_role"] = "simulation"
+        scenario_plot["scenario_id"] = trajectory.scenario_id
+        scenario_plot["is_simulated"] = True
+        scenario_plot["is_faded"] = False
+        anchor = base_driver_laps.loc[
+            pd.to_numeric(base_driver_laps["lap"], errors="coerce") == stop_after_lap
+        ].merge(reference, on="lap", how="inner")
+        if not anchor.empty:
+            anchor = anchor.iloc[[0]].copy()
+            anchor["delta_s"] = (
+                anchor["cumulative_time_s"] - anchor["reference_cumulative_time_s"]
+            )
+            anchor["plot_role"] = "simulation"
+            anchor["scenario_id"] = trajectory.scenario_id
+            anchor["is_simulated"] = False
+            anchor["is_faded"] = False
+            scenario_plot = pd.concat([anchor, scenario_plot], ignore_index=True, sort=False)
+        output_frames.append(scenario_plot)
+        faded_drivers.add((trajectory.driver, stop_after_lap))
+
+    output = pd.concat(output_frames, ignore_index=True, sort=False)
+    faded_anchor_frames = []
+    for driver, stop_after_lap in faded_drivers:
+        mask = (
+            (output["driver"] == driver)
+            & (output["plot_role"] == "actual")
+            & (pd.to_numeric(output["lap"], errors="coerce") > stop_after_lap)
+        )
+        output.loc[mask, "is_faded"] = True
+        anchor = output.loc[
+            (output["driver"] == driver)
+            & (output["plot_role"] == "actual")
+            & (pd.to_numeric(output["lap"], errors="coerce") == stop_after_lap)
+            & (~output["is_faded"].fillna(False).astype(bool))
+        ]
+        if not anchor.empty:
+            anchor = anchor.iloc[[0]].copy()
+            anchor["is_faded"] = True
+            faded_anchor_frames.append(anchor)
+    if faded_anchor_frames:
+        output = pd.concat([output, *faded_anchor_frames], ignore_index=True, sort=False)
+    return output.sort_values(["driver", "plot_role", "lap"], kind="mergesort").reset_index(drop=True)
+
+
+def _next_driver_stint(driver_laps: pd.DataFrame) -> int:
+    if "stint" not in driver_laps.columns:
+        return 1
+    stints = pd.to_numeric(driver_laps["stint"], errors="coerce").dropna()
+    return int(stints.max()) + 1 if not stints.empty else 1
 
 
 def default_reference_driver(laps: pd.DataFrame) -> str:
@@ -371,10 +580,21 @@ def build_tyre_event_data(plot_data: pd.DataFrame) -> pd.DataFrame:
     required = {"driver", "lap", "delta_s", "compound", "stint", "tyre_age"}
     missing = required.difference(plot_data.columns)
     if missing:
-        return pd.DataFrame(columns=["driver", "lap", "delta_s", "compound", "tyre_age_label"])
+        return _empty_tyre_event_data()
 
     events: list[pd.DataFrame] = []
-    sorted_data = plot_data.sort_values(["driver", "lap"], kind="mergesort")
+    is_simulated = (
+        plot_data["is_simulated"].fillna(False).astype(bool)
+        if "is_simulated" in plot_data.columns
+        else pd.Series(False, index=plot_data.index)
+    )
+    plot_role = (
+        plot_data["plot_role"].astype(str)
+        if "plot_role" in plot_data.columns
+        else pd.Series("actual", index=plot_data.index)
+    )
+    actual_data = plot_data.loc[~is_simulated & plot_role.ne("simulation")].copy()
+    sorted_data = actual_data.sort_values(["driver", "lap"], kind="mergesort")
     for _, driver_laps in sorted_data.groupby("driver", sort=False):
         driver_laps = driver_laps.dropna(subset=["lap", "delta_s"]).copy()
         if driver_laps.empty:
@@ -392,12 +612,57 @@ def build_tyre_event_data(plot_data: pd.DataFrame) -> pd.DataFrame:
             )
         events.append(driver_laps.loc[event_mask])
 
+    simulated_data = plot_data.loc[is_simulated].copy()
+    if not simulated_data.empty and "scenario_id" in simulated_data.columns:
+        simulated_data = simulated_data.dropna(subset=["lap", "delta_s"])
+        simulated_data = simulated_data.sort_values(
+            ["scenario_id", "driver", "lap"],
+            kind="mergesort",
+        )
+        events.append(simulated_data.groupby("scenario_id", as_index=False, sort=False).first())
+
     if not events:
-        return pd.DataFrame(columns=["driver", "lap", "delta_s", "compound", "tyre_age_label"])
+        return _empty_tyre_event_data()
 
     output = pd.concat(events, ignore_index=True)
+    output = output.dropna(subset=["lap", "delta_s"])
+    if output.empty:
+        return _empty_tyre_event_data()
     output["tyre_age_label"] = output["tyre_age"].map(_tyre_age_label)
-    return output.loc[:, ["driver", "lap", "delta_s", "compound", "tyre_age_label"]]
+    if "scenario_id" not in output.columns:
+        output["scenario_id"] = pd.NA
+    if "is_simulated" not in output.columns:
+        output["is_simulated"] = False
+    if "is_faded" not in output.columns:
+        output["is_faded"] = False
+    return output.loc[
+        :,
+        [
+            "driver",
+            "lap",
+            "delta_s",
+            "compound",
+            "tyre_age_label",
+            "scenario_id",
+            "is_simulated",
+            "is_faded",
+        ],
+    ]
+
+
+def _empty_tyre_event_data() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "driver",
+            "lap",
+            "delta_s",
+            "compound",
+            "tyre_age_label",
+            "scenario_id",
+            "is_simulated",
+            "is_faded",
+        ]
+    )
 
 
 def build_lap_delta_guide_data(

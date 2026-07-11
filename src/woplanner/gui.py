@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 import sys
 
 from .service import RacePlannerService, finite_xy
+from .strategy_model import MissingStrategyModelError
 
 COMPOUND_COLOURS = {
     "SOFT": "#e10600",
@@ -27,6 +29,8 @@ class RacePlannerWindowMixin:
         self.pit_items = []
         self.tyre_items = []
         self.guide_items = []
+        self.pit_target_items = []
+        self.pit_target = None
         self.custom_ranges = False
 
 
@@ -70,6 +74,8 @@ def main() -> int:
             self.load_button = QtWidgets.QPushButton("Load")
             self.latest_button = QtWidgets.QPushButton("Latest")
             self.export_button = QtWidgets.QPushButton("Export")
+            self.assumptions_button = QtWidgets.QPushButton("Assumptions")
+            self.clear_sims_button = QtWidgets.QPushButton("Clear sims")
             self.export_menu = QtWidgets.QMenu(self.export_button)
             self.export_file_action = self.export_menu.addAction("PNG to file")
             self.export_clipboard_action = self.export_menu.addAction("PNG to clipboard")
@@ -102,6 +108,8 @@ def main() -> int:
             controls.addWidget(self.load_button)
             controls.addWidget(self.latest_button)
             controls.addWidget(self.export_button)
+            controls.addWidget(self.assumptions_button)
+            controls.addWidget(self.clear_sims_button)
             controls.addStretch(1)
 
             range_controls = QtWidgets.QHBoxLayout()
@@ -172,6 +180,8 @@ def main() -> int:
             self.line_width.valueChanged.connect(self._redraw)
             self.normal_pit_loss.valueChanged.connect(self._update_pit_window)
             self.sc_pit_loss.valueChanged.connect(self._update_pit_window)
+            self.assumptions_button.clicked.connect(self._show_assumptions)
+            self.clear_sims_button.clicked.connect(self._clear_all_simulations)
             self.apply_range_button.clicked.connect(self._apply_custom_ranges)
             self.auto_range_button.clicked.connect(self._reset_auto_ranges)
 
@@ -182,6 +192,11 @@ def main() -> int:
             spinbox.setSingleStep(1.0)
             spinbox.setMinimumWidth(86)
             return spinbox
+
+        def keyReleaseEvent(self, event) -> None:
+            super().keyReleaseEvent(event)
+            if not self._pit_modifier_active():
+                self._clear_pit_target()
 
         def _load(self) -> None:
             session = self._load_session(
@@ -222,6 +237,7 @@ def main() -> int:
         def _redraw(self) -> None:
             if self.service.session is None or not self.reference_driver.currentText():
                 return
+            self._clear_pit_target()
             self.plot.clear()
             self.curves = {}
             self.curve_data = {}
@@ -230,14 +246,27 @@ def main() -> int:
             self.guide_items = []
             plot_data = self.service.build_plot_data(self.reference_driver.currentText())
             styles = self.service.session.drivers.set_index("driver").to_dict("index")
-            for driver, driver_data in plot_data.groupby("driver", sort=False):
+            for (driver, role, scenario_id, is_faded), driver_data in plot_data.groupby(
+                ["driver", "plot_role", "scenario_id", "is_faded"],
+                sort=False,
+                dropna=False,
+            ):
                 style = styles.get(driver, {})
                 x, y = finite_xy(driver_data, y_column="delta_s")
-                pen = self._driver_pen(driver, style)
+                pen = self._driver_pen(
+                    driver,
+                    style,
+                    role=str(role),
+                    is_faded=bool(is_faded),
+                )
                 curve = self.plot.plot(x, y, pen=pen, name=str(driver), clickable=True)
-                curve.sigClicked.connect(lambda *_, drv=driver: self._select_driver(drv))
-                self.curves[driver] = curve
-                self.curve_data[driver] = (x, y)
+                curve.sigClicked.connect(
+                    lambda _, event, drv=driver: self._curve_clicked(drv, event)
+                )
+                curve_key = (driver, str(role), str(scenario_id), bool(is_faded))
+                self.curves[curve_key] = curve
+                if str(role) == "actual":
+                    self.curve_data[driver] = (x, y)
             if not self.custom_ranges:
                 self._update_range_controls_from_data(plot_data)
             self._apply_plot_ranges()
@@ -246,36 +275,287 @@ def main() -> int:
             self._draw_tyre_markers()
             self._update_rank_lists()
 
-        def _driver_pen(self, driver: str, style: dict):
+        def _driver_pen(
+            self,
+            driver: str,
+            style: dict,
+            *,
+            role: str = "actual",
+            is_faded: bool = False,
+        ):
             base_width = self.line_width.value()
             width = base_width
+            colour = QtGui.QColor(style.get("colour", "#555555"))
             if driver == self.hover_driver:
                 width = max(width + 1.2, base_width * 1.7)
             if driver == self.selected_driver:
                 width = max(width + 2.0, base_width * 2.2)
-            pen_style = QtCore.Qt.PenStyle.SolidLine
-            if style.get("line_style") == "dash":
-                pen_style = QtCore.Qt.PenStyle.DashLine
-            return pg.mkPen(style.get("colour", "#555555"), width=width, style=pen_style)
+            pen_style = (
+                QtCore.Qt.PenStyle.DashLine
+                if style.get("line_style") == "dash"
+                else QtCore.Qt.PenStyle.SolidLine
+            )
+            if role == "simulation":
+                width = max(base_width + 1.0, 3.0)
+                pen_style = QtCore.Qt.PenStyle.CustomDashLine
+            if is_faded:
+                width = max(base_width * 0.45, 1.0)
+                colour.setAlpha(128)
+            pen = pg.mkPen(colour, width=width, style=pen_style)
+            if role == "simulation":
+                pen.setDashPattern(
+                    [1.0, 3.0, 4.0, 3.0]
+                    if style.get("line_style") == "dash"
+                    else [1.0, 2.0, 8.0, 2.0]
+                )
+                pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+            return pen
 
         def _select_driver(self, driver: str) -> None:
             self.selected_driver = driver
             self._update_selection_visuals()
 
+        def _curve_clicked(self, driver: str, event) -> None:
+            if (
+                event.button() == QtCore.Qt.MouseButton.LeftButton
+                and self._pit_modifier_active()
+            ):
+                self.selected_driver = driver
+                self._update_selection_visuals()
+                self._schedule_strategy_editor(event.scenePos(), preferred_driver=driver)
+                event.accept()
+                return
+            self._select_driver(driver)
+
         def _plot_clicked(self, event) -> None:
+            if (
+                event.button() == QtCore.Qt.MouseButton.LeftButton
+                and self._pit_modifier_active()
+                and not event.isAccepted()
+            ):
+                self._schedule_strategy_editor(event.scenePos())
+                event.accept()
+                return
             if event.button() == QtCore.Qt.MouseButton.LeftButton and not event.isAccepted():
                 self.selected_driver = None
+                self._clear_pit_target()
                 self._update_selection_visuals()
+
+        def _schedule_strategy_editor(
+            self,
+            scene_pos,
+            *,
+            preferred_driver: str | None = None,
+        ) -> None:
+            copied_pos = QtCore.QPointF(float(scene_pos.x()), float(scene_pos.y()))
+            QtCore.QTimer.singleShot(
+                0,
+                lambda pos=copied_pos, drv=preferred_driver: self._open_strategy_editor_from_position(
+                    pos,
+                    preferred_driver=drv,
+                ),
+            )
+
+        def _open_strategy_editor_from_position(
+            self,
+            scene_pos,
+            *,
+            preferred_driver: str | None = None,
+        ) -> None:
+            if self.service.session is None:
+                return
+            point = self.plot.getPlotItem().vb.mapSceneToView(scene_pos)
+            driver = preferred_driver or self.hover_driver or self.selected_driver
+            if not driver:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Strategy simulation",
+                    "Hover a driver curve while holding Command or Ctrl before creating a simulation.",
+                )
+                return
+            stop_after_lap = self._stop_after_lap_from_x(driver, float(point.x()))
+            if stop_after_lap is None:
+                return
+            self.selected_driver = driver
+            self._update_selection_visuals()
+            self._open_strategy_editor(driver, stop_after_lap)
+
+        def _open_strategy_editor(self, driver: str, stop_after_lap: int) -> None:
+            dialog = QtWidgets.QDialog(self)
+            dialog.setWindowTitle("Pit stop simulation")
+            layout = QtWidgets.QFormLayout(dialog)
+            applied = False
+
+            driver_label = QtWidgets.QLabel(driver)
+            stop_label = QtWidgets.QLabel(str(stop_after_lap))
+            compound_buttons = QtWidgets.QButtonGroup(dialog)
+            compound_row = QtWidgets.QHBoxLayout()
+            compound_map = {
+                "S": "SOFT",
+                "M": "MEDIUM",
+                "H": "HARD",
+                "I": "INTERMEDIATE",
+                "W": "WET",
+            }
+            for label, compound in compound_map.items():
+                button = QtWidgets.QPushButton(label)
+                button.setCheckable(True)
+                button.setProperty("compound", compound)
+                if compound == "HARD":
+                    button.setChecked(True)
+                colour = COMPOUND_COLOURS.get(compound, "#777777")
+                button.setStyleSheet(
+                    "QPushButton {"
+                    f"color: {colour}; border: 2px solid {colour};"
+                    "border-radius: 14px; min-width: 28px; min-height: 28px;"
+                    "background: transparent; font-weight: 700;"
+                    "}"
+                    "QPushButton:checked { background: rgba(0, 0, 0, 25); }"
+                )
+                compound_buttons.addButton(button)
+                compound_row.addWidget(button)
+            tyre_age = QtWidgets.QSpinBox()
+            tyre_age.setRange(0, 100)
+            tyre_age.setValue(0)
+            pit_loss = QtWidgets.QDoubleSpinBox()
+            pit_loss.setRange(0.0, 120.0)
+            pit_loss.setDecimals(1)
+            pit_loss.setSingleStep(0.5)
+            pit_loss.setSuffix(" s")
+            pit_loss.setValue(self.normal_pit_loss.value())
+
+            layout.addRow("Driver", driver_label)
+            layout.addRow("Stop after lap", stop_label)
+            layout.addRow("Compound", compound_row)
+            layout.addRow("Tyre age", tyre_age)
+            layout.addRow("Pit loss", pit_loss)
+
+            buttons = QtWidgets.QDialogButtonBox(
+                QtWidgets.QDialogButtonBox.StandardButton.Apply
+                | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+            )
+            layout.addRow(buttons)
+            buttons.rejected.connect(dialog.reject)
+
+            def apply() -> None:
+                nonlocal applied
+                checked = compound_buttons.checkedButton()
+                compound = checked.property("compound") if checked is not None else "HARD"
+                try:
+                    self.service.create_pit_stop_simulation(
+                        driver=driver,
+                        stop_after_lap=stop_after_lap,
+                        compound=str(compound),
+                        initial_tyre_age=tyre_age.value(),
+                        pit_loss_s=pit_loss.value(),
+                    )
+                except MissingStrategyModelError as exc:
+                    QtWidgets.QMessageBox.critical(self, "Strategy model missing", str(exc))
+                    return
+                except Exception as exc:
+                    QtWidgets.QMessageBox.warning(self, "Strategy simulation", str(exc))
+                    return
+                applied = True
+                dialog.accept()
+
+            buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Apply).clicked.connect(apply)
+            dialog.exec()
+            if applied:
+                QtCore.QTimer.singleShot(0, self._redraw)
 
         def _plot_mouse_moved(self, position) -> None:
             if not self.curve_data:
                 return
             if not self.plot.sceneBoundingRect().contains(position):
                 self._set_hover_driver(None)
+                self._clear_pit_target()
                 return
             point = self.plot.getPlotItem().vb.mapSceneToView(position)
             driver = self._nearest_driver(point.x(), point.y())
             self._set_hover_driver(driver)
+            self._update_pit_target(position, driver)
+
+        def _pit_modifier_active(self) -> bool:
+            modifiers = QtWidgets.QApplication.keyboardModifiers()
+            return bool(
+                modifiers
+                & (
+                    QtCore.Qt.KeyboardModifier.ControlModifier
+                    | QtCore.Qt.KeyboardModifier.MetaModifier
+                )
+            )
+
+        def _update_pit_target(self, scene_pos, driver: str | None) -> None:
+            if not self._pit_modifier_active() or self.service.session is None:
+                self._clear_pit_target()
+                return
+            point = self.plot.getPlotItem().vb.mapSceneToView(scene_pos)
+            target_driver = driver or self.selected_driver
+            if not target_driver:
+                self._clear_pit_target()
+                return
+            stop_after_lap = self._stop_after_lap_from_x(target_driver, float(point.x()))
+            if stop_after_lap is None:
+                self._clear_pit_target()
+                return
+            target = (target_driver, stop_after_lap)
+            if target == self.pit_target:
+                return
+            self._draw_pit_target(target_driver, stop_after_lap)
+
+        def _draw_pit_target(self, driver: str, stop_after_lap: int) -> None:
+            self._clear_pit_target()
+            self.pit_target = (driver, stop_after_lap)
+            x_position = stop_after_lap + 0.5
+            y_min, y_max = self._ordered_range(self.y_min_input, self.y_max_input)
+            x_min, x_max = self._ordered_range(self.x_min_input, self.x_max_input)
+            top_y = max(y_min, y_max)
+            label_x = min(max(x_position, x_min), x_max)
+
+            pen = pg.mkPen("#111111", width=1.5, style=QtCore.Qt.PenStyle.DashLine)
+            line = pg.InfiniteLine(pos=x_position, angle=90, pen=pen, movable=False)
+            line.setZValue(40)
+            self.plot.addItem(line)
+
+            label = pg.TextItem(
+                text=f"{driver}  pit after lap {stop_after_lap}",
+                color="#111111",
+                anchor=(0.5, 0.0),
+                fill=QtGui.QBrush(QtGui.QColor(255, 255, 255, 220)),
+                border=pg.mkPen("#111111", width=1.0),
+            )
+            label.setFont(self._bold_font(13))
+            label.setPos(label_x, top_y)
+            label.setZValue(41)
+            self.plot.addItem(label)
+            self.pit_target_items = [line, label]
+
+        def _clear_pit_target(self) -> None:
+            for item in self.pit_target_items:
+                try:
+                    self.plot.removeItem(item)
+                except Exception:
+                    pass
+            self.pit_target_items = []
+            self.pit_target = None
+
+        def _stop_after_lap_from_x(self, driver: str, x_position: float) -> int | None:
+            if self.service.session is None:
+                return None
+            driver_laps = self.service.session.laps.loc[
+                self.service.session.laps["driver"] == driver,
+                "lap",
+            ]
+            laps = driver_laps.dropna().astype(int)
+            if laps.empty:
+                return None
+            stop_after_lap = int(math.floor(x_position))
+            first_lap = int(laps.min())
+            final_lap = int(laps.max())
+            stop_after_lap = min(max(stop_after_lap, first_lap), final_lap - 1)
+            if stop_after_lap < first_lap or stop_after_lap >= final_lap:
+                return None
+            return stop_after_lap
 
         def _nearest_driver(self, x_pos: float, y_pos: float) -> str | None:
             view_range = self.plot.getPlotItem().vb.viewRange()
@@ -383,8 +663,15 @@ def main() -> int:
             if self.service.session is None:
                 return
             styles = self.service.session.drivers.set_index("driver").to_dict("index")
-            for driver, curve in self.curves.items():
-                curve.setPen(self._driver_pen(driver, styles.get(driver, {})))
+            for (driver, role, _, is_faded), curve in self.curves.items():
+                curve.setPen(
+                    self._driver_pen(
+                        driver,
+                        styles.get(driver, {}),
+                        role=role,
+                        is_faded=is_faded,
+                    )
+                )
 
         def _update_pit_window(self) -> None:
             for item in self.pit_items:
@@ -480,25 +767,50 @@ def main() -> int:
             spots = []
             for _, row in tyre_events.iterrows():
                 compound = str(row["compound"]).upper()
-                colour = COMPOUND_COLOURS.get(compound, "#d9d9d9")
+                colour = QtGui.QColor(COMPOUND_COLOURS.get(compound, "#d9d9d9"))
+                if bool(row.get("is_faded", False)):
+                    colour.setAlpha(128)
+                simulated = bool(row.get("is_simulated", False))
+                scenario_id = row.get("scenario_id")
+                scenario_id = None if not self._has_value(scenario_id) else str(scenario_id)
+                marker_data = {
+                    "scenario_id": scenario_id,
+                    "driver": str(row.get("driver")),
+                    "stop_after_lap": int(row["lap"]) - 1,
+                }
                 spots.append(
                     {
                         "pos": (float(row["lap"]), float(row["delta_s"])),
                         "symbol": "o",
                         "size": TYRE_MARKER_SIZE,
                         "brush": pg.mkBrush(0, 0, 0, 0),
-                        "pen": pg.mkPen(colour, width=2.0),
+                        "pen": pg.mkPen(
+                            colour,
+                            width=3.0,
+                            style=(
+                                QtCore.Qt.PenStyle.DotLine
+                                if simulated
+                                else QtCore.Qt.PenStyle.SolidLine
+                            ),
+                        ),
+                        "data": marker_data,
                     }
                 )
             marker_layer = pg.ScatterPlotItem(spots=spots, pxMode=True)
             marker_layer.setZValue(30)
+            marker_layer.sigClicked.connect(self._tyre_marker_clicked)
             self.plot.addItem(marker_layer)
             self.tyre_items.append(marker_layer)
 
             for _, row in tyre_events.iterrows():
+                text_colour = QtGui.QColor(
+                    COMPOUND_COLOURS.get(str(row["compound"]).upper(), "#555555")
+                )
+                if bool(row.get("is_faded", False)):
+                    text_colour.setAlpha(128)
                 text = pg.TextItem(
                     text=str(row["tyre_age_label"]),
-                    color=COMPOUND_COLOURS.get(str(row["compound"]).upper(), "#555555"),
+                    color=text_colour,
                     anchor=(0.5, 0.5),
                 )
                 text.setFont(self._bold_font(TYRE_FONT_POINT_SIZE))
@@ -506,6 +818,54 @@ def main() -> int:
                 text.setZValue(31)
                 self.plot.addItem(text)
                 self.tyre_items.append(text)
+
+        def _tyre_marker_clicked(self, _plot, points) -> None:
+            if not points:
+                return
+            data = points[0].data() or {}
+            data = dict(data)
+            QtCore.QTimer.singleShot(0, lambda payload=data: self._handle_tyre_marker_clicked(payload))
+
+        def _handle_tyre_marker_clicked(self, data: dict) -> None:
+            scenario_id = data.get("scenario_id")
+            if not self._has_value(scenario_id):
+                return
+            menu = QtWidgets.QMenu(self)
+            update_action = menu.addAction("Update simulation")
+            delete_action = menu.addAction("Delete simulation")
+            action = menu.exec(QtGui.QCursor.pos())
+            if action == update_action:
+                self._open_strategy_editor(str(data.get("driver")), int(data.get("stop_after_lap")))
+            elif action == delete_action:
+                self.service.clear_simulation(str(scenario_id))
+                QtCore.QTimer.singleShot(0, self._redraw)
+
+        def _clear_all_simulations(self) -> None:
+            self.service.clear_all_simulations()
+            self._redraw()
+
+        def _show_assumptions(self) -> None:
+            scenarios = self.service.scenarios.active_scenarios()
+            if not scenarios:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Strategy assumptions",
+                    "No active simulations.",
+                )
+                return
+            rows = [
+                (
+                    f"{scenario.driver}: stop after lap {scenario.stop_after_lap}, "
+                    f"{scenario.compound} age {scenario.initial_tyre_age}, "
+                    f"pit loss {scenario.pit_loss_s:.1f} s"
+                )
+                for scenario in scenarios
+            ]
+            QtWidgets.QMessageBox.information(
+                self,
+                "Strategy assumptions",
+                "\n".join(rows),
+            )
 
         def _update_rank_lists(self) -> None:
             if self.service.session is None:
@@ -542,6 +902,28 @@ def main() -> int:
             text.setFont(self._rank_font(str(row["driver"])))
             text.setStyleSheet(f"color: {row.get('colour', '#333333')};")
             layout.addWidget(text)
+            if rank_column == "start_rank":
+                colour = str(row.get("colour", "#333333"))
+                line_style = str(row.get("line_style", "solid"))
+                layout.addWidget(
+                    self._line_sample_label(
+                        colour,
+                        line_style=line_style,
+                        role="actual",
+                    )
+                )
+                if self._driver_has_simulation(str(row["driver"])):
+                    comma = QtWidgets.QLabel(",")
+                    comma.setFont(self._font(max(RANK_FONT_POINT_SIZE - 4, 10)))
+                    comma.setStyleSheet("color: #666666;")
+                    layout.addWidget(comma)
+                    layout.addWidget(
+                        self._line_sample_label(
+                            colour,
+                            line_style=line_style,
+                            role="simulation",
+                        )
+                    )
             layout.addStretch(1)
 
             compound = row.get(f"{tyre_prefix}_tyre_compound")
@@ -558,6 +940,49 @@ def main() -> int:
             if driver in {self.selected_driver, self.hover_driver}:
                 font.setBold(True)
             return font
+
+        def _driver_has_simulation(self, driver: str) -> bool:
+            return any(
+                scenario.driver == driver for scenario in self.service.scenarios.active_scenarios()
+            )
+
+        def _line_sample_label(
+            self,
+            colour: str,
+            *,
+            line_style: str,
+            role: str,
+        ) -> QtWidgets.QLabel:
+            width = 28
+            height = 12
+            pixmap = QtGui.QPixmap(width, height)
+            pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+            painter = QtGui.QPainter(pixmap)
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+            if role == "simulation":
+                pen_style = QtCore.Qt.PenStyle.CustomDashLine
+            else:
+                pen_style = (
+                    QtCore.Qt.PenStyle.DashLine
+                    if line_style == "dash"
+                    else QtCore.Qt.PenStyle.SolidLine
+                )
+            pen = QtGui.QPen(QtGui.QColor(colour), 2.4, pen_style)
+            if role == "simulation":
+                pen.setDashPattern(
+                    [1.0, 3.0, 4.0, 3.0]
+                    if line_style == "dash"
+                    else [1.0, 2.0, 8.0, 2.0]
+                )
+            pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.drawLine(2, height // 2, width - 2, height // 2)
+            painter.end()
+
+            label = QtWidgets.QLabel()
+            label.setPixmap(pixmap)
+            label.setFixedSize(width, height)
+            return label
 
         def _tyre_badge(self, label: str, compound) -> QtWidgets.QLabel:
             colour = COMPOUND_COLOURS.get(str(compound).upper(), "#777777")
