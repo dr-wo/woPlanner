@@ -22,19 +22,22 @@ right.
 
 `woPlanner` can create strategy what-if simulations for a loaded race. This is
 still a projection, not a full race simulator: it does not model overtaking,
-lapping, or traffic. The simulated future is kept in the observed race time
-domain by applying modelled strategy changes on top of the observed race
+lapping, or traffic. By default, simulated futures are kept in the observed race
+time domain by applying modelled strategy changes on top of the observed race
 scaffold.
 
 Before using simulation, run `woStrategy`'s `race_performance_review` for the
-same race/session and make sure the generated CSV summaries are available under:
+same race/session and make sure the generated CSV summaries are available under
+the shared race-performance-review cache:
 
 ```text
-dr-wo/cache/race_performance_review/
+cache/race_performance_review/
 ```
 
-The planner deliberately reads from that shared `dr-wo/cache` location. It does
-not fall back to `woStrategy/cache`.
+`woData` owns cache path conventions for normalized planner artifacts. With the
+usual sibling-checkout workflow from the workspace root, generated planner caches
+are written under `woData/`, not inside the `woPlanner` or `woStrategy` source
+trees. `WODATA_ROOT` can override that location.
 
 Required source files are named like:
 
@@ -44,6 +47,8 @@ race_performance_{year}_{round}_{session}_summary_fuel_rate.csv
 race_performance_{year}_{round}_{session}_summary_track_rate.csv
 race_performance_{year}_{round}_{session}_summary_compound_delta.csv
 race_performance_{year}_{round}_{session}_summary_team_compound_degradation.csv
+race_performance_{year}_{round}_{session}_sample_parameters.csv
+race_performance_{year}_{round}_{session}_pit_loss_summary.csv
 race_performance_{year}_{round}_{session}_clean_laps.csv
 ```
 
@@ -79,27 +84,33 @@ reference.
 
 For a simulated driver A, two lap-time modes are available.
 
-**Pure sim - model lap times** is the default. Future laps use modelled what-if
-lap time directly:
+**Real-race adjusted - add observed issues** is the default. It calculates the
+modelled what-if-vs-real-strategy tyre/strategy delta, preserves the observed
+race residual for matching race conditions, then plots the resulting cumulative
+time against the selected reference:
 
 ```text
-sim_real_domain_lap_time_A
-  = modelled_what_if_lap_time_A
-```
-
-**Real-race adjusted - add observed issues** keeps the old behaviour on all
-future laps. It calculates the modelled what-if-vs-real-strategy tyre delta,
-adds that through the observed race residual, then plots the resulting
-cumulative time against the selected reference:
-
-```text
-race_domain_residual_A
-  = observed_lap_time_A
-    - modelled_observed_strategy_lap_time_A
+race_domain_residual_A[sector]
+  = observed_sector_time_A[sector]
+    - modelled_observed_strategy_sector_time_A[sector]
 
 sim_real_domain_lap_time_A
   = modelled_what_if_lap_time_A
     + race_domain_residual_A
+```
+
+For SC/VSC timing, residual carry-over is sector-aware. `woStrategy` exports
+physical per-driver sector status, while `woPlanner` aligns the plotted status to
+the race/leader lap-sector timeline. If a driver's physical sector was under
+SC/VSC but that plotted sector is not, the SC/VSC residual is suppressed so a
+backmarker does not receive a slowdown before the plotted SC/VSC period begins.
+
+**Pure sim - model lap times** uses modelled what-if lap time directly and drops
+observed race residuals:
+
+```text
+sim_real_domain_lap_time_A
+  = modelled_what_if_lap_time_A
 ```
 
 The simulated cumulative time connects to the observed cumulative time at the
@@ -118,13 +129,17 @@ baseline, but is not added to the simulated no-pit strategy.
 
 ### SC/VSC and pit loss
 
-Track status is classified at lap level:
+Track status is classified at sector level when the planner lap cache includes
+`Sector1TrackStatus`, `Sector2TrackStatus`, and `Sector3TrackStatus`:
 
 - Safety Car: light yellow plot band;
 - Virtual Safety Car: light orange plot band.
 
-The same status flag is used to choose normal versus SC/VSC pit-loss defaults
-for actual pit-loss removal and for the initial value in the what-if pit dialog.
+The same status classification is used to choose normal versus SC/VSC pit-loss
+defaults for actual pit-loss removal and for the initial value in the what-if
+pit dialog. When `race_performance_review` has produced `pit_loss_summary`, the
+planner uses the median woStrategy split for pit-in S3 loss and pit-out S1 loss.
+Manual pit-loss settings remain the fallback.
 
 ### Visual conventions
 

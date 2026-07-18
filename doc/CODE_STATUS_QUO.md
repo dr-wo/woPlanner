@@ -1,6 +1,6 @@
 # woPlanner Code Status Quo
 
-Last reviewed: 2026-07-11
+Last reviewed: 2026-07-18
 
 This document is a compact map of the current `woPlanner` package so future
 coding agents can orient quickly without rereading every module. It describes
@@ -21,8 +21,8 @@ The simulation is still intentionally not a full race simulator:
 - no traffic model
 - future strategy effects come from `woStrategy` race-performance-review cache
   summaries
-- the observed race remains the race-event scaffold, so future SC/VSC and
-  other lap-wide slowdowns remain in the displayed trajectory
+- real-race adjusted mode keeps observed residuals only where they belong on the
+  plotted lap-sector timeline
 - the original real-data trajectory remains visible after the first simulated
   edit, faded and thinner, while the simulated trajectory overlays the main
   cumulative delta plot
@@ -96,7 +96,7 @@ owner of cache path conventions.
 Strategy simulation model inputs come from:
 
 ```text
-<workspace-root>/cache/race_performance_review/
+cache/race_performance_review/
 ```
 
 Required files use this prefix:
@@ -112,6 +112,8 @@ Required suffixes:
 - `summary_track_rate`
 - `summary_compound_delta`
 - `summary_team_compound_degradation`
+- `sample_parameters`
+- `pit_loss_summary`
 - `clean_laps`
 
 Important discipline:
@@ -121,7 +123,13 @@ Important discipline:
   generate the outputs under `dr-wo/cache/race_performance_review`.
 - `WoStrategyRaceModelAdapter` normalizes those source summaries into a
   `woData` cache path under namespace `woplanner`, dataset `strategy_model`,
-  schema `schema_v1`.
+  schema `schema_v3`.
+- `wostrategy.load_race_laps_for_planner` writes planner lap caches through
+  `woData.get_cache_path` under namespace `wostrategy`, dataset
+  `planner_race_laps`, schema `schema_v2`.
+- In the usual sibling-checkout workflow, run tools from the workspace root so
+  the default `woData` root resolves to `<workspace-root>/woData`. Passing
+  `data_root` explicitly redirects generated caches to that path.
 - The normalized cache is reused only when it is newer than all source summary
   files.
 
@@ -138,7 +146,9 @@ It reads:
 - scalar fuel-rate and track-rate medians
 - compound delta medians
 - team-compound degradation medians
-- clean-lap references for lap, fuel proxy, and tyre age
+- sample parameter references for fuel, race lap, and tyre age
+- clean-lap fuel proxy values
+- pit-loss split summaries
 
 If baseline pace is team-level, it expands team rows to drivers using
 `clean_laps` driver/team pairs.
@@ -161,12 +171,14 @@ Prediction formula:
 baseline pace
 + compound delta
 + team-compound degradation * (tyre age - tyre age reference)
-+ fuel rate * (fuel reference - lap)
++ fuel rate * (fuel proxy remaining - fuel reference)
 + track rate * (lap - reference lap)
 ```
 
-The service adds modelled pit-loss seconds on the first lap after a pit when
-building baseline and what-if strategy plans.
+The service applies pit loss at sector level: pit-in loss on the previous lap's
+S3 and pit-out loss on the first new-stint lap's S1. If `pit_loss_summary` is
+available, the default split comes from woStrategy median S3/S1 pit-loss
+estimates; otherwise the manual total is split evenly.
 
 ## Service Layer
 
@@ -222,18 +234,9 @@ The main plot y-axis remains cumulative time delta to the selected reference
 driver. The displayed simulated trajectory is controlled by each scenario's
 lap-time mode.
 
-Pure sim - model lap times is the default. It uses the modelled what-if sector
-time directly:
-
-```text
-sim_display_sector_time_A[j]
-    = modelled_what_if_sector_time_A[j]
-```
-
-Real-race adjusted - add observed issues preserves the old behaviour on every
-segment:
-
-For each future segment after the first active edit:
+Real-race adjusted - add observed issues is the default. For each future segment
+after the first active edit, it preserves observed race-domain residuals on
+matching plotted race-event sectors:
 
 ```text
 race_domain_residual_A[j]
@@ -243,6 +246,14 @@ race_domain_residual_A[j]
 sim_display_sector_time_A[j]
     = modelled_what_if_sector_time_A[j]
       + race_domain_residual_A[j]
+```
+
+Pure sim - model lap times uses the modelled what-if sector time directly and
+drops observed residuals:
+
+```text
+sim_display_sector_time_A[j]
+    = modelled_what_if_sector_time_A[j]
 ```
 
 Then cumulative time is rebuilt from the observed cumulative time at the edit
@@ -264,9 +275,10 @@ recalculated against the simulated reference trajectory.
 
 In pure simulation, ordinary observed driver errors or damage do not bleed into
 the simulated line. In real-race adjusted mode, observed race-domain residuals
-are preserved throughout. Actual future pit stops do not leak into a no-pit
-simulation because their modelled pit-loss effect is included in the
-observed-strategy baseline and removed by the model delta.
+are preserved except where a driver's physical SC/VSC-affected sector does not
+match the plotted race/leader sector status. Actual future pit stops do not leak
+into a no-pit simulation because their modelled pit-loss effect is included in
+the observed-strategy baseline and removed by the model delta.
 
 The Strategy deltas dialog plots simulated cumulative time minus the selected
 reference cumulative time. Same-driver model delta is retained in separate
@@ -274,18 +286,27 @@ columns only as diagnostic detail.
 
 ### Pit Loss And Race Events
 
-`normalize` preserves `track_status` where available. The service classifies
-status values as normal, VSC, or SC. Track-status events are exposed to the GUI
-for background bands:
+`normalize` preserves lap-level `track_status` and sector-level
+`track_status_s1`, `track_status_s2`, and `track_status_s3` where available.
+Planner lap cache schema `schema_v2` provides sector status as
+`Sector1TrackStatus`, `Sector2TrackStatus`, and `Sector3TrackStatus`.
+
+The raw sector status describes the driver's physical sector interval. woPlanner
+also aligns displayed sector status to the leader/race lap-sector timeline, so
+the plot and the real-race residual gate use the same x-axis definition.
+
+The service classifies status values as normal, VSC, or SC. Track-status events
+are exposed to the GUI for sector-width background bands:
 
 - SC: light yellow
 - VSC: light orange
 
 Pit-loss source priority:
 
-1. known or estimated real pit loss if available
-2. SC/VSC pit-loss default when track status applies
-3. normal pit-loss default
+1. woStrategy `pit_loss_summary` median split for the applicable status
+2. known or estimated real pit loss if available
+3. SC/VSC pit-loss default when track status applies
+4. normal pit-loss default
 
 If track status is unavailable where it is needed, the normal default is used
 and the simulation records a warning.
@@ -334,6 +355,7 @@ Simulation interaction:
 - The target pit lap is highlighted as "pit after lap N".
 - Click while holding the modifier to open the pit-stop simulation dialog.
 - Choose compound, tyre age, and pit-loss seconds.
+- Choose lap-time mode; new scenarios default to real-race adjusted.
 - Applying on an already simulated driver adds or replaces an edit inside that
   driver's active scenario and rebuilds the full simulated future.
 - Right-click an actual solid tyre marker to remove that real pit from the
@@ -363,12 +385,14 @@ Visual conventions:
 - Faded tyre labels use lower alpha for both ring and text.
 - The Start rank column shows compact real line samples and, when a driver has
   an active simulation, a comma followed by the simulated line sample.
+- Exported PNGs and clipboard images hide transient hover/pit-target overlays
+  during the grab, then restore the on-screen plot state.
 
 ## Tests
 
 `tests/test_service.py` covers:
 
-- lap normalization, including `track_status`
+- lap normalization, including lap and sector `track_status`
 - reference-delta plot data and simulated reference recalculation
 - pit-window guide data
 - SC/VSC event extraction
@@ -380,6 +404,7 @@ Visual conventions:
 - scenario creation without mutating the base session
 - multi-edit scenario rebuilds
 - observed race scaffold preservation on SC/VSC laps
+- sector-level SC/VSC residual suppression against the plotted race status
 - model-delta and residual-based simulated display construction
 - future real pit removal from the displayed simulation
 - dedicated `remove_observed_pit` edits and restore behavior
