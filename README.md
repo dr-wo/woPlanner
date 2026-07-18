@@ -53,7 +53,7 @@ race_performance_{year}_{round}_{session}_clean_laps.csv
 2. Hold Command on macOS or Ctrl on Windows/Linux while hovering a driver line.
 3. The plot highlights the target as “pit after lap N”.
 4. Click while still holding the modifier.
-5. Choose compound, starting tyre age, pit-loss seconds, and comparison mode.
+5. Choose compound, starting tyre age, pit-loss seconds, and lap-time mode.
 6. Apply the simulation.
 
 Each driver has one active scenario containing ordered strategy edits. Adding a
@@ -65,17 +65,32 @@ Clicking tyre markers opens additional actions:
 
 - simulated tyre marker: update the edit, inspect strategy deltas, or delete the
   edit;
-- actual tyre marker: remove that real pit from the simulated strategy;
+- actual tyre marker: remove that real pit from the simulated strategy after
+  confirming pit-loss estimate and lap-time mode;
 - removed actual pit marker: edit the removed pit-loss estimate, restore the
   real pit, delete the edit, or inspect strategy deltas.
 
-Use **Strategy deltas** to inspect the lap-level detail table and cumulative
-strategy-delta chart. The main plot remains the cumulative delta plot against
-the selected reference driver.
+Use **Strategy deltas** to inspect the sector-level detail table and simulated
+delta-to-reference chart. Same-driver model deltas remain in the table for
+debugging, but the charted cumulative delta is relative to the selected
+reference.
 
 ### Simulation algorithm
 
-For a simulated driver A, future laps are built from:
+For a simulated driver A, two lap-time modes are available.
+
+**Pure sim - model lap times** is the default. Future laps use modelled what-if
+lap time directly:
+
+```text
+sim_real_domain_lap_time_A
+  = modelled_what_if_lap_time_A
+```
+
+**Real-race adjusted - add observed issues** keeps the old behaviour on all
+future laps. It calculates the modelled what-if-vs-real-strategy tyre delta,
+adds that through the observed race residual, then plots the resulting
+cumulative time against the selected reference:
 
 ```text
 race_domain_residual_A

@@ -211,7 +211,7 @@ earliest active edit:
 observed race
 + ordered strategy edits
 + modelled strategy delta
-+ observed race scaffold
++ selected projection mode
 ```
 
 The plotted line is never patched incrementally.
@@ -219,17 +219,29 @@ The plotted line is never patched incrementally.
 ### Simulation Display Algorithm
 
 The main plot y-axis remains cumulative time delta to the selected reference
-driver. The displayed simulated trajectory is built in observed race-time space.
+driver. The displayed simulated trajectory is controlled by each scenario's
+lap-time mode.
 
-For each future lap after the first active edit:
+Pure sim - model lap times is the default. It uses the modelled what-if sector
+time directly:
+
+```text
+sim_display_sector_time_A[j]
+    = modelled_what_if_sector_time_A[j]
+```
+
+Real-race adjusted - add observed issues preserves the old behaviour on every
+segment:
+
+For each future segment after the first active edit:
 
 ```text
 race_domain_residual_A[j]
-    = observed_lap_time_A[j]
-      - modelled_observed_strategy_lap_time_A[j]
+    = observed_sector_time_A[j]
+      - modelled_observed_strategy_sector_time_A[j]
 
-sim_real_domain_lap_time_A[j]
-    = modelled_what_if_lap_time_A[j]
+sim_display_sector_time_A[j]
+    = modelled_what_if_sector_time_A[j]
       + race_domain_residual_A[j]
 ```
 
@@ -250,10 +262,15 @@ delta_to_reference_s
 If the selected reference driver has an active simulation, all driver deltas are
 recalculated against the simulated reference trajectory.
 
-This means SC/VSC/race-wide slowdowns stay in the main simulated line because
-the observed lap time is preserved through the residual. Actual future pit stops
-do not leak into a no-pit simulation because their modelled pit-loss effect is
-included in the observed-strategy baseline and removed by the model delta.
+In pure simulation, ordinary observed driver errors or damage do not bleed into
+the simulated line. In real-race adjusted mode, observed race-domain residuals
+are preserved throughout. Actual future pit stops do not leak into a no-pit
+simulation because their modelled pit-loss effect is included in the
+observed-strategy baseline and removed by the model delta.
+
+The Strategy deltas dialog plots simulated cumulative time minus the selected
+reference cumulative time. Same-driver model delta is retained in separate
+columns only as diagnostic detail.
 
 ### Pit Loss And Race Events
 

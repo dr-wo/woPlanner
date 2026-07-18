@@ -6,9 +6,11 @@ import pandas as pd
 
 COMPARISON_MODE_MODELLED_REAL_STRATEGY = "modelled_real_strategy"
 COMPARISON_MODE_OBSERVED_REAL_DATA = "observed_real_data"
+COMPARISON_MODE_PURE_SIM = "pure_sim"
 
 COMPARISON_MODE_LABELS = {
-    COMPARISON_MODE_MODELLED_REAL_STRATEGY: "Modelled real strategy",
+    COMPARISON_MODE_PURE_SIM: "Pure sim - model lap times",
+    COMPARISON_MODE_MODELLED_REAL_STRATEGY: "Real-race adjusted - add observed issues",
     COMPARISON_MODE_OBSERVED_REAL_DATA: "Observed real data",
 }
 
@@ -31,6 +33,8 @@ class StrategyEdit:
     compound: str | None
     initial_tyre_age: int | None
     pit_loss_s: float | None
+    pit_in_loss_s: float | None = None
+    pit_out_loss_s: float | None = None
     pit_loss_source: str | None = None
 
 
@@ -66,6 +70,8 @@ class PlannedPitStop:
     stop_after_lap: int
     first_lap_after_stop: int
     pit_loss_s: float
+    pit_in_loss_s: float | None = None
+    pit_out_loss_s: float | None = None
 
 
 @dataclass

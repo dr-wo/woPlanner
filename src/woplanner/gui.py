@@ -4,13 +4,19 @@ import math
 import sys
 
 import numpy as np
+import pandas as pd
 
 from .model import (
     COMPARISON_MODE_LABELS,
     COMPARISON_MODE_MODELLED_REAL_STRATEGY,
-    COMPARISON_MODE_OBSERVED_REAL_DATA,
+    COMPARISON_MODE_PURE_SIM,
 )
-from .service import RacePlannerService, finite_xy
+from .service import (
+    REFERENCE_MODE_AVERAGED_PACE,
+    REFERENCE_MODE_LABELS,
+    RacePlannerService,
+    finite_xy,
+)
 from .strategy_model import MissingStrategyModelError
 
 COMPOUND_COLOURS = {
@@ -24,8 +30,8 @@ CONTROL_FONT_POINT_SIZE = 12
 RANK_FONT_POINT_SIZE = 18
 TYRE_MARKER_SIZE = 22
 TYRE_FONT_POINT_SIZE = RANK_FONT_POINT_SIZE
-SC_BAND_COLOUR = "#fff4a3"
-VSC_BAND_COLOUR = "#ffd6a3"
+SC_BAND_COLOUR = "#ffbf00"
+VSC_BAND_COLOUR = "#ffeb3b"
 
 
 class RacePlannerWindowMixin:
@@ -35,6 +41,7 @@ class RacePlannerWindowMixin:
         self.curve_data = {}
         self.selected_driver = None
         self.hover_driver = None
+        self.hover_label = None
         self.pit_items = []
         self.tyre_items = []
         self.guide_items = []
@@ -92,6 +99,12 @@ def main() -> int:
             self.export_clipboard_action = self.export_menu.addAction("PNG to clipboard")
             self.export_button.setMenu(self.export_menu)
             self.reference_driver = QtWidgets.QComboBox()
+            self.reference_mode = QtWidgets.QComboBox()
+            for mode, label in REFERENCE_MODE_LABELS.items():
+                self.reference_mode.addItem(label, mode)
+            averaged_index = self.reference_mode.findData(REFERENCE_MODE_AVERAGED_PACE)
+            if averaged_index >= 0:
+                self.reference_mode.setCurrentIndex(averaged_index)
             self.line_width = QtWidgets.QDoubleSpinBox()
             self.line_width.setRange(0.5, 8.0)
             self.line_width.setSingleStep(0.5)
@@ -110,6 +123,7 @@ def main() -> int:
                 ("Round", self.round_input),
                 ("Session", self.session_input),
                 ("Reference", self.reference_driver),
+                ("Mode", self.reference_mode),
                 ("Width", self.line_width),
                 ("Pit", self.normal_pit_loss),
                 ("SC/VSC", self.sc_pit_loss),
@@ -132,8 +146,8 @@ def main() -> int:
             self.apply_range_button = QtWidgets.QPushButton("Apply range")
             self.auto_range_button = QtWidgets.QPushButton("Auto range")
             for label, widget in (
-                ("X min", self.x_min_input),
-                ("X max", self.x_max_input),
+                ("Lap min", self.x_min_input),
+                ("Lap max", self.x_max_input),
                 ("Y min", self.y_min_input),
                 ("Y max", self.y_max_input),
             ):
@@ -189,6 +203,7 @@ def main() -> int:
             self.export_file_action.triggered.connect(self._export_png)
             self.export_clipboard_action.triggered.connect(self._copy_png_to_clipboard)
             self.reference_driver.currentTextChanged.connect(self._redraw)
+            self.reference_mode.currentTextChanged.connect(self._redraw)
             self.line_width.valueChanged.connect(self._redraw)
             self.normal_pit_loss.valueChanged.connect(self._update_pit_window)
             self.sc_pit_loss.valueChanged.connect(self._update_pit_window)
@@ -251,6 +266,7 @@ def main() -> int:
             if self.service.session is None or not self.reference_driver.currentText():
                 return
             self._clear_pit_target()
+            self._clear_hover_label()
             self.plot.clear()
             self.curves = {}
             self.curve_data = {}
@@ -258,7 +274,10 @@ def main() -> int:
             self.tyre_items = []
             self.guide_items = []
             self.track_status_items = []
-            plot_data = self.service.build_plot_data(self.reference_driver.currentText())
+            plot_data = self.service.build_plot_data(
+                self.reference_driver.currentText(),
+                reference_mode=str(self.reference_mode.currentData() or REFERENCE_MODE_AVERAGED_PACE),
+            )
             styles = self.service.session.drivers.set_index("driver").to_dict("index")
             for (driver, role, scenario_id, is_faded), driver_data in plot_data.groupby(
                 ["driver", "plot_role", "scenario_id", "is_faded"],
@@ -289,6 +308,7 @@ def main() -> int:
                     self.curve_data[driver] = (x, y)
             if not self.custom_ranges:
                 self._update_range_controls_from_data(plot_data)
+            self._update_lap_axis_ticks(plot_data)
             self._apply_plot_ranges()
             self._draw_track_status_bands()
             self._draw_lap_delta_guides()
@@ -317,7 +337,7 @@ def main() -> int:
                 else QtCore.Qt.PenStyle.SolidLine
             )
             if role == "simulation":
-                width = max(base_width + 1.0, 3.0)
+                width = max(width, base_width + 1.0, 3.0)
                 pen_style = QtCore.Qt.PenStyle.CustomDashLine
             if is_faded:
                 width = max(base_width * 0.45, 1.0)
@@ -459,12 +479,15 @@ def main() -> int:
             pit_loss.setValue(default_pit_loss)
             comparison_mode = QtWidgets.QComboBox()
             comparison_mode.addItem(
+                COMPARISON_MODE_LABELS[COMPARISON_MODE_PURE_SIM],
+                COMPARISON_MODE_PURE_SIM,
+            )
+            comparison_mode.addItem(
                 COMPARISON_MODE_LABELS[COMPARISON_MODE_MODELLED_REAL_STRATEGY],
                 COMPARISON_MODE_MODELLED_REAL_STRATEGY,
             )
-            comparison_mode.addItem(
-                COMPARISON_MODE_LABELS[COMPARISON_MODE_OBSERVED_REAL_DATA],
-                COMPARISON_MODE_OBSERVED_REAL_DATA,
+            comparison_mode.setCurrentIndex(
+                comparison_mode.findData(COMPARISON_MODE_MODELLED_REAL_STRATEGY)
             )
 
             layout.addRow("Driver", driver_label)
@@ -472,7 +495,7 @@ def main() -> int:
             layout.addRow("Compound", compound_row)
             layout.addRow("Tyre age", tyre_age)
             layout.addRow("Pit loss", pit_loss)
-            layout.addRow("Compare with", comparison_mode)
+            layout.addRow("Lap-time mode", comparison_mode)
 
             buttons = QtWidgets.QDialogButtonBox(
                 QtWidgets.QDialogButtonBox.StandardButton.Apply
@@ -515,11 +538,13 @@ def main() -> int:
                 return
             if not self.plot.sceneBoundingRect().contains(position):
                 self._set_hover_driver(None)
+                self._clear_hover_label()
                 self._clear_pit_target()
                 return
             point = self.plot.getPlotItem().vb.mapSceneToView(position)
             driver = self._nearest_driver(point.x(), point.y())
             self._set_hover_driver(driver)
+            self._update_hover_label(position, driver)
             self._update_pit_target(position, driver)
 
         def _pit_modifier_active(self) -> bool:
@@ -550,12 +575,53 @@ def main() -> int:
                 return
             self._draw_pit_target(target_driver, stop_after_lap)
 
+        def _update_hover_label(self, scene_pos, driver: str | None) -> None:
+            if self.service.session is None:
+                self._clear_hover_label()
+                return
+            point = self.plot.getPlotItem().vb.mapSceneToView(scene_pos)
+            target_driver = driver or self.selected_driver
+            selection = self._resolve_sector_selection(target_driver, float(point.x()))
+            if selection is None:
+                self._clear_hover_label()
+                return
+            pit_driver = target_driver if self._pit_modifier_active() else None
+            if pit_driver:
+                text = self._pit_target_label(pit_driver, int(selection["stop_after_lap"]))
+            else:
+                text = f"Lap {selection['lap']} {selection['sector']}"
+            self._draw_hover_label(text, float(point.x()), float(point.y()))
+
+        def _draw_hover_label(self, text: str, x_position: float, y_position: float) -> None:
+            self._clear_hover_label()
+            label = pg.TextItem(
+                text=text,
+                color="#111111",
+                anchor=(0.0, 1.0),
+                fill=QtGui.QBrush(QtGui.QColor(255, 255, 255, 225)),
+                border=pg.mkPen("#111111", width=1.0),
+            )
+            label.setFont(self._bold_font(12))
+            label.setPos(x_position, y_position)
+            label.setZValue(50)
+            self.plot.addItem(label)
+            self.hover_label = label
+
+        def _clear_hover_label(self) -> None:
+            if self.hover_label is None:
+                return
+            try:
+                self.plot.removeItem(self.hover_label)
+            except Exception:
+                pass
+            self.hover_label = None
+
         def _draw_pit_target(self, driver: str, stop_after_lap: int) -> None:
             self._clear_pit_target()
             self.pit_target = (driver, stop_after_lap)
-            x_position = stop_after_lap + 0.5
+            x_position = stop_after_lap * 3.0
             y_min, y_max = self._ordered_range(self.y_min_input, self.y_max_input)
-            x_min, x_max = self._ordered_range(self.x_min_input, self.x_max_input)
+            x_min, x_max = self._plot_x_range_from_lap_inputs()
             top_y = max(y_min, y_max)
             label_x = min(max(x_position, x_min), x_max)
 
@@ -565,7 +631,7 @@ def main() -> int:
             self.plot.addItem(line)
 
             label = pg.TextItem(
-                text=f"{driver}  pit after lap {stop_after_lap}",
+                text=self._pit_target_label(driver, stop_after_lap),
                 color="#111111",
                 anchor=(0.5, 0.0),
                 fill=QtGui.QBrush(QtGui.QColor(255, 255, 255, 220)),
@@ -587,22 +653,46 @@ def main() -> int:
             self.pit_target = None
 
         def _stop_after_lap_from_x(self, driver: str, x_position: float) -> int | None:
+            selection = self._resolve_sector_selection(driver, x_position)
+            return None if selection is None else int(selection["stop_after_lap"])
+
+        def _resolve_sector_selection(self, driver: str | None, x_position: float) -> dict | None:
             if self.service.session is None:
                 return None
-            driver_laps = self.service.session.laps.loc[
-                self.service.session.laps["driver"] == driver,
-                "lap",
-            ]
+            if driver:
+                driver_laps = self.service.session.laps.loc[
+                    self.service.session.laps["driver"] == driver,
+                    "lap",
+                ]
+            else:
+                driver_laps = self.service.session.laps["lap"]
             laps = driver_laps.dropna().astype(int)
             if laps.empty:
                 return None
-            stop_after_lap = int(math.floor(x_position))
             first_lap = int(laps.min())
             final_lap = int(laps.max())
+            segment_index = int(round(float(x_position)))
+            segment_index = min(max(segment_index, (first_lap - 1) * 3 + 1), final_lap * 3)
+            lap = (segment_index - 1) // 3 + 1
+            sector_number = ((segment_index - 1) % 3) + 1
+            sector = f"S{sector_number}"
+            if sector == "S1":
+                stop_after_lap = lap - 1
+            else:
+                stop_after_lap = lap
             stop_after_lap = min(max(stop_after_lap, first_lap), final_lap - 1)
             if stop_after_lap < first_lap or stop_after_lap >= final_lap:
                 return None
-            return stop_after_lap
+            return {
+                "driver": driver,
+                "lap": int(lap),
+                "sector": sector,
+                "segment_index": segment_index,
+                "stop_after_lap": int(stop_after_lap),
+            }
+
+        def _pit_target_label(self, driver: str, stop_after_lap: int) -> str:
+            return f"{driver} pit after Lap {stop_after_lap}"
 
         def _nearest_driver(
             self,
@@ -652,6 +742,25 @@ def main() -> int:
             self.y_min_input.setValue(float(y.min()) - y_padding)
             self.y_max_input.setValue(float(y.max()) + y_padding)
 
+        def _update_lap_axis_ticks(self, plot_data) -> None:
+            if "segment_index" not in plot_data.columns or "lap" not in plot_data.columns:
+                return
+            ticks = (
+                plot_data.loc[:, ["lap", "segment_index"]]
+                .dropna()
+                .sort_values(["lap", "segment_index"], kind="mergesort")
+                .drop_duplicates(subset=["lap"], keep="last")
+            )
+            if ticks.empty:
+                return
+            max_ticks = 20
+            step = max(int(math.ceil(len(ticks) / max_ticks)), 1)
+            tick_values = [
+                (float(row["segment_index"]), str(int(row["lap"])))
+                for _, row in ticks.iloc[::step].iterrows()
+            ]
+            self.plot.getAxis("bottom").setTicks([tick_values])
+
         def _apply_custom_ranges(self) -> None:
             self.custom_ranges = True
             self._apply_plot_ranges()
@@ -665,10 +774,19 @@ def main() -> int:
             self._draw_lap_delta_guides()
 
         def _apply_plot_ranges(self) -> None:
-            x_min, x_max = self._ordered_range(self.x_min_input, self.x_max_input)
+            x_min, x_max = self._plot_x_range_from_lap_inputs()
             y_min, y_max = self._ordered_range(self.y_min_input, self.y_max_input)
             self.plot.setXRange(x_min, x_max, padding=0)
             self.plot.setYRange(y_min, y_max, padding=0)
+
+        def _plot_x_range_from_lap_inputs(self) -> tuple[float, float]:
+            lap_min, lap_max = self._ordered_range(self.x_min_input, self.x_max_input)
+            return self._lap_range_to_plot_x(lap_min, lap_max)
+
+        def _lap_range_to_plot_x(self, lap_min: float, lap_max: float) -> tuple[float, float]:
+            first_sector_x = (float(lap_min) - 1.0) * 3.0 + 1.0
+            last_sector_x = float(lap_max) * 3.0
+            return (first_sector_x, last_sector_x)
 
         def _ordered_range(self, min_input, max_input) -> tuple[float, float]:
             first = float(min_input.value())
@@ -695,9 +813,16 @@ def main() -> int:
                 colour = SC_BAND_COLOUR if status_type == "sc" else VSC_BAND_COLOUR
                 qcolour = QtGui.QColor(colour)
                 qcolour.setAlpha(72)
-                lap = float(row["lap"])
+                segment_index = row.get("segment_index")
+                if segment_index is not None and not pd.isna(segment_index):
+                    segment_start = float(segment_index) - 0.5
+                    segment_end = float(segment_index) + 0.5
+                else:
+                    lap = float(row["lap"])
+                    segment_start = (lap - 1.0) * 3.0 + 0.5
+                    segment_end = lap * 3.0 + 0.5
                 region = pg.LinearRegionItem(
-                    values=(lap - 0.5, lap + 0.5),
+                    values=(segment_start, segment_end),
                     orientation=pg.LinearRegionItem.Vertical,
                     brush=pg.mkBrush(qcolour),
                     movable=False,
@@ -719,7 +844,7 @@ def main() -> int:
             if self.service.session is None or not self.reference_driver.currentText():
                 return
 
-            x_min, x_max = self._ordered_range(self.x_min_input, self.x_max_input)
+            x_min, x_max = self._plot_x_range_from_lap_inputs()
             y_min, y_max = self._ordered_range(self.y_min_input, self.y_max_input)
             guides = self.service.build_lap_delta_guide_data(
                 self.reference_driver.currentText(),
@@ -880,7 +1005,12 @@ def main() -> int:
                 }
                 spots.append(
                     {
-                        "pos": (float(row["lap"]), float(row["delta_s"])),
+                        "pos": (
+                            float(row["segment_index"])
+                            if self._has_value(row.get("segment_index"))
+                            else float(row["lap"]),
+                            float(row["delta_s"]),
+                        ),
                         "symbol": "o",
                         "size": TYRE_MARKER_SIZE,
                         "brush": pg.mkBrush(0, 0, 0, 0),
@@ -899,7 +1029,12 @@ def main() -> int:
                 if removed_observed_pit:
                     spots.append(
                         {
-                            "pos": (float(row["lap"]), float(row["delta_s"])),
+                            "pos": (
+                                float(row["segment_index"])
+                                if self._has_value(row.get("segment_index"))
+                                else float(row["lap"]),
+                                float(row["delta_s"]),
+                            ),
                             "symbol": "x",
                             "size": TYRE_MARKER_SIZE + 7,
                             "brush": pg.mkBrush(0, 0, 0, 0),
@@ -929,7 +1064,12 @@ def main() -> int:
                     anchor=(0.5, 0.5),
                 )
                 text.setFont(self._bold_font(TYRE_FONT_POINT_SIZE))
-                text.setPos(float(row["lap"]), float(row["delta_s"]))
+                text_x = (
+                    float(row["segment_index"])
+                    if self._has_value(row.get("segment_index"))
+                    else float(row["lap"])
+                )
+                text.setPos(text_x, float(row["delta_s"]))
                 text.setZValue(31)
                 self.plot.addItem(text)
                 self.tyre_items.append(text)
@@ -972,21 +1112,7 @@ def main() -> int:
                 remove_action = menu.addAction("Remove this real pit from strategy")
                 action = menu.exec(QtGui.QCursor.pos())
                 if action == remove_action:
-                    try:
-                        self.service.create_remove_observed_pit_simulation(
-                            driver=str(data.get("driver")),
-                            first_lap_after_stop=int(data.get("first_lap_after_stop")),
-                            comparison_mode=COMPARISON_MODE_MODELLED_REAL_STRATEGY,
-                            normal_pit_loss_s=self.normal_pit_loss.value(),
-                            sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
-                        )
-                    except MissingStrategyModelError as exc:
-                        QtWidgets.QMessageBox.critical(self, "Strategy model missing", str(exc))
-                        return
-                    except Exception as exc:
-                        QtWidgets.QMessageBox.warning(self, "Strategy simulation", str(exc))
-                        return
-                    QtCore.QTimer.singleShot(0, self._redraw)
+                    self._open_remove_observed_pit_editor(data)
                 return
             menu = QtWidgets.QMenu(self)
             update_action = menu.addAction("Update simulation")
@@ -1041,16 +1167,93 @@ def main() -> int:
             buttons.rejected.connect(dialog.reject)
 
             def apply() -> None:
+                scenario = self.service.scenarios.get(str(scenario_id))
+                comparison_mode = (
+                    scenario.comparison_mode
+                    if scenario is not None
+                    else COMPARISON_MODE_MODELLED_REAL_STRATEGY
+                )
                 try:
                     self.service.create_remove_observed_pit_simulation(
                         driver=driver,
                         first_lap_after_stop=first_lap,
                         pit_loss_s=loss.value(),
                         pit_loss_source="manual",
-                        comparison_mode=COMPARISON_MODE_MODELLED_REAL_STRATEGY,
+                        comparison_mode=comparison_mode,
                         normal_pit_loss_s=self.normal_pit_loss.value(),
                         sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
                     )
+                except Exception as exc:
+                    QtWidgets.QMessageBox.warning(self, "Strategy simulation", str(exc))
+                    return
+                dialog.accept()
+
+            buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Apply).clicked.connect(apply)
+            if dialog.exec():
+                QtCore.QTimer.singleShot(0, self._redraw)
+
+        def _open_remove_observed_pit_editor(self, data: dict) -> None:
+            dialog = QtWidgets.QDialog(self)
+            dialog.setWindowTitle("Remove real pit")
+            layout = QtWidgets.QFormLayout(dialog)
+            driver = str(data.get("driver"))
+            first_lap = int(data.get("first_lap_after_stop"))
+            stop_after_lap = int(data.get("stop_after_lap"))
+            loss = QtWidgets.QDoubleSpinBox()
+            loss.setRange(0.0, 120.0)
+            loss.setDecimals(1)
+            loss.setSingleStep(0.5)
+            loss.setSuffix(" s")
+            try:
+                loss.setValue(
+                    self.service.pit_loss_default_for_stop(
+                        stop_after_lap=stop_after_lap,
+                        normal_pit_loss_s=self.normal_pit_loss.value(),
+                        sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+                    )
+                )
+            except Exception:
+                loss.setValue(self.normal_pit_loss.value())
+            comparison_mode = QtWidgets.QComboBox()
+            comparison_mode.addItem(
+                COMPARISON_MODE_LABELS[COMPARISON_MODE_PURE_SIM],
+                COMPARISON_MODE_PURE_SIM,
+            )
+            comparison_mode.addItem(
+                COMPARISON_MODE_LABELS[COMPARISON_MODE_MODELLED_REAL_STRATEGY],
+                COMPARISON_MODE_MODELLED_REAL_STRATEGY,
+            )
+            comparison_mode.setCurrentIndex(
+                comparison_mode.findData(COMPARISON_MODE_MODELLED_REAL_STRATEGY)
+            )
+
+            layout.addRow("Driver", QtWidgets.QLabel(driver))
+            layout.addRow("Remove pit after lap", QtWidgets.QLabel(str(stop_after_lap)))
+            layout.addRow("First affected lap", QtWidgets.QLabel(str(first_lap)))
+            layout.addRow("Original compound", QtWidgets.QLabel(str(data.get("compound", ""))))
+            layout.addRow("Pit-loss estimate", loss)
+            layout.addRow("Lap-time mode", comparison_mode)
+            buttons = QtWidgets.QDialogButtonBox(
+                QtWidgets.QDialogButtonBox.StandardButton.Apply
+                | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+            )
+            layout.addRow(buttons)
+            buttons.rejected.connect(dialog.reject)
+
+            def apply() -> None:
+                try:
+                    self.service.create_remove_observed_pit_simulation(
+                        driver=driver,
+                        first_lap_after_stop=first_lap,
+                        pit_loss_s=loss.value(),
+                        pit_loss_source="manual",
+                        comparison_mode=str(comparison_mode.currentData()),
+                        normal_pit_loss_s=self.normal_pit_loss.value(),
+                        sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+                    )
+                except MissingStrategyModelError as exc:
+                    QtWidgets.QMessageBox.critical(self, "Strategy model missing", str(exc))
+                    return
                 except Exception as exc:
                     QtWidgets.QMessageBox.warning(self, "Strategy simulation", str(exc))
                     return
@@ -1096,7 +1299,7 @@ def main() -> int:
                 rows.append(
                     f"{scenario.driver} - {len(scenario.edits)} strategy edit(s)\n"
                     + "\n".join(edit_lines)
-                    + "\nCompare with: "
+                    + "\nLap-time mode: "
                     f"{COMPARISON_MODE_LABELS.get(scenario.comparison_mode, scenario.comparison_mode)}\n"
                     f"First simulated lap: {first_simulated_lap}\n"
                     "Model source: woStrategy race-performance-review median"
@@ -1113,7 +1316,10 @@ def main() -> int:
             )
 
         def _show_strategy_delta_details(self, scenario_id: str | None = None) -> None:
-            delta_data = self.service.build_strategy_delta_data()
+            delta_data = self.service.build_strategy_delta_data(
+                reference_driver=self.reference_driver.currentText(),
+                reference_mode=str(self.reference_mode.currentData() or REFERENCE_MODE_AVERAGED_PACE),
+            )
             if scenario_id:
                 delta_data = delta_data.loc[delta_data["scenario_id"].astype(str) == str(scenario_id)]
             if delta_data.empty:
@@ -1131,7 +1337,7 @@ def main() -> int:
 
             detail_plot = pg.PlotWidget()
             detail_plot.setLabel("bottom", "Lap", **{"font-size": "12pt"})
-            detail_plot.setLabel("left", "Cumulative strategy delta", units="s", **{"font-size": "12pt"})
+            detail_plot.setLabel("left", "Delta to reference", units="s", **{"font-size": "12pt"})
             detail_plot.setBackground("w")
             detail_plot.addLegend(offset=(8, 8))
             styles = (
@@ -1148,7 +1354,12 @@ def main() -> int:
                     str(rows["comparison_mode"].iloc[0]),
                     str(rows["comparison_mode"].iloc[0]),
                 )
-                detail_plot.plot(x, y, pen=pg.mkPen(QtGui.QColor(colour), width=2.2), name=f"{driver} vs {label}")
+                detail_plot.plot(
+                    x,
+                    y,
+                    pen=pg.mkPen(QtGui.QColor(colour), width=2.2),
+                    name=f"{driver} - {label}",
+                )
             x_values = delta_data["lap"].dropna()
             if not x_values.empty:
                 detail_plot.plot(
@@ -1160,16 +1371,22 @@ def main() -> int:
 
             columns = [
                 ("lap", "Lap"),
-                ("observed_real_lap_time_s", "Observed real lap"),
-                ("sim_model_lap_time_s", "Sim model lap"),
-                ("baseline_model_lap_time_s", "Baseline model lap"),
+                ("sector", "Sector"),
+                ("observed_sector_time_s", "Observed sector"),
+                ("baseline_model_sector_time_s", "Baseline sector"),
+                ("sim_model_sector_time_s", "Sim model sector"),
                 ("race_domain_residual_s", "Race residual"),
-                ("model_delta_lap_s", "Model delta"),
+                ("display_residual_s", "Applied residual"),
+                ("display_segment_time_s", "Display segment"),
+                ("reference_segment_time_s", "Reference segment"),
+                ("segment_delta_to_reference_s", "Segment vs ref"),
+                ("delta_to_reference_s", "Delta to ref"),
+                ("model_delta_sector_s", "Model delta"),
                 ("cumulative_model_delta_s", "Cumulative model delta"),
-                ("sim_display_lap_time_s", "Display lap"),
                 ("compound", "Compound"),
                 ("tyre_age", "Tyre age"),
-                ("pit_loss_s", "Pit loss"),
+                ("pit_in_loss_s", "Pit in"),
+                ("pit_out_loss_s", "Pit out"),
             ]
             table = QtWidgets.QTableWidget(len(delta_data), len(columns))
             table.setHorizontalHeaderLabels([label for _, label in columns])
@@ -1353,7 +1570,7 @@ def main() -> int:
             if not path.lower().endswith(".png"):
                 path = f"{path}.png"
 
-            pixmap = self.plot_row_widget.grab()
+            pixmap = self._grab_export_pixmap()
             if not pixmap.save(path, "PNG"):
                 QtWidgets.QMessageBox.warning(
                     self,
@@ -1369,8 +1586,35 @@ def main() -> int:
                     "Load a race before exporting.",
                 )
                 return
-            pixmap = self.plot_row_widget.grab()
+            pixmap = self._grab_export_pixmap()
             QtWidgets.QApplication.clipboard().setPixmap(pixmap)
+
+        def _grab_export_pixmap(self) -> QtGui.QPixmap:
+            hidden_items = []
+            for item in self._transient_export_items():
+                try:
+                    was_visible = bool(item.isVisible())
+                    item.setVisible(False)
+                    hidden_items.append((item, was_visible))
+                except Exception:
+                    continue
+            try:
+                QtWidgets.QApplication.processEvents()
+                return self.plot_row_widget.grab()
+            finally:
+                for item, was_visible in hidden_items:
+                    try:
+                        item.setVisible(was_visible)
+                    except Exception:
+                        pass
+                QtWidgets.QApplication.processEvents()
+
+        def _transient_export_items(self) -> list:
+            items = []
+            if self.hover_label is not None:
+                items.append(self.hover_label)
+            items.extend(self.pit_target_items)
+            return items
 
     app = QtWidgets.QApplication(sys.argv)
     window = RacePlannerWindow()

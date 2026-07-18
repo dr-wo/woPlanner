@@ -7,8 +7,8 @@ import pandas as pd
 from wodata import get_cache_path
 from .model import StrategyPlan, StintSegment
 
-MODEL_VERSION = "strategy_sim_mvp_v1"
-SCHEMA = "schema_v1"
+MODEL_VERSION = "strategy_sim_mvp_v3"
+SCHEMA = "schema_v3"
 SUMMARY_SUFFIXES = {
     "baseline": "summary_baseline_pace",
     "fuel": "summary_fuel_rate",
@@ -16,6 +16,8 @@ SUMMARY_SUFFIXES = {
     "compound": "summary_compound_delta",
     "team_degradation": "summary_team_compound_degradation",
     "clean_laps": "clean_laps",
+    "sample_parameters": "sample_parameters",
+    "pit_loss_summary": "pit_loss_summary",
 }
 
 
@@ -48,11 +50,15 @@ class WoStrategyRaceModelAdapter:
             year,
             round_number,
             session_name,
+            optional=("pit_loss_summary",),
         )
         if missing:
             raise MissingStrategyModelError(missing, expected_dir)
 
-        if normalized_path.exists() and _is_newer_than_sources(normalized_path, source_paths.values()):
+        required_sources = [
+            path for name, path in source_paths.items() if name != "pit_loss_summary"
+        ]
+        if normalized_path.exists() and _is_newer_than_sources(normalized_path, required_sources):
             return pd.read_csv(normalized_path)
 
         artifact = self._read_source_model(
@@ -126,13 +132,14 @@ class WoStrategyRaceModelAdapter:
             if laps.empty:
                 continue
             tyre_age = laps - int(segment.start_lap) + int(segment.initial_tyre_age)
+            fuel_proxy_remaining = float(row["fuel_total_laps"]) - laps.astype(float)
             predicted = (
                 float(row["baseline_pace_s"])
                 + float(row["compound_delta_s"])
                 + float(row["team_compound_degradation_s_per_lap"])
                 * (tyre_age.astype(float) - float(row["tyre_age_reference"]))
                 + float(row["fuel_rate_s_per_lap"])
-                * (float(row["fuel_reference"]) - laps.astype(float))
+                * (fuel_proxy_remaining - float(row["fuel_reference"]))
                 + float(row["track_rate_s_per_lap"])
                 * (laps.astype(float) - float(row["reference_lap"]))
             )
@@ -166,15 +173,29 @@ class WoStrategyRaceModelAdapter:
                 ]
             )
         output["pit_loss_s"] = 0.0
-        pit_losses = {
-            int(pit_stop.first_lap_after_stop): float(pit_stop.pit_loss_s)
-            for pit_stop in strategy_plan.pit_stops
-        }
+        output["pit_in_loss_s"] = 0.0
+        output["pit_out_loss_s"] = 0.0
+        pit_losses = {}
+        pit_in_losses = {}
+        pit_out_losses = {}
+        for pit_stop in strategy_plan.pit_stops:
+            first_lap = int(pit_stop.first_lap_after_stop)
+            total = float(pit_stop.pit_loss_s)
+            pit_losses[first_lap] = total
+            pit_in_losses[int(pit_stop.stop_after_lap)] = float(
+                pit_stop.pit_in_loss_s if pit_stop.pit_in_loss_s is not None else total / 2.0
+            )
+            pit_out_losses[first_lap] = float(
+                pit_stop.pit_out_loss_s if pit_stop.pit_out_loss_s is not None else total / 2.0
+            )
         if pit_losses and not output.empty:
             output["pit_loss_s"] = output["lap"].astype(int).map(pit_losses).fillna(0.0)
+            output["pit_in_loss_s"] = output["lap"].astype(int).map(pit_in_losses).fillna(0.0)
+            output["pit_out_loss_s"] = output["lap"].astype(int).map(pit_out_losses).fillna(0.0)
         output["predicted_total_lap_time_s"] = (
             pd.to_numeric(output["predicted_clean_lap_time_s"], errors="coerce")
-            + pd.to_numeric(output["pit_loss_s"], errors="coerce").fillna(0.0)
+            + pd.to_numeric(output["pit_in_loss_s"], errors="coerce").fillna(0.0)
+            + pd.to_numeric(output["pit_out_loss_s"], errors="coerce").fillna(0.0)
         )
         return output.loc[
             :,
@@ -186,15 +207,58 @@ class WoStrategyRaceModelAdapter:
                 "tyre_age",
                 "predicted_clean_lap_time_s",
                 "pit_loss_s",
+                "pit_in_loss_s",
+                "pit_out_loss_s",
                 "predicted_total_lap_time_s",
             ],
         ].reset_index(drop=True)
+
+    def pit_loss_split(
+        self,
+        *,
+        year: int,
+        round_number: int,
+        session_name: str,
+        track_status_type: str = "normal",
+    ) -> tuple[float, float] | None:
+        source_paths, missing, expected_dir = self._locate_source_paths(
+            year,
+            round_number,
+            session_name,
+            optional=("pit_loss_summary",),
+        )
+        path = source_paths.get("pit_loss_summary")
+        if path is None or path in missing or not path.exists():
+            return None
+        summary = pd.read_csv(path)
+        if summary.empty:
+            return None
+        status = str(track_status_type or "normal")
+        rows = summary.loc[summary["TrackStatusType"].astype(str) == status]
+        if rows.empty and status != "normal":
+            rows = summary.loc[summary["TrackStatusType"].astype(str) == "normal"]
+        if rows.empty:
+            rows = summary
+        row = rows.iloc[0]
+        pit_in = pd.to_numeric(
+            pd.Series([row.get("PitInS3LossMedianSeconds")]),
+            errors="coerce",
+        ).iloc[0]
+        pit_out = pd.to_numeric(
+            pd.Series([row.get("PitOutS1LossMedianSeconds")]),
+            errors="coerce",
+        ).iloc[0]
+        if pd.isna(pit_in) or pd.isna(pit_out):
+            return None
+        return float(pit_in), float(pit_out)
 
     def _locate_source_paths(
         self,
         year: int,
         round_number: int,
         session_name: str,
+        *,
+        optional: tuple[str, ...] = (),
     ) -> tuple[dict[str, Path], list[Path], Path | str]:
         candidates = (
             [self.source_cache_dir]
@@ -205,7 +269,11 @@ class WoStrategyRaceModelAdapter:
         best_missing: list[Path] | None = None
         for candidate in candidates:
             paths = _source_paths(candidate, year, round_number, session_name)
-            missing = [path for path in paths.values() if not path.exists()]
+            missing = [
+                path
+                for name, path in paths.items()
+                if name not in optional and not path.exists()
+            ]
             if not missing:
                 self.source_cache_dir = candidate
                 return paths, [], candidate
@@ -252,13 +320,29 @@ class WoStrategyRaceModelAdapter:
         degradation = _read_required(source_paths["team_degradation"], {"Team", "Compound", "Median"})
         clean_laps = _read_required(
             source_paths["clean_laps"],
-            {"Driver", "Team", "LapNumber", "TyreAgeLaps", "FuelLapNumber"},
+            {"Driver", "Team", "LapNumber", "TyreAgeLaps", "FuelProxyLapsRemaining"},
+        )
+        sample_parameters = _read_required(
+            source_paths["sample_parameters"],
+            {"FuelRef", "RaceLapRef", "TyreAgeRef"},
         )
         baseline = _expand_team_baseline_to_drivers(baseline, clean_laps)
 
-        reference_lap = float(pd.to_numeric(clean_laps["LapNumber"], errors="coerce").median())
-        fuel_reference = float(pd.to_numeric(clean_laps["FuelLapNumber"], errors="coerce").median())
-        tyre_age_reference = float(pd.to_numeric(clean_laps["TyreAgeLaps"], errors="coerce").median())
+        reference_lap = _reference_value(
+            sample_parameters,
+            "RaceLapRef",
+            fallback=float(pd.to_numeric(clean_laps["LapNumber"], errors="coerce").mean()),
+        )
+        fuel_reference = _reference_value(sample_parameters, "FuelRef", fallback=0.0)
+        tyre_age_reference = _reference_value(sample_parameters, "TyreAgeRef", fallback=0.0)
+        fuel_total_laps = float(
+            (
+                pd.to_numeric(clean_laps["LapNumber"], errors="coerce")
+                + pd.to_numeric(clean_laps["FuelProxyLapsRemaining"], errors="coerce")
+            )
+            .dropna()
+            .median()
+        )
 
         rows = []
         for _, driver_row in baseline.iterrows():
@@ -286,6 +370,7 @@ class WoStrategyRaceModelAdapter:
                         "team_compound_degradation_s_per_lap": degradation_s,
                         "reference_lap": reference_lap,
                         "fuel_reference": fuel_reference,
+                        "fuel_total_laps": fuel_total_laps,
                         "tyre_age_reference": tyre_age_reference,
                         "source_cache_path": self._source_cache_path_label(),
                         "model_version": MODEL_VERSION,
@@ -320,6 +405,15 @@ def _read_required(path: Path, columns: set[str]) -> pd.DataFrame:
     if missing:
         raise ValueError(f"{path} is missing required columns: {', '.join(sorted(missing))}")
     return data
+
+
+def _reference_value(data: pd.DataFrame, column: str, *, fallback: float) -> float:
+    if column not in data.columns:
+        return float(fallback)
+    values = pd.to_numeric(data[column], errors="coerce").dropna()
+    if values.empty:
+        return float(fallback)
+    return float(values.iloc[0])
 
 
 def _expand_team_baseline_to_drivers(
