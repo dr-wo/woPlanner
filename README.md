@@ -64,7 +64,8 @@ race_performance_{year}_{round}_{session}_clean_laps.csv
 Each driver has one active scenario containing ordered strategy edits. Adding a
 new what-if pit to a driver that already has a scenario appends or replaces the
 edit at that lap, then rebuilds the whole simulated future from the earliest
-active edit. Future real pits remain active unless explicitly removed.
+active edit. Future real pits remain active unless explicitly removed or
+replaced by an added pit on the same stop lap.
 
 Clicking tyre markers opens additional actions:
 
@@ -127,6 +128,10 @@ The observed strategy baseline includes future real pit losses. When a real pit
 is removed, its pit-loss estimate remains in the modelled observed-strategy
 baseline, but is not added to the simulated no-pit strategy.
 
+Adding a what-if pit on the same lap as an observed stop is treated as replacing
+that observed stop: the old observed pit residual is removed from the pit-in and
+pit-out sectors, and the simulated pit uses the designated pit-loss seconds.
+
 ### SC/VSC and pit loss
 
 Track status is classified at sector level when the planner lap cache includes
@@ -138,8 +143,11 @@ Track status is classified at sector level when the planner lap cache includes
 The same status classification is used to choose normal versus SC/VSC pit-loss
 defaults for actual pit-loss removal and for the initial value in the what-if
 pit dialog. When `race_performance_review` has produced `pit_loss_summary`, the
-planner uses the median woStrategy split for pit-in S3 loss and pit-out S1 loss.
-Manual pit-loss settings remain the fallback.
+planner uses the median woStrategy split for pit-in S3 loss and pit-out S1 loss
+as the dialog default and split ratio. If the user enters a different pit-loss
+total, the manual total is preserved and the woStrategy split is scaled to that
+total. Manual pit-loss settings remain the fallback when no split summary is
+available.
 
 ### Visual conventions
 

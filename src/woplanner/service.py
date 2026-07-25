@@ -65,6 +65,21 @@ SECTOR_TIME_COLUMNS = {
 }
 
 
+def _scale_pit_loss_split(
+    pit_loss_s: float,
+    split: tuple[float, float],
+) -> tuple[float, float]:
+    total = float(pit_loss_s)
+    split_in = float(split[0])
+    split_out = float(split[1])
+    split_total = split_in + split_out
+    if split_total <= 0.0:
+        pit_in_loss_s = total / 2.0
+        return pit_in_loss_s, total - pit_in_loss_s
+    pit_in_loss_s = total * split_in / split_total
+    return pit_in_loss_s, total - pit_in_loss_s
+
+
 class RacePlannerService:
     def __init__(self, data_root: str | Path | None = None) -> None:
         self.data_root = data_root
@@ -233,12 +248,14 @@ class RacePlannerService:
         pit_split = self._pit_loss_split_for_stop(stop_after_lap=stop_after_lap)
         if pit_split is None:
             pit_in_loss_s = float(pit_loss_s) / 2.0
-            pit_out_loss_s = float(pit_loss_s) / 2.0
+            pit_out_loss_s = float(pit_loss_s) - pit_in_loss_s
             pit_loss_source = "manual"
         else:
-            pit_in_loss_s, pit_out_loss_s = pit_split
-            pit_loss_s = float(pit_in_loss_s + pit_out_loss_s)
-            pit_loss_source = "woStrategy pit-loss split"
+            pit_in_loss_s, pit_out_loss_s = _scale_pit_loss_split(
+                float(pit_loss_s),
+                pit_split,
+            )
+            pit_loss_source = "manual, woStrategy split ratio"
 
         edit = StrategyEdit(
             edit_id=f"{driver}-lap-{stop_after_lap}",
@@ -1078,10 +1095,10 @@ def build_what_if_strategy_plan(
             else:
                 current_compound = observed_compound
                 current_age = _int_or_default(row.get("tyre_age"), 0)
-                pit_loss_s = _actual_pit_loss_for_lap(
+                pit_loss_s, pit_in_loss_s, pit_out_loss_s = _actual_pit_stop_loss_for_first_lap(
                     actual_pit_loss_by_lap,
                     driver=scenario.driver,
-                    lap=lap,
+                    first_lap_after_stop=lap,
                     default=0.0,
                 )
                 pit_stops.append(
@@ -1089,8 +1106,8 @@ def build_what_if_strategy_plan(
                         stop_after_lap=stop_after_lap,
                         first_lap_after_stop=lap,
                         pit_loss_s=pit_loss_s,
-                        pit_in_loss_s=pit_loss_s / 2.0,
-                        pit_out_loss_s=pit_loss_s / 2.0,
+                        pit_in_loss_s=pit_in_loss_s,
+                        pit_out_loss_s=pit_out_loss_s,
                     )
                 )
         else:
@@ -1151,6 +1168,57 @@ def _actual_pit_loss_for_lap(
     return float(pit_loss.iloc[0])
 
 
+def _actual_pit_stop_loss_for_first_lap(
+    actual_pit_loss_by_lap: pd.DataFrame | None,
+    *,
+    driver: str,
+    first_lap_after_stop: int,
+    default: float,
+) -> tuple[float, float, float]:
+    if actual_pit_loss_by_lap is None or actual_pit_loss_by_lap.empty:
+        pit_in_loss_s = float(default) / 2.0
+        pit_out_loss_s = float(default) - pit_in_loss_s
+        return float(default), pit_in_loss_s, pit_out_loss_s
+
+    data = actual_pit_loss_by_lap.loc[
+        actual_pit_loss_by_lap["driver"].astype(str) == str(driver)
+    ].copy()
+    if data.empty:
+        pit_in_loss_s = float(default) / 2.0
+        pit_out_loss_s = float(default) - pit_in_loss_s
+        return float(default), pit_in_loss_s, pit_out_loss_s
+
+    lap_values = pd.to_numeric(data["lap"], errors="coerce")
+    in_lap = int(first_lap_after_stop) - 1
+    out_lap = int(first_lap_after_stop)
+    if {"actual_pit_in_loss_s", "actual_pit_out_loss_s"}.issubset(data.columns):
+        pit_in = data.loc[lap_values == in_lap, "actual_pit_in_loss_s"]
+        pit_out = data.loc[lap_values == out_lap, "actual_pit_out_loss_s"]
+        pit_in_loss_s = (
+            float(pd.to_numeric(pit_in, errors="coerce").fillna(0.0).sum())
+            if not pit_in.empty
+            else 0.0
+        )
+        pit_out_loss_s = (
+            float(pd.to_numeric(pit_out, errors="coerce").fillna(0.0).sum())
+            if not pit_out.empty
+            else 0.0
+        )
+        total = pit_in_loss_s + pit_out_loss_s
+        if total > 0.0:
+            return total, pit_in_loss_s, pit_out_loss_s
+
+    total = _actual_pit_loss_for_lap(
+        actual_pit_loss_by_lap,
+        driver=driver,
+        lap=first_lap_after_stop,
+        default=default,
+    )
+    pit_in_loss_s = float(total) / 2.0
+    pit_out_loss_s = float(total) - pit_in_loss_s
+    return float(total), pit_in_loss_s, pit_out_loss_s
+
+
 def _removed_pit_loss_estimate(
     actual_pit_loss_by_lap: pd.DataFrame,
     *,
@@ -1185,17 +1253,37 @@ def _actual_pit_loss_with_remove_edit_overrides(
     output = actual_pit_loss_by_lap.copy()
     if "actual_pit_loss_source" not in output.columns:
         output["actual_pit_loss_source"] = "none"
+    for column in ["actual_pit_in_loss_s", "actual_pit_out_loss_s"]:
+        if column not in output.columns:
+            output[column] = 0.0
     for edit in scenario.edits:
         if edit.edit_type != "remove_observed_pit":
             continue
         first_lap = int(edit.stop_after_lap) + 1
         driver_mask = output["driver"].astype(str) == str(scenario.driver)
         lap_values = pd.to_numeric(output["lap"], errors="coerce")
-        output.loc[driver_mask & (lap_values == int(edit.stop_after_lap)), "actual_pit_loss_s"] = 0.0
+        output.loc[
+            driver_mask & (lap_values == int(edit.stop_after_lap)),
+            ["actual_pit_loss_s", "actual_pit_in_loss_s", "actual_pit_out_loss_s"],
+        ] = [0.0, 0.0, 0.0]
+        pit_in_loss_s = float(edit.pit_in_loss_s if edit.pit_in_loss_s is not None else 0.0)
+        pit_out_loss_s = float(
+            edit.pit_out_loss_s if edit.pit_out_loss_s is not None else edit.pit_loss_s or 0.0
+        )
         output.loc[
             driver_mask & (lap_values == first_lap),
-            ["actual_pit_loss_s", "actual_pit_loss_source"],
-        ] = [float(edit.pit_loss_s or 0.0), str(edit.pit_loss_source or "manual")]
+            [
+                "actual_pit_loss_s",
+                "actual_pit_in_loss_s",
+                "actual_pit_out_loss_s",
+                "actual_pit_loss_source",
+            ],
+        ] = [
+            pit_in_loss_s + pit_out_loss_s,
+            pit_in_loss_s,
+            pit_out_loss_s,
+            str(edit.pit_loss_source or "manual"),
+        ]
     return output
 
 
@@ -1296,21 +1384,22 @@ def build_modelled_real_strategy_plan(
         for _, row in pit_out_rows.iterrows():
             first_lap = int(row["lap"])
             pit_loss_s = float(default_pit_loss_s)
+            pit_in_loss_s = pit_loss_s / 2.0
+            pit_out_loss_s = pit_loss_s - pit_in_loss_s
             if actual_pit_loss_by_lap is not None and not actual_pit_loss_by_lap.empty:
-                pit_loss = actual_pit_loss_by_lap.loc[
-                    (actual_pit_loss_by_lap["driver"].astype(str) == str(driver))
-                    & (pd.to_numeric(actual_pit_loss_by_lap["lap"], errors="coerce") == first_lap),
-                    "actual_pit_loss_s",
-                ]
-                if not pit_loss.empty and pd.notna(pit_loss.iloc[0]):
-                    pit_loss_s = float(pit_loss.iloc[0])
+                pit_loss_s, pit_in_loss_s, pit_out_loss_s = _actual_pit_stop_loss_for_first_lap(
+                    actual_pit_loss_by_lap,
+                    driver=driver,
+                    first_lap_after_stop=first_lap,
+                    default=default_pit_loss_s,
+                )
             pit_stops.append(
                 PlannedPitStop(
                     stop_after_lap=first_lap - 1,
                     first_lap_after_stop=first_lap,
                     pit_loss_s=pit_loss_s,
-                    pit_in_loss_s=pit_loss_s / 2.0,
-                    pit_out_loss_s=pit_loss_s / 2.0,
+                    pit_in_loss_s=pit_in_loss_s,
+                    pit_out_loss_s=pit_out_loss_s,
                 )
             )
 
@@ -1340,13 +1429,21 @@ def apply_actual_pit_loss_distribution(
     pit_loss = pit_loss.loc[pit_loss["driver"].astype(str) == str(driver)]
     if pit_loss.empty:
         return output
-    pit_loss = pit_loss.loc[:, ["lap", "actual_pit_loss_s"]].rename(
-        columns={"actual_pit_loss_s": "distributed_actual_pit_loss_s"}
-    )
+    if {"actual_pit_in_loss_s", "actual_pit_out_loss_s"}.issubset(pit_loss.columns):
+        pit_loss = pit_loss.loc[
+            :, ["lap", "actual_pit_loss_s", "actual_pit_in_loss_s", "actual_pit_out_loss_s"]
+        ].rename(
+            columns={
+                "actual_pit_loss_s": "distributed_actual_pit_loss_s",
+                "actual_pit_in_loss_s": "distributed_actual_pit_in_loss_s",
+                "actual_pit_out_loss_s": "distributed_actual_pit_out_loss_s",
+            }
+        )
+    else:
+        pit_loss = pit_loss.loc[:, ["lap", "actual_pit_loss_s"]].rename(
+            columns={"actual_pit_loss_s": "distributed_actual_pit_loss_s"}
+        )
     output = output.merge(pit_loss, on="lap", how="left")
-    output["pit_loss_s"] = pd.to_numeric(
-        output["distributed_actual_pit_loss_s"], errors="coerce"
-    ).fillna(0.0)
     existing_pit_in = pd.to_numeric(
         output["pit_in_loss_s"]
         if "pit_in_loss_s" in output.columns
@@ -1359,18 +1456,45 @@ def apply_actual_pit_loss_distribution(
         else pd.Series(0.0, index=output.index),
         errors="coerce",
     ).fillna(0.0)
-    output["pit_in_loss_s"] = np.where(existing_pit_in > 0.0, output["pit_loss_s"], 0.0)
-    output["pit_out_loss_s"] = np.where(
-        existing_pit_out > 0.0,
-        output["pit_loss_s"],
-        np.where(existing_pit_in > 0.0, 0.0, output["pit_loss_s"]),
-    )
+    distributed_total = pd.to_numeric(
+        output["distributed_actual_pit_loss_s"], errors="coerce"
+    ).fillna(0.0)
+    if {"distributed_actual_pit_in_loss_s", "distributed_actual_pit_out_loss_s"}.issubset(
+        output.columns
+    ):
+        output["pit_in_loss_s"] = pd.to_numeric(
+            output["distributed_actual_pit_in_loss_s"], errors="coerce"
+        ).fillna(0.0)
+        output["pit_out_loss_s"] = pd.to_numeric(
+            output["distributed_actual_pit_out_loss_s"], errors="coerce"
+        ).fillna(0.0)
+        output["pit_loss_s"] = output["pit_in_loss_s"] + output["pit_out_loss_s"]
+    else:
+        output["pit_loss_s"] = distributed_total
+        both_components = (existing_pit_in > 0.0) & (existing_pit_out > 0.0)
+        output["pit_in_loss_s"] = np.where(
+            both_components,
+            output["pit_loss_s"] / 2.0,
+            np.where(existing_pit_in > 0.0, output["pit_loss_s"], 0.0),
+        )
+        output["pit_out_loss_s"] = np.where(
+            both_components,
+            output["pit_loss_s"] / 2.0,
+            np.where(existing_pit_out > 0.0, output["pit_loss_s"], 0.0),
+        )
     output["predicted_total_lap_time_s"] = (
         pd.to_numeric(output["predicted_clean_lap_time_s"], errors="coerce")
         + output["pit_in_loss_s"]
         + output["pit_out_loss_s"]
     )
-    return output.drop(columns=["distributed_actual_pit_loss_s"])
+    return output.drop(
+        columns=[
+            "distributed_actual_pit_loss_s",
+            "distributed_actual_pit_in_loss_s",
+            "distributed_actual_pit_out_loss_s",
+        ],
+        errors="ignore",
+    )
 
 
 def observed_real_strategy_laps(
@@ -1389,6 +1513,8 @@ def observed_real_strategy_laps(
                 "tyre_age",
                 "observed_real_lap_time_s",
                 "observed_actual_pit_loss_s",
+                "observed_actual_pit_in_loss_s",
+                "observed_actual_pit_out_loss_s",
             ]
         )
     future = future.sort_values("lap", kind="mergesort")
@@ -1416,23 +1542,43 @@ def observed_real_strategy_laps(
     if "track_status" not in output.columns:
         output["track_status"] = pd.NA
     output["observed_actual_pit_loss_s"] = 0.0
+    output["observed_actual_pit_in_loss_s"] = 0.0
+    output["observed_actual_pit_out_loss_s"] = 0.0
     if actual_pit_loss_by_lap is not None and not actual_pit_loss_by_lap.empty:
         actual_pit_loss = actual_pit_loss_by_lap.copy()
         if driver is not None and "driver" in actual_pit_loss.columns:
             actual_pit_loss = actual_pit_loss.loc[
                 actual_pit_loss["driver"].astype(str) == str(driver)
             ]
-        actual_pit_loss = actual_pit_loss.loc[:, ["lap", "actual_pit_loss_s"]].rename(
-            columns={"actual_pit_loss_s": "observed_actual_pit_loss_s"}
+        actual_columns = ["lap", "actual_pit_loss_s"]
+        if {"actual_pit_in_loss_s", "actual_pit_out_loss_s"}.issubset(actual_pit_loss.columns):
+            actual_columns.extend(["actual_pit_in_loss_s", "actual_pit_out_loss_s"])
+        actual_pit_loss = actual_pit_loss.loc[:, actual_columns].rename(
+            columns={
+                "actual_pit_loss_s": "observed_actual_pit_loss_s",
+                "actual_pit_in_loss_s": "observed_actual_pit_in_loss_s",
+                "actual_pit_out_loss_s": "observed_actual_pit_out_loss_s",
+            }
         )
-        output = output.drop(columns=["observed_actual_pit_loss_s"]).merge(
+        output = output.drop(
+            columns=[
+                "observed_actual_pit_loss_s",
+                "observed_actual_pit_in_loss_s",
+                "observed_actual_pit_out_loss_s",
+            ]
+        ).merge(
             actual_pit_loss,
             on="lap",
             how="left",
         )
-        output["observed_actual_pit_loss_s"] = pd.to_numeric(
-            output["observed_actual_pit_loss_s"], errors="coerce"
-        ).fillna(0.0)
+        for column in [
+            "observed_actual_pit_loss_s",
+            "observed_actual_pit_in_loss_s",
+            "observed_actual_pit_out_loss_s",
+        ]:
+            if column not in output.columns:
+                output[column] = 0.0
+            output[column] = pd.to_numeric(output[column], errors="coerce").fillna(0.0)
     return output.reset_index(drop=True)
 
 
@@ -1445,6 +1591,8 @@ def estimate_actual_pit_loss_by_lap(
 ) -> pd.DataFrame:
     output = laps.loc[:, ["driver", "lap"]].copy()
     output["actual_pit_loss_s"] = 0.0
+    output["actual_pit_in_loss_s"] = 0.0
+    output["actual_pit_out_loss_s"] = 0.0
     output["actual_pit_loss_source"] = "none"
     if "pit_out" not in laps.columns and "pit_in" not in laps.columns:
         return output
@@ -1484,13 +1632,15 @@ def estimate_actual_pit_loss_by_lap(
             if not previous.empty:
                 previous_pit_in_index = previous.index[0]
         if previous_pit_in_index is not None:
-            output.loc[previous_pit_in_index, "actual_pit_loss_s"] = float(pit_loss) / 2.0
-            output.loc[index, "actual_pit_loss_s"] = float(pit_loss) / 2.0
+            pit_in_loss_s = float(pit_loss) / 2.0
+            pit_out_loss_s = float(pit_loss) - pit_in_loss_s
+            output.loc[previous_pit_in_index, "actual_pit_in_loss_s"] += pit_in_loss_s
+            output.loc[index, "actual_pit_out_loss_s"] += pit_out_loss_s
             output.loc[previous_pit_in_index, "actual_pit_loss_source"] = pit_loss_source
             output.loc[index, "actual_pit_loss_source"] = pit_loss_source
             used_pit_in_indices.add(previous_pit_in_index)
         else:
-            output.loc[index, "actual_pit_loss_s"] = pit_loss
+            output.loc[index, "actual_pit_out_loss_s"] += pit_loss
             output.loc[index, "actual_pit_loss_source"] = pit_loss_source
 
     standalone_pit_in = pit_in & ~laps.index.isin(used_pit_in_indices)
@@ -1516,13 +1666,17 @@ def estimate_actual_pit_loss_by_lap(
         )
         if status_missing:
             missing_status_count += 1
-        output.loc[index, "actual_pit_loss_s"] = pit_loss
+        output.loc[index, "actual_pit_in_loss_s"] += pit_loss
         output.loc[index, "actual_pit_loss_source"] = pit_loss_source
     if missing_status_count and warnings is not None:
         warnings.append(
             f"Track status was unavailable for {missing_status_count} actual pit event(s); "
             "normal pit-loss default was used."
         )
+    output["actual_pit_loss_s"] = (
+        pd.to_numeric(output["actual_pit_in_loss_s"], errors="coerce").fillna(0.0)
+        + pd.to_numeric(output["actual_pit_out_loss_s"], errors="coerce").fillna(0.0)
+    )
     return output
 
 
@@ -2059,9 +2213,13 @@ def _skipped_observed_stop_laps(merged: pd.DataFrame) -> set[int]:
     baseline_out = pd.to_numeric(merged.get("baseline_pit_out_loss_s"), errors="coerce").fillna(0.0)
     sim_in = pd.to_numeric(merged.get("sim_pit_in_loss_s"), errors="coerce").fillna(0.0)
     sim_out = pd.to_numeric(merged.get("sim_pit_out_loss_s"), errors="coerce").fillna(0.0)
-    for value in lap_values.loc[(baseline_in > 0.0) & (sim_in <= 0.0)].dropna():
+    for value in lap_values.loc[
+        (baseline_in > 0.0) & ~np.isclose(baseline_in, sim_in)
+    ].dropna():
         stop_laps.add(int(value))
-    for value in lap_values.loc[(baseline_out > 0.0) & (sim_out <= 0.0)].dropna():
+    for value in lap_values.loc[
+        (baseline_out > 0.0) & ~np.isclose(baseline_out, sim_out)
+    ].dropna():
         stop_laps.add(int(value) - 1)
     return stop_laps
 
@@ -2076,13 +2234,35 @@ def expand_observed_laps_to_sector_timeline(laps: pd.DataFrame) -> pd.DataFrame:
         if "observed_actual_pit_loss_s" in data.columns
         else pd.Series(0.0, index=data.index)
     )
+    pit_in_column = (
+        pd.to_numeric(data["observed_actual_pit_in_loss_s"], errors="coerce").fillna(0.0)
+        if "observed_actual_pit_in_loss_s" in data.columns
+        else pd.Series(pd.NA, index=data.index)
+    )
+    pit_out_column = (
+        pd.to_numeric(data["observed_actual_pit_out_loss_s"], errors="coerce").fillna(0.0)
+        if "observed_actual_pit_out_loss_s" in data.columns
+        else pd.Series(pd.NA, index=data.index)
+    )
     rows = []
     for _, row in data.sort_values("lap", kind="mergesort").iterrows():
         lap = _int_or_default(row.get("lap"), 0)
         lap_time = float(pd.to_numeric(pd.Series([row.get(time_column)]), errors="coerce").iloc[0])
         total_pit_loss = float(pit_column.loc[row.name])
+        component_pit_in = pit_in_column.loc[row.name]
+        component_pit_out = pit_out_column.loc[row.name]
+        has_components = pd.notna(component_pit_in) or pd.notna(component_pit_out)
         for sector in SECTOR_ORDER:
-            pit_loss = total_pit_loss / 2.0 if sector in {"S1", "S3"} else 0.0
+            if has_components:
+                pit_loss = (
+                    float(component_pit_out)
+                    if sector == "S1" and pd.notna(component_pit_out)
+                    else float(component_pit_in)
+                    if sector == "S3" and pd.notna(component_pit_in)
+                    else 0.0
+                )
+            else:
+                pit_loss = total_pit_loss / 2.0 if sector in {"S1", "S3"} else 0.0
             sector_time = _sector_time_from_row(row, sector, lap_time=lap_time)
             rows.append(
                 {
@@ -2092,6 +2272,12 @@ def expand_observed_laps_to_sector_timeline(laps: pd.DataFrame) -> pd.DataFrame:
                     "observed_real_lap_time_s": lap_time,
                     "observed_sector_time_s": sector_time,
                     "observed_actual_pit_loss_s": pit_loss,
+                    "observed_actual_pit_in_loss_s": (
+                        pit_loss if sector == "S3" else 0.0
+                    ),
+                    "observed_actual_pit_out_loss_s": (
+                        pit_loss if sector == "S1" else 0.0
+                    ),
                     "observed_scaffold_lap_time_s": sector_time - pit_loss,
                     "observed_compound": row.get("compound", row.get("observed_compound", pd.NA)),
                     "observed_tyre_age": row.get("tyre_age", row.get("observed_tyre_age", pd.NA)),

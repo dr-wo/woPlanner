@@ -1,6 +1,6 @@
 # woPlanner Code Status Quo
 
-Last reviewed: 2026-07-18
+Last reviewed: 2026-07-25
 
 This document is a compact map of the current `woPlanner` package so future
 coding agents can orient quickly without rereading every module. It describes
@@ -63,7 +63,11 @@ Current intended dependency direction:
 normalize/model -> strategy_model -> service -> gui
 ```
 
-- `normalize` converts raw loader output into the stable planner lap schema.
+- `normalize` converts raw loader output into the stable planner lap schema. It
+  prefers explicit lap time, then sector-summed lap time, then positive elapsed
+  `Time - LapStartTime`; cumulative time uses absolute lap-end time relative to
+  the earliest race start when available, falling back to per-driver lap-time
+  cumsum.
 - `model` contains simple dataclasses only.
 - `strategy_model` reads `woStrategy` cache artifacts and exposes prediction
   rows. It should not import GUI code.
@@ -178,7 +182,9 @@ baseline pace
 The service applies pit loss at sector level: pit-in loss on the previous lap's
 S3 and pit-out loss on the first new-stint lap's S1. If `pit_loss_summary` is
 available, the default split comes from woStrategy median S3/S1 pit-loss
-estimates; otherwise the manual total is split evenly.
+estimates; otherwise the manual total is split evenly. For manually entered
+what-if pit losses, the entered total is preserved even when `pit_loss_summary`
+exists; the woStrategy split is scaled to that total.
 
 ## Service Layer
 
@@ -278,7 +284,10 @@ the simulated line. In real-race adjusted mode, observed race-domain residuals
 are preserved except where a driver's physical SC/VSC-affected sector does not
 match the plotted race/leader sector status. Actual future pit stops do not leak
 into a no-pit simulation because their modelled pit-loss effect is included in
-the observed-strategy baseline and removed by the model delta.
+the observed-strategy baseline and removed by the model delta. If a what-if pit
+is added on the same stop lap as an observed pit, that observed stop is treated
+as replaced: residual carry-over for the old observed pit-in and pit-out sectors
+is suppressed and the simulated pit uses the edit's designated pit loss.
 
 The Strategy deltas dialog plots simulated cumulative time minus the selected
 reference cumulative time. Same-driver model delta is retained in separate
@@ -308,6 +317,9 @@ Pit-loss source priority:
 3. SC/VSC pit-loss default when track status applies
 4. normal pit-loss default
 
+For add-pit edits, the woStrategy split summary supplies the initial dialog
+value and split ratio only. The applied edit stores the user's requested total.
+
 If track status is unavailable where it is needed, the normal default is used
 and the simulation records a warning.
 
@@ -315,6 +327,11 @@ For `remove_observed_pit`, the removed pit-loss estimate is included in the
 modelled observed-strategy baseline. It is not added to the simulated no-pit
 strategy. The simulated strategy continues the previous compound and tyre age
 from the removed pit lap unless a later edit changes it.
+
+For `add_pit` on an observed pit's stop lap, the scenario still contains a
+single add edit at that `stop_after_lap`. The comparison layer handles the
+implicit replacement by marking baseline pit sectors as skipped whenever their
+pit-loss components differ from the simulated pit components.
 
 ### Plot Rows And Markers
 
@@ -356,6 +373,7 @@ Simulation interaction:
 - Click while holding the modifier to open the pit-stop simulation dialog.
 - Choose compound, tyre age, and pit-loss seconds.
 - Choose lap-time mode; new scenarios default to real-race adjusted.
+- The reference mode selector starts on actual pace.
 - Applying on an already simulated driver adds or replaces an edit inside that
   driver's active scenario and rebuilds the full simulated future.
 - Right-click an actual solid tyre marker to remove that real pit from the
@@ -407,6 +425,8 @@ Visual conventions:
 - sector-level SC/VSC residual suppression against the plotted race status
 - model-delta and residual-based simulated display construction
 - future real pit removal from the displayed simulation
+- same-lap add-pit replacement of an observed pit loss
+- manual add-pit loss preservation when woStrategy split defaults exist
 - dedicated `remove_observed_pit` edits and restore behavior
 - connected simulation and faded-real anchors
 - faded tyre marker state propagation

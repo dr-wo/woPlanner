@@ -21,6 +21,7 @@ from woplanner.service import (
     build_track_status_event_data,
     build_tyre_event_data,
     build_lap_delta_guide_data,
+    build_modelled_real_strategy_plan,
     add_driver_ranks,
     starting_driver_order,
     estimate_actual_pit_loss_by_lap,
@@ -46,6 +47,33 @@ def test_normalize_race_laps_calculates_cumulative_time():
 
     aaa = session.laps.loc[session.laps["driver"] == "AAA"]
     assert aaa["cumulative_time_s"].tolist() == [90.0, 181.0]
+
+
+def test_normalize_race_laps_prefers_absolute_lap_end_time_for_cumulative_order():
+    raw = pd.DataFrame(
+        {
+            "Driver": ["AAA", "BBB"],
+            "Team": ["Team A", "Team B"],
+            "LapNumber": [2, 2],
+            "LapTime": [168.0, 123.0],
+            "LapStartTime": [
+                pd.Timedelta(seconds=100.0),
+                pd.Timedelta(seconds=145.0),
+            ],
+            "Time": [
+                pd.Timedelta(seconds=268.0),
+                pd.Timedelta(seconds=276.0),
+            ],
+            "Position": [1.0, 2.0],
+        }
+    )
+
+    session = normalize_race_laps(raw, year=2026, round_number=1, session_name="R")
+
+    assert session.laps.set_index("driver")["cumulative_time_s"].to_dict() == {
+        "AAA": 168.0,
+        "BBB": 176.0,
+    }
 
 
 def test_default_reference_driver_uses_result_winner():
@@ -515,6 +543,191 @@ def test_service_replaces_existing_driver_simulation():
     assert second.edits[0].compound == "MEDIUM"
     assert second.edits[0].initial_tyre_age == 2
     assert second.edits[0].pit_loss_s == 18.0
+
+
+def test_service_preserves_manual_pit_loss_when_model_split_is_available():
+    class FakeStrategyModel:
+        def pit_loss_split(self, **kwargs):
+            return 4.779, 16.742
+
+        def predict_strategy_plan(self, **kwargs):
+            plan = kwargs["strategy_plan"]
+            rows = []
+            for segment in plan.segments:
+                for offset, lap in enumerate(range(segment.start_lap, segment.end_lap + 1)):
+                    stop = next(
+                        (
+                            pit_stop
+                            for pit_stop in plan.pit_stops
+                            if pit_stop.first_lap_after_stop == lap
+                        ),
+                        None,
+                    )
+                    pit_loss = float(stop.pit_loss_s) if stop is not None else 0.0
+                    pit_in = float(stop.pit_in_loss_s or 0.0) if stop is not None else 0.0
+                    pit_out = float(stop.pit_out_loss_s or 0.0) if stop is not None else 0.0
+                    rows.append(
+                        {
+                            "driver": plan.driver,
+                            "team": plan.team,
+                            "lap": lap,
+                            "compound": segment.compound,
+                            "tyre_age": segment.initial_tyre_age + offset,
+                            "predicted_clean_lap_time_s": 90.0,
+                            "pit_loss_s": pit_loss,
+                            "pit_in_loss_s": pit_in,
+                            "pit_out_loss_s": pit_out,
+                            "predicted_total_lap_time_s": 90.0 + pit_in + pit_out,
+                        }
+                    )
+            return pd.DataFrame(rows)
+
+    service = RacePlannerService()
+    service.strategy_model = FakeStrategyModel()
+    service.session = normalize_race_laps(
+        pd.DataFrame(
+            {
+                "Driver": ["AAA", "AAA", "AAA"],
+                "Team": ["Team A", "Team A", "Team A"],
+                "LapNumber": [1, 2, 3],
+                "LapTime": [90.0, 91.0, 92.0],
+                "Compound": ["MEDIUM", "MEDIUM", "MEDIUM"],
+                "Stint": [1, 1, 1],
+                "TyreLife": [1, 2, 3],
+            }
+        ),
+        year=2026,
+        round_number=10,
+        session_name="R",
+    )
+
+    scenario = service.create_pit_stop_simulation(
+        driver="AAA",
+        stop_after_lap=1,
+        compound="HARD",
+        initial_tyre_age=0,
+        pit_loss_s=18.0,
+        normal_pit_loss_s=20.0,
+        sc_vsc_pit_loss_s=10.0,
+    )
+
+    edit = scenario.edits[0]
+    assert edit.pit_loss_s == 18.0
+    assert round(float(edit.pit_in_loss_s), 6) == round(18.0 * 4.779 / 21.521, 6)
+    assert round(float(edit.pit_out_loss_s), 6) == round(18.0 - float(edit.pit_in_loss_s), 6)
+    assert edit.pit_loss_source == "manual, woStrategy split ratio"
+    comparison = service.scenarios.active_comparisons()[0]
+    first_simulated = comparison.comparison_laps.loc[
+        comparison.comparison_laps["what_if_pit_loss_s"] > 0.0
+    ].iloc[0]
+    assert float(first_simulated["what_if_pit_loss_s"]) == 18.0
+
+
+def test_add_pit_on_observed_stop_replaces_observed_pit_residual():
+    class FakeStrategyModel:
+        def predict_strategy_plan(self, **kwargs):
+            plan = kwargs["strategy_plan"]
+            rows = []
+            for segment in plan.segments:
+                for offset, lap in enumerate(range(segment.start_lap, segment.end_lap + 1)):
+                    pit_in = sum(
+                        float(stop.pit_in_loss_s or 0.0)
+                        for stop in plan.pit_stops
+                        if int(stop.stop_after_lap) == int(lap)
+                    )
+                    pit_out = sum(
+                        float(stop.pit_out_loss_s or 0.0)
+                        for stop in plan.pit_stops
+                        if int(stop.first_lap_after_stop) == int(lap)
+                    )
+                    rows.append(
+                        {
+                            "driver": plan.driver,
+                            "team": plan.team,
+                            "lap": lap,
+                            "compound": segment.compound,
+                            "tyre_age": segment.initial_tyre_age + offset,
+                            "predicted_clean_lap_time_s": 90.0,
+                            "pit_loss_s": pit_in + pit_out,
+                            "pit_in_loss_s": pit_in,
+                            "pit_out_loss_s": pit_out,
+                            "predicted_total_lap_time_s": 90.0 + pit_in + pit_out,
+                        }
+                    )
+            return pd.DataFrame(rows)
+
+    service = RacePlannerService()
+    service.strategy_model = FakeStrategyModel()
+    service.session = normalize_race_laps(
+        pd.DataFrame(
+            {
+                "Driver": ["AAA", "AAA", "AAA", "AAA", "BBB", "BBB", "BBB", "BBB"],
+                "Team": [
+                    "Team A",
+                    "Team A",
+                    "Team A",
+                    "Team A",
+                    "Team B",
+                    "Team B",
+                    "Team B",
+                    "Team B",
+                ],
+                "LapNumber": [1, 2, 3, 4, 1, 2, 3, 4],
+                "LapTime": [90.0, 102.0, 102.0, 90.0, 90.0, 90.0, 90.0, 90.0],
+                "Sector1Time": [30.0, 30.0, 42.0, 30.0, 30.0, 30.0, 30.0, 30.0],
+                "Sector2Time": [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
+                "Sector3Time": [30.0, 42.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
+                "Compound": ["MEDIUM", "MEDIUM", "HARD", "HARD", "HARD", "HARD", "HARD", "HARD"],
+                "Stint": [1, 1, 2, 2, 1, 1, 1, 1],
+                "TyreLife": [1, 2, 1, 2, 1, 2, 3, 4],
+                "PitInTime": [
+                    pd.NaT,
+                    pd.Timestamp("2026-01-01"),
+                    pd.NaT,
+                    pd.NaT,
+                    pd.NaT,
+                    pd.NaT,
+                    pd.NaT,
+                    pd.NaT,
+                ],
+                "PitOutTime": [
+                    pd.NaT,
+                    pd.NaT,
+                    pd.Timestamp("2026-01-01"),
+                    pd.NaT,
+                    pd.NaT,
+                    pd.NaT,
+                    pd.NaT,
+                    pd.NaT,
+                ],
+                "TrackStatus": ["1"] * 8,
+            }
+        ),
+        year=2026,
+        round_number=1,
+        session_name="R",
+    )
+
+    service.create_pit_stop_simulation(
+        driver="AAA",
+        stop_after_lap=2,
+        compound="HARD",
+        initial_tyre_age=0,
+        pit_loss_s=18.0,
+        comparison_mode=COMPARISON_MODE_MODELLED_REAL_STRATEGY,
+        normal_pit_loss_s=20.0,
+        sc_vsc_pit_loss_s=10.0,
+    )
+
+    delta = service.build_strategy_delta_data()
+    pit_sectors = delta.loc[
+        ((delta["lap"] == 2) & (delta["sector"] == "S3"))
+        | ((delta["lap"] == 3) & (delta["sector"] == "S1"))
+    ]
+
+    assert pit_sectors["what_if_pit_loss_s"].tolist() == [9.0, 9.0]
+    assert pit_sectors["race_domain_residual_s"].tolist() == [0.0, 0.0]
+    assert pit_sectors["sim_display_sector_time_s"].tolist() == [39.0, 39.0]
 
 
 def test_service_adds_multiple_edits_to_one_driver_scenario_and_rebuilds_from_earliest():
@@ -1115,6 +1328,72 @@ def test_actual_pit_loss_estimation_splits_adjacent_pit_in_and_pit_out_laps():
     )
 
     assert actual_pit_loss["actual_pit_loss_s"].tolist() == [0.0, 10.0, 10.0]
+
+
+def test_actual_pit_loss_estimation_accumulates_overlapping_pit_out_and_pit_in_lap():
+    laps = pd.DataFrame(
+        {
+            "driver": ["HAD", "HAD", "HAD"],
+            "lap": [1, 2, 3],
+            "pit_in": [True, True, False],
+            "pit_out": [False, True, True],
+            "track_status": ["4", "4", "4"],
+        }
+    )
+
+    actual_pit_loss = estimate_actual_pit_loss_by_lap(
+        laps,
+        normal_pit_loss_s=20.0,
+        sc_vsc_pit_loss_s=10.0,
+    )
+
+    assert actual_pit_loss["actual_pit_in_loss_s"].tolist() == [5.0, 5.0, 0.0]
+    assert actual_pit_loss["actual_pit_out_loss_s"].tolist() == [0.0, 5.0, 5.0]
+    assert actual_pit_loss["actual_pit_loss_s"].tolist() == [5.0, 10.0, 5.0]
+
+
+def test_modelled_real_strategy_plan_uses_previous_inlap_and_current_outlap_for_observed_stop():
+    driver_laps = pd.DataFrame(
+        {
+            "driver": ["HAD", "HAD", "HAD"],
+            "lap": [1, 2, 3],
+            "compound": ["HARD", "MEDIUM", "HARD"],
+            "tyre_age": [1, 1, 1],
+            "pit_out": [False, True, True],
+        }
+    )
+    actual_pit_loss = pd.DataFrame(
+        {
+            "driver": ["HAD", "HAD", "HAD"],
+            "lap": [1, 2, 3],
+            "actual_pit_loss_s": [5.0, 10.0, 5.0],
+            "actual_pit_in_loss_s": [5.0, 5.0, 0.0],
+            "actual_pit_out_loss_s": [0.0, 5.0, 5.0],
+        }
+    )
+
+    plan = build_modelled_real_strategy_plan(
+        driver_laps,
+        driver="HAD",
+        team="Red Bull Racing",
+        stop_after_lap=0,
+        default_pit_loss_s=10.0,
+        actual_pit_loss_by_lap=actual_pit_loss,
+    )
+
+    assert [
+        (
+            stop.stop_after_lap,
+            stop.first_lap_after_stop,
+            stop.pit_loss_s,
+            stop.pit_in_loss_s,
+            stop.pit_out_loss_s,
+        )
+        for stop in plan.pit_stops
+    ] == [
+        (1, 2, 10.0, 5.0, 5.0),
+        (2, 3, 10.0, 5.0, 5.0),
+    ]
 
 
 def test_unavailable_model_rows_for_other_drivers_do_not_block_simulation():

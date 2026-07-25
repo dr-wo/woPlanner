@@ -54,6 +54,11 @@ def normalize_race_laps(
         ["sector_1_time_s", "sector_2_time_s", "sector_3_time_s"]
     ].sum(axis=1, min_count=3)
     laps["lap_time_s"] = laps["lap_time_s"].combine_first(sector_lap_time_s)
+    elapsed_lap_time_s = _elapsed_seconds(
+        _column(raw_laps, "LapStartTime"),
+        _column(raw_laps, "Time"),
+    )
+    laps["lap_time_s"] = laps["lap_time_s"].combine_first(elapsed_lap_time_s)
     laps["compound"] = _column(raw_laps, "Compound", default=pd.NA)
     laps["stint"] = pd.to_numeric(_column(raw_laps, "Stint"), errors="coerce").astype("Int64")
     laps["tyre_age"] = pd.to_numeric(_column(raw_laps, "TyreLife"), errors="coerce")
@@ -78,11 +83,27 @@ def normalize_race_laps(
         errors="coerce",
     )
 
+    laps["_lap_end_time_s"] = _seconds(_column(raw_laps, "Time"))
+    race_start_time_s = pd.to_numeric(_seconds(_column(raw_laps, "LapStartTime")), errors="coerce").min()
+
     laps = laps.loc[laps["driver"].notna() & (laps["driver"].astype(str) != "")]
     laps = laps.sort_values(["driver", "lap"], kind="mergesort").reset_index(drop=True)
-    laps["cumulative_time_s"] = (
+    cumulative_from_lap_times = (
         laps.groupby("driver", sort=False)["lap_time_s"].cumsum().where(laps["lap_time_s"].notna())
     )
+    if pd.notna(race_start_time_s):
+        cumulative_from_absolute_time = pd.to_numeric(
+            laps["_lap_end_time_s"], errors="coerce"
+        ) - float(race_start_time_s)
+        cumulative_from_absolute_time = cumulative_from_absolute_time.where(
+            cumulative_from_absolute_time.notna() & (cumulative_from_absolute_time >= 0.0)
+        )
+        laps["cumulative_time_s"] = cumulative_from_absolute_time.combine_first(
+            cumulative_from_lap_times
+        )
+    else:
+        laps["cumulative_time_s"] = cumulative_from_lap_times
+    laps = laps.drop(columns=["_lap_end_time_s"])
     laps = laps.loc[:, NORMALIZED_LAP_COLUMNS]
 
     drivers = _build_drivers(laps)
@@ -111,6 +132,13 @@ def _seconds(values: pd.Series) -> pd.Series:
     if pd.api.types.is_numeric_dtype(values):
         return pd.to_numeric(values, errors="coerce")
     return pd.to_timedelta(values, errors="coerce").dt.total_seconds()
+
+
+def _elapsed_seconds(start_values: pd.Series, end_values: pd.Series) -> pd.Series:
+    start = _seconds(start_values)
+    end = _seconds(end_values)
+    elapsed = end - start
+    return elapsed.where(elapsed > 0)
 
 
 def _notna(values: pd.Series) -> pd.Series:
