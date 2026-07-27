@@ -365,10 +365,10 @@ def test_team_colour_and_teammate_line_style_assignment():
 
     styled = assign_driver_styles(drivers)
 
-    assert styled.loc[styled["driver"] == "HAM", "colour"].iloc[0] == "#27F4D2"
+    assert styled.loc[styled["driver"] == "HAM", "colour"].iloc[0] == "#00D7B6"
     assert styled.loc[styled["driver"] == "HAM", "line_style"].iloc[0] == "solid"
     assert styled.loc[styled["driver"] == "RUS", "line_style"].iloc[0] == "dash"
-    assert styled.loc[styled["driver"] == "VER", "colour"].iloc[0] == "#3671C6"
+    assert styled.loc[styled["driver"] == "VER", "colour"].iloc[0] == "#4781D7"
 
 
 def test_strategy_model_adapter_reads_weighted_median_cache(tmp_path):

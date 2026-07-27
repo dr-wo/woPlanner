@@ -7,6 +7,8 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 
+from wodata.colours import F1_TEAM_COLORS as TEAM_COLOURS
+
 from .model import (
     COMPARISON_MODE_MODELLED_REAL_STRATEGY,
     COMPARISON_MODE_OBSERVED_REAL_DATA,
@@ -23,18 +25,6 @@ from .model import (
 from .normalize import normalize_race_laps
 from .strategy_model import WoStrategyRaceModelAdapter
 
-TEAM_COLOURS = {
-    "Red Bull Racing": "#3671C6",
-    "Mercedes": "#27F4D2",
-    "Ferrari": "#E80020",
-    "McLaren": "#FF8000",
-    "Aston Martin": "#229971",
-    "Alpine": "#0093CC",
-    "Williams": "#64C4FF",
-    "Racing Bulls": "#6692FF",
-    "Kick Sauber": "#52E252",
-    "Haas F1 Team": "#B6BABD",
-}
 FALLBACK_COLOURS = [
     "#1f77b4",
     "#ff7f0e",

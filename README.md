@@ -2,6 +2,9 @@
 
 Interactive race planner built on `woStrategy` data loaders and `woData` cache paths.
 
+Team and driver plotting colours come from `wodata.colours`, the shared palette
+derived from FastF1's live-timing `DriverList`.
+
 ## Local development
 
 For local development from the sibling checkout layout:
