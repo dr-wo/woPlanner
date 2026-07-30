@@ -103,9 +103,9 @@ def main() -> int:
             self.reference_mode = QtWidgets.QComboBox()
             for mode, label in REFERENCE_MODE_LABELS.items():
                 self.reference_mode.addItem(label, mode)
-            actual_index = self.reference_mode.findData(REFERENCE_MODE_ACTUAL_PACE)
-            if actual_index >= 0:
-                self.reference_mode.setCurrentIndex(actual_index)
+            average_index = self.reference_mode.findData(REFERENCE_MODE_AVERAGED_PACE)
+            if average_index >= 0:
+                self.reference_mode.setCurrentIndex(average_index)
             self.line_width = QtWidgets.QDoubleSpinBox()
             self.line_width.setRange(0.5, 8.0)
             self.line_width.setSingleStep(0.5)

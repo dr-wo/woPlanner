@@ -10,11 +10,30 @@ derived from FastF1's live-timing `DriverList`.
 For local development from the sibling checkout layout:
 
 ```bash
-pip install -e ../woData
+pip install -e ../Fast-F1
+pip install -e "../woData[live]"
 pip install -e ../woStrategy
 pip install -e .
 woplanner
 ```
+
+## Live mode
+
+Run `woplanner-live` for the live observation view. It uses FastF1's browser
+authentication, subscribes only to the Phase 1 timing topics, and records every
+canonical raw message before applying it. The same text recording can be selected
+in the window for max-speed, 1x, 5x, or 20x replay.
+
+Live mode plots sector-level deltas when the feed provides
+`TimingData.Lines[*].Sectors`. If a recording only contains completed-lap timing,
+or if the app connects late and earlier sector timing is unavailable, it falls
+back to completed-lap S3 points. Both live and post-race planners default to
+averaged reference mode; the mode selector can switch back to actual reference
+pace.
+
+Live mode performs no strategy modelling, correction, prediction, or
+interpolation. Missing internal lap timing invalidates later cumulative deltas for
+that driver instead of assuming the missing lap took zero time.
 
 Use **Latest** to load the latest completed race FastF1 can find and set the
 reference driver to the race winner. The plot uses an inverted y-axis so slower

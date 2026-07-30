@@ -1,6 +1,12 @@
 # woPlanner Code Status Quo
 
-Last reviewed: 2026-07-25
+Last reviewed: 2026-07-26
+
+Live Mode Phase 1 adds a separate `LivePlannerService`, `LivePlannerWindow`, and
+`woplanner-live` CLI. Live transport, recording, replay, completed-lap state, and
+sector timing state belong to `woData.live`; the live service does not load
+`woStrategy`. Both GUIs share the presentation-only `RelativeDeltaPlotWidget`
+shell and default to averaged reference mode.
 
 This document is a compact map of the current `woPlanner` package so future
 coding agents can orient quickly without rereading every module. It describes
