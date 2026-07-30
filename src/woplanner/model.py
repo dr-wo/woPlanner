@@ -45,6 +45,7 @@ class DriverStrategyScenario:
     edits: list[StrategyEdit]
     comparison_mode: str = COMPARISON_MODE_MODELLED_REAL_STRATEGY
     is_active: bool = True
+    use_team_model_data: bool = False
 
 
 PitStopScenario = DriverStrategyScenario

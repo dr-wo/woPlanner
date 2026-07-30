@@ -124,9 +124,9 @@ sim_real_domain_lap_time_A
 
 For SC/VSC timing, residual carry-over is sector-aware. `woStrategy` exports
 physical per-driver sector status, while `woPlanner` aligns the plotted status to
-the race/leader lap-sector timeline. If a driver's physical sector was under
-SC/VSC but that plotted sector is not, the SC/VSC residual is suppressed so a
-backmarker does not receive a slowdown before the plotted SC/VSC period begins.
+the race/leader lap-sector timeline. A driver's observed SC/VSC residual remains
+on the physical sector where that driver experienced it, even when that sector
+falls just outside the leader-aligned shaded SC/VSC period.
 
 **Pure sim - model lap times** uses modelled what-if lap time directly and drops
 observed race residuals:

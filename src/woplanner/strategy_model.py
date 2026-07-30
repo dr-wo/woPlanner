@@ -34,6 +34,30 @@ class MissingStrategyModelError(RuntimeError):
         )
 
 
+class MissingDriverStrategyModelError(ValueError):
+    def __init__(
+        self,
+        *,
+        driver: str,
+        team: str,
+        compound: str,
+        team_model_driver: str | None = None,
+    ) -> None:
+        self.driver = str(driver)
+        self.team = str(team)
+        self.compound = str(compound).upper()
+        self.team_model_driver = (
+            None if team_model_driver is None else str(team_model_driver)
+        )
+        message = f"No strategy model row for {self.driver} on {self.compound}"
+        if self.team_model_driver is not None:
+            message += (
+                f". {self.team}'s data is available from "
+                f"{self.team_model_driver}"
+            )
+        super().__init__(message)
+
+
 class WoStrategyRaceModelAdapter:
     def __init__(
         self,
@@ -113,6 +137,7 @@ class WoStrategyRaceModelAdapter:
         round_number: int,
         session_name: str,
         strategy_plan: StrategyPlan,
+        use_team_data: bool = False,
     ) -> pd.DataFrame:
         model = self.load_model(year=year, round_number=round_number, session_name=session_name)
         frames = []
@@ -123,7 +148,21 @@ class WoStrategyRaceModelAdapter:
                 & (model["compound"].astype(str).str.upper() == compound)
             ]
             if driver_rows.empty:
-                raise ValueError(f"No strategy model row for {strategy_plan.driver} on {compound}")
+                team_rows = model.loc[
+                    (model["team"].astype(str) == str(strategy_plan.team))
+                    & (model["compound"].astype(str).str.upper() == compound)
+                    & (model["driver"].astype(str) != str(strategy_plan.driver))
+                ].sort_values("driver", kind="mergesort")
+                if not use_team_data or team_rows.empty:
+                    raise MissingDriverStrategyModelError(
+                        driver=strategy_plan.driver,
+                        team=strategy_plan.team,
+                        compound=compound,
+                        team_model_driver=(
+                            None if team_rows.empty else str(team_rows.iloc[0]["driver"])
+                        ),
+                    )
+                driver_rows = team_rows
             row = driver_rows.iloc[0]
             laps = pd.Series(
                 range(int(segment.start_lap), int(segment.end_lap) + 1),

@@ -8,14 +8,21 @@ from .model import (
     StrategyEdit,
 )
 from .service import RacePlannerService
-from .strategy_model import MissingStrategyModelError, WoStrategyRaceModelAdapter
+from .live_service import LivePlannerService
+from .strategy_model import (
+    MissingDriverStrategyModelError,
+    MissingStrategyModelError,
+    WoStrategyRaceModelAdapter,
+)
 
 __all__ = [
     "MissingStrategyModelError",
+    "MissingDriverStrategyModelError",
     "DriverStrategyScenario",
     "PitStopScenario",
     "PlannerRaceSession",
     "RacePlannerService",
+    "LivePlannerService",
     "ScenarioTrajectory",
     "StrategyEdit",
     "WoStrategyRaceModelAdapter",

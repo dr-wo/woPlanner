@@ -22,12 +22,17 @@ from woplanner.service import (
     build_tyre_event_data,
     build_lap_delta_guide_data,
     build_modelled_real_strategy_plan,
+    build_sector_strategy_comparison,
     add_driver_ranks,
     starting_driver_order,
     estimate_actual_pit_loss_by_lap,
     track_status_type,
 )
-from woplanner.strategy_model import MissingStrategyModelError, WoStrategyRaceModelAdapter
+from woplanner.strategy_model import (
+    MissingDriverStrategyModelError,
+    MissingStrategyModelError,
+    WoStrategyRaceModelAdapter,
+)
 
 
 def test_normalize_race_laps_calculates_cumulative_time():
@@ -203,6 +208,64 @@ def test_track_status_event_data_classifies_sc_and_vsc_laps():
         {"lap": 5, "track_status_type": "sc", "label": "SC"},
         {"lap": 6, "track_status_type": "sc", "label": "SC"},
     ]
+
+
+def test_real_race_adjusted_keeps_physical_vsc_residual_before_leader_aligned_band():
+    session = normalize_race_laps(
+        pd.DataFrame(
+            {
+                "Driver": ["LEA", "LEA", "SIM", "SIM"],
+                "Team": ["Team A", "Team A", "Team B", "Team B"],
+                "LapNumber": [1, 2, 1, 2],
+                "LapTime": [90.0, 90.0, 90.0, 96.0],
+                "Sector1Time": [30.0, 30.0, 30.0, 30.0],
+                "Sector2Time": [30.0, 30.0, 30.0, 36.0],
+                "Sector3Time": [30.0, 30.0, 30.0, 30.0],
+                "Compound": ["HARD"] * 4,
+                "TyreLife": [1, 2, 1, 2],
+                "TrackStatus": ["1", "1", "1", "6"],
+                "Sector1TrackStatus": ["1", "1", "1", "1"],
+                "Sector2TrackStatus": ["1", "1", "1", "6"],
+                "Sector3TrackStatus": ["1", "1", "1", "1"],
+                "Position": [1, 1, 2, 2],
+            }
+        ),
+        year=2026,
+        round_number=11,
+        session_name="R",
+    )
+    observed = session.laps.loc[session.laps["driver"].eq("SIM")].rename(
+        columns={"lap_time_s": "observed_real_lap_time_s"}
+    )
+    model_laps = pd.DataFrame(
+        {
+            "lap": [2],
+            "driver": ["SIM"],
+            "team": ["Team B"],
+            "compound": ["HARD"],
+            "tyre_age": [1],
+            "predicted_clean_lap_time_s": [90.0],
+            "pit_loss_s": [0.0],
+            "pit_in_loss_s": [0.0],
+            "pit_out_loss_s": [0.0],
+            "predicted_total_lap_time_s": [90.0],
+        }
+    )
+
+    comparison = build_sector_strategy_comparison(
+        model_laps,
+        model_laps,
+        observed,
+        comparison_mode=COMPARISON_MODE_MODELLED_REAL_STRATEGY,
+    )
+    sector_2 = comparison.loc[comparison["sector"].eq("S2")].iloc[0]
+    event_observed = observed.loc[observed["lap"].eq(2)].iloc[0]
+
+    assert event_observed["track_status_s2"] == "1"
+    assert event_observed["physical_track_status_s2"] == "6"
+    assert sector_2["race_domain_residual_s"] == 6.0
+    assert sector_2["display_residual_s"] == 6.0
+    assert sector_2["sim_display_sector_time_s"] == 36.0
 
 
 def test_service_defaults_pit_loss_from_first_lap_after_stop_status():
@@ -422,6 +485,68 @@ def test_strategy_model_adapter_reports_missing_cache_files(tmp_path):
         assert "race_performance_review" in str(exc) or str(tmp_path) in str(exc)
     else:
         raise AssertionError("Expected MissingStrategyModelError")
+
+
+def test_strategy_model_adapter_can_use_teammate_data_for_missing_driver():
+    class InMemoryAdapter(WoStrategyRaceModelAdapter):
+        def load_model(self, **kwargs):
+            return pd.DataFrame(
+                {
+                    "driver": ["RUS"],
+                    "team": ["Mercedes"],
+                    "compound": ["MEDIUM"],
+                    "baseline_pace_s": [81.0],
+                    "compound_delta_s": [-0.2],
+                    "team_compound_degradation_s_per_lap": [0.1],
+                    "tyre_age_reference": [0.0],
+                    "fuel_total_laps": [70.0],
+                    "fuel_rate_s_per_lap": [0.0],
+                    "fuel_reference": [0.0],
+                    "track_rate_s_per_lap": [0.0],
+                    "reference_lap": [1.0],
+                }
+            )
+
+    adapter = InMemoryAdapter()
+    plan = StrategyPlan(
+        driver="ANT",
+        team="Mercedes",
+        start_after_lap=1,
+        end_lap=2,
+        segments=[
+            StintSegment(
+                start_lap=2,
+                end_lap=2,
+                compound="MEDIUM",
+                initial_tyre_age=5,
+            )
+        ],
+        pit_stops=[],
+    )
+
+    try:
+        adapter.predict_strategy_plan(
+            year=2026,
+            round_number=11,
+            session_name="R",
+            strategy_plan=plan,
+        )
+    except MissingDriverStrategyModelError as exc:
+        assert exc.driver == "ANT"
+        assert exc.team_model_driver == "RUS"
+    else:
+        raise AssertionError("Expected MissingDriverStrategyModelError")
+
+    predicted = adapter.predict_strategy_plan(
+        year=2026,
+        round_number=11,
+        session_name="R",
+        strategy_plan=plan,
+        use_team_data=True,
+    )
+
+    assert predicted["driver"].tolist() == ["ANT"]
+    assert predicted["predicted_clean_lap_time_s"].tolist() == [81.3]
 
 
 def test_service_creates_simulation_without_mutating_base_session():
@@ -1452,6 +1577,88 @@ def test_unavailable_model_rows_for_other_drivers_do_not_block_simulation():
 
     assert scenario.driver == "ANT"
     assert comparison.warnings == []
+
+
+def test_team_model_fallback_is_saved_and_reused_when_scenario_is_rebuilt():
+    class FakeStrategyModel:
+        def __init__(self):
+            self.use_team_data_values = []
+
+        def predict_strategy_plan(self, **kwargs):
+            plan = kwargs["strategy_plan"]
+            use_team_data = bool(kwargs.get("use_team_data", False))
+            self.use_team_data_values.append(use_team_data)
+            if plan.driver == "ANT" and not use_team_data:
+                raise MissingDriverStrategyModelError(
+                    driver="ANT",
+                    team="Mercedes",
+                    compound=plan.segments[0].compound,
+                    team_model_driver="RUS",
+                )
+            rows = []
+            pit_losses = {
+                stop.first_lap_after_stop: stop.pit_loss_s for stop in plan.pit_stops
+            }
+            for segment in plan.segments:
+                for offset, lap in enumerate(range(segment.start_lap, segment.end_lap + 1)):
+                    pit_loss = pit_losses.get(lap, 0.0)
+                    rows.append(
+                        {
+                            "driver": plan.driver,
+                            "team": plan.team,
+                            "lap": lap,
+                            "compound": segment.compound,
+                            "tyre_age": segment.initial_tyre_age + offset,
+                            "predicted_clean_lap_time_s": 90.0,
+                            "pit_loss_s": pit_loss,
+                            "predicted_total_lap_time_s": 90.0 + pit_loss,
+                        }
+                    )
+            return pd.DataFrame(rows)
+
+    service = RacePlannerService()
+    fake_model = FakeStrategyModel()
+    service.strategy_model = fake_model
+    service.session = normalize_race_laps(
+        pd.DataFrame(
+            {
+                "Driver": ["ANT"] * 5,
+                "Team": ["Mercedes"] * 5,
+                "LapNumber": [1, 2, 3, 4, 5],
+                "LapTime": [90.0, 90.0, 90.0, 90.0, 90.0],
+                "Compound": ["MEDIUM"] * 5,
+                "TyreLife": [1, 2, 3, 4, 5],
+            }
+        ),
+        year=2026,
+        round_number=11,
+        session_name="R",
+    )
+
+    scenario = service.create_pit_stop_simulation(
+        driver="ANT",
+        stop_after_lap=2,
+        compound="HARD",
+        initial_tyre_age=0,
+        pit_loss_s=20.0,
+        use_team_model_data=True,
+    )
+    service.create_pit_stop_simulation(
+        driver="ANT",
+        stop_after_lap=3,
+        compound="MEDIUM",
+        initial_tyre_age=0,
+        pit_loss_s=20.0,
+    )
+
+    rebuilt = service.scenarios.get(scenario.scenario_id)
+    comparison = service.scenarios.active_comparisons()[0]
+    assert rebuilt is not None
+    assert rebuilt.use_team_model_data is True
+    assert fake_model.use_team_data_values and all(fake_model.use_team_data_values)
+    assert comparison.warnings == [
+        "ANT: driver model data was unavailable; using Mercedes team data where needed."
+    ]
 
 
 def test_simulated_overlay_uses_strategy_delta_on_existing_cumulative_delta_plot():

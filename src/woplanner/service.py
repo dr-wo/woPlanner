@@ -7,8 +7,6 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 
-from wodata.colours import F1_TEAM_COLORS as TEAM_COLOURS
-
 from .model import (
     COMPARISON_MODE_MODELLED_REAL_STRATEGY,
     COMPARISON_MODE_OBSERVED_REAL_DATA,
@@ -24,19 +22,8 @@ from .model import (
 )
 from .normalize import normalize_race_laps
 from .strategy_model import WoStrategyRaceModelAdapter
+from .driver_styles import FALLBACK_COLOURS, TEAM_COLOURS, assign_driver_styles
 
-FALLBACK_COLOURS = [
-    "#1f77b4",
-    "#ff7f0e",
-    "#2ca02c",
-    "#d62728",
-    "#9467bd",
-    "#8c564b",
-    "#e377c2",
-    "#7f7f7f",
-    "#bcbd22",
-    "#17becf",
-]
 TRACK_STATUS_SC = "sc"
 TRACK_STATUS_VSC = "vsc"
 REFERENCE_MODE_ACTUAL_PACE = "actual_pace"
@@ -201,6 +188,7 @@ class RacePlannerService:
         comparison_mode: str = COMPARISON_MODE_MODELLED_REAL_STRATEGY,
         normal_pit_loss_s: float | None = None,
         sc_vsc_pit_loss_s: float | None = None,
+        use_team_model_data: bool = False,
     ) -> DriverStrategyScenario:
         session = self._require_session()
         comparison_mode = _normalize_comparison_mode(comparison_mode)
@@ -225,6 +213,7 @@ class RacePlannerService:
                 driver=driver,
                 edits=[],
                 comparison_mode=comparison_mode,
+                use_team_model_data=bool(use_team_model_data),
             )
         else:
             scenario = DriverStrategyScenario(
@@ -233,6 +222,9 @@ class RacePlannerService:
                 edits=list(existing_scenario.edits),
                 comparison_mode=comparison_mode,
                 is_active=existing_scenario.is_active,
+                use_team_model_data=(
+                    existing_scenario.use_team_model_data or bool(use_team_model_data)
+                ),
             )
 
         pit_split = self._pit_loss_split_for_stop(stop_after_lap=stop_after_lap)
@@ -279,7 +271,10 @@ class RacePlannerService:
             sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
             warnings=warnings,
         )
-        what_if_laps = self._predict_strategy_plan(what_if_plan)
+        what_if_laps = self._predict_strategy_plan(
+            what_if_plan,
+            use_team_model_data=scenario.use_team_model_data,
+        )
         comparison = self._build_strategy_comparison(
             scenario,
             what_if_plan=what_if_plan,
@@ -361,6 +356,7 @@ class RacePlannerService:
         comparison_mode: str = COMPARISON_MODE_MODELLED_REAL_STRATEGY,
         normal_pit_loss_s: float | None = None,
         sc_vsc_pit_loss_s: float | None = None,
+        use_team_model_data: bool = False,
     ) -> DriverStrategyScenario:
         session = self._require_session()
         comparison_mode = _normalize_comparison_mode(comparison_mode)
@@ -407,6 +403,7 @@ class RacePlannerService:
                 driver=driver,
                 edits=[],
                 comparison_mode=comparison_mode,
+                use_team_model_data=bool(use_team_model_data),
             )
         else:
             scenario = DriverStrategyScenario(
@@ -415,6 +412,9 @@ class RacePlannerService:
                 edits=list(existing_scenario.edits),
                 comparison_mode=comparison_mode,
                 is_active=existing_scenario.is_active,
+                use_team_model_data=(
+                    existing_scenario.use_team_model_data or bool(use_team_model_data)
+                ),
             )
 
         continued_compound = str(previous_lap.iloc[0].get("compound", "")).upper()
@@ -440,7 +440,10 @@ class RacePlannerService:
             end_lap=max_lap,
             actual_pit_loss_by_lap=actual_pit_loss,
         )
-        what_if_laps = self._predict_strategy_plan(what_if_plan)
+        what_if_laps = self._predict_strategy_plan(
+            what_if_plan,
+            use_team_model_data=scenario.use_team_model_data,
+        )
         comparison = self._build_strategy_comparison(
             scenario,
             what_if_plan=what_if_plan,
@@ -544,6 +547,7 @@ class RacePlannerService:
             edits=remaining_edits,
             comparison_mode=scenario.comparison_mode,
             is_active=scenario.is_active,
+            use_team_model_data=scenario.use_team_model_data,
         )
         self._rebuild_scenario(session, rebuilt)
         self._last_plot_data = None
@@ -564,6 +568,7 @@ class RacePlannerService:
             edits=remaining_edits,
             comparison_mode=scenario.comparison_mode,
             is_active=scenario.is_active,
+            use_team_model_data=scenario.use_team_model_data,
         )
         self._rebuild_scenario(session, rebuilt)
         self._last_plot_data = None
@@ -599,7 +604,12 @@ class RacePlannerService:
             raise RuntimeError("No race session loaded")
         return self.session
 
-    def _predict_strategy_plan(self, strategy_plan: StrategyPlan) -> pd.DataFrame:
+    def _predict_strategy_plan(
+        self,
+        strategy_plan: StrategyPlan,
+        *,
+        use_team_model_data: bool = False,
+    ) -> pd.DataFrame:
         session = self._require_session()
         if hasattr(self.strategy_model, "predict_strategy_plan"):
             return _ensure_model_pit_loss_columns(
@@ -608,6 +618,7 @@ class RacePlannerService:
                     round_number=session.round_number,
                     session_name=session.session_name,
                     strategy_plan=strategy_plan,
+                    use_team_data=use_team_model_data,
                 )
             )
         if len(strategy_plan.segments) != 1:
@@ -668,6 +679,13 @@ class RacePlannerService:
         actual_pit_loss_by_lap: pd.DataFrame,
         warnings: list[str],
     ) -> StrategyComparison:
+        if scenario.use_team_model_data:
+            team_data_warning = (
+                f"{scenario.driver}: driver model data was unavailable; "
+                f"using {team} team data where needed."
+            )
+            if team_data_warning not in warnings:
+                warnings.append(team_data_warning)
         first_stop_after_lap = _earliest_stop_after_lap(scenario)
         sector_start_after_lap = max(first_stop_after_lap - 1, 0)
         default_pit_loss = _first_edit_pit_loss(scenario)
@@ -683,7 +701,10 @@ class RacePlannerService:
             default_pit_loss_s=default_pit_loss,
             actual_pit_loss_by_lap=actual_pit_loss_by_lap,
         )
-        baseline_laps = self._predict_strategy_plan(baseline_plan)
+        baseline_laps = self._predict_strategy_plan(
+            baseline_plan,
+            use_team_model_data=scenario.use_team_model_data,
+        )
         baseline_laps = apply_actual_pit_loss_distribution(
             baseline_laps,
             actual_pit_loss_by_lap,
@@ -737,7 +758,10 @@ class RacePlannerService:
             end_lap=max_lap,
             actual_pit_loss_by_lap=actual_pit_loss,
         )
-        what_if_laps = self._predict_strategy_plan(what_if_plan)
+        what_if_laps = self._predict_strategy_plan(
+            what_if_plan,
+            use_team_model_data=scenario.use_team_model_data,
+        )
         comparison = self._build_strategy_comparison(
             scenario,
             what_if_plan=what_if_plan,
@@ -2076,10 +2100,6 @@ def build_sector_strategy_comparison(
         pd.to_numeric(merged["observed_sector_time_s"], errors="coerce")
         - pd.to_numeric(merged["baseline_model_sector_time_s"], errors="coerce")
     )
-    if "physical_track_status" in merged.columns and "track_status" in merged.columns:
-        physical_sc_mask = merged["physical_track_status"].map(_is_sc_or_vsc_status).fillna(False)
-        plotted_sc_mask = merged["track_status"].map(_is_sc_or_vsc_status).fillna(False)
-        merged.loc[physical_sc_mask & ~plotted_sc_mask, "race_domain_residual_s"] = 0.0
     skipped_stop_laps = _skipped_observed_stop_laps(merged)
     if skipped_stop_laps:
         lap_values = pd.to_numeric(merged["lap"], errors="coerce")
@@ -3245,25 +3265,6 @@ def _tyre_age_label(value: object) -> str:
     if pd.isna(age):
         return "?"
     return str(max(int(round(float(age))) - 1, 0))
-
-
-def assign_driver_styles(drivers: pd.DataFrame) -> pd.DataFrame:
-    output = drivers.copy()
-    team_colour_lookup: dict[str, str] = {}
-    fallback_index = 0
-    for team in output["team"].fillna("").astype(str).unique():
-        if team in TEAM_COLOURS:
-            team_colour_lookup[team] = TEAM_COLOURS[team]
-        else:
-            team_colour_lookup[team] = FALLBACK_COLOURS[fallback_index % len(FALLBACK_COLOURS)]
-            fallback_index += 1
-
-    output["colour"] = output["team"].fillna("").astype(str).map(team_colour_lookup)
-    output["line_style"] = "solid"
-    for _, team_rows in output.groupby("team", sort=False, dropna=False):
-        for offset, row_index in enumerate(team_rows.index):
-            output.loc[row_index, "line_style"] = "solid" if offset == 0 else "dash"
-    return output
 
 
 def finite_xy(data: pd.DataFrame, *, y_column: str) -> tuple[np.ndarray, np.ndarray]:

@@ -287,9 +287,9 @@ recalculated against the simulated reference trajectory.
 
 In pure simulation, ordinary observed driver errors or damage do not bleed into
 the simulated line. In real-race adjusted mode, observed race-domain residuals
-are preserved except where a driver's physical SC/VSC-affected sector does not
-match the plotted race/leader sector status. Actual future pit stops do not leak
-into a no-pit simulation because their modelled pit-loss effect is included in
+are preserved, including physical SC/VSC-affected sectors that fall outside the
+leader-aligned shaded race status. Actual future pit stops do not leak into a
+no-pit simulation because their modelled pit-loss effect is included in
 the observed-strategy baseline and removed by the model delta. If a what-if pit
 is added on the same stop lap as an observed pit, that observed stop is treated
 as replaced: residual carry-over for the old observed pit-in and pit-out sectors
@@ -411,6 +411,12 @@ Visual conventions:
   an active simulation, a comma followed by the simulated line sample.
 - Exported PNGs and clipboard images hide transient hover/pit-target overlays
   during the grab, then restore the on-screen plot state.
+- The Export menu also offers UHD 4K (3840 x 2160) file and clipboard output.
+  Its 16:9 framing only expands plot ranges, equally on both sides; it never
+  crops an existing visible range.
+- SVG file export renders the graph scene as vector paths, including temporary
+  vector replacements for pixel-cached tyre symbols. Axes, labels, curves,
+  markers, and status bands are included; ranking panels are not.
 
 ## Tests
 

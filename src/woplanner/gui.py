@@ -12,13 +12,12 @@ from .model import (
     COMPARISON_MODE_PURE_SIM,
 )
 from .service import (
-    REFERENCE_MODE_ACTUAL_PACE,
     REFERENCE_MODE_AVERAGED_PACE,
     REFERENCE_MODE_LABELS,
     RacePlannerService,
     finite_xy,
 )
-from .strategy_model import MissingStrategyModelError
+from .strategy_model import MissingDriverStrategyModelError, MissingStrategyModelError
 
 COMPOUND_COLOURS = {
     "SOFT": "#e10600",
@@ -33,6 +32,52 @@ TYRE_MARKER_SIZE = 22
 TYRE_FONT_POINT_SIZE = RANK_FONT_POINT_SIZE
 SC_BAND_COLOUR = "#ffbf00"
 VSC_BAND_COLOUR = "#ffeb3b"
+UHD_4K_SIZE = (3840, 2160)
+
+
+def expanded_size_for_aspect(
+    width: int,
+    height: int,
+    target_width: int,
+    target_height: int,
+) -> tuple[int, int]:
+    """Return the smallest target-aspect size that does not reduce either side."""
+    if min(width, height, target_width, target_height) <= 0:
+        raise ValueError("Image dimensions must be positive.")
+    divisor = math.gcd(target_width, target_height)
+    aspect_width = target_width // divisor
+    aspect_height = target_height // divisor
+    multiplier = int(
+        math.ceil(max(width / aspect_width, height / aspect_height))
+    )
+    return (aspect_width * multiplier, aspect_height * multiplier)
+
+
+def symmetrically_expanded_ranges(
+    x_range: tuple[float, float],
+    y_range: tuple[float, float],
+    source_view_size: tuple[float, float],
+    target_view_size: tuple[float, float],
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Expand plot ranges to retain their scale in a differently sized view."""
+    source_width, source_height = source_view_size
+    target_width, target_height = target_view_size
+    if min(source_width, source_height, target_width, target_height) <= 0:
+        raise ValueError("View dimensions must be positive.")
+
+    width_growth = target_width / source_width
+    height_growth = target_height / source_height
+    common_growth = min(width_growth, height_growth)
+    x_factor = max(width_growth / common_growth, 1.0)
+    y_factor = max(height_growth / common_growth, 1.0)
+
+    def expanded(value_range: tuple[float, float], factor: float) -> tuple[float, float]:
+        lower, upper = sorted((float(value_range[0]), float(value_range[1])))
+        centre = (lower + upper) / 2.0
+        half_span = (upper - lower) * factor / 2.0
+        return (centre - half_span, centre + half_span)
+
+    return expanded(x_range, x_factor), expanded(y_range, y_factor)
 
 
 class RacePlannerWindowMixin:
@@ -53,13 +98,35 @@ class RacePlannerWindowMixin:
 
 
 def main() -> int:
-    from PySide6 import QtCore, QtGui, QtWidgets
+    from PySide6 import QtCore, QtGui, QtSvg, QtWidgets
     import pyqtgraph as pg
+    from pyqtgraph.graphicsItems.ScatterPlotItem import Symbols
+    from .plot_widget import RelativeDeltaPlotWidget
 
     pg.setConfigOption("background", "w")
     pg.setConfigOption("foreground", "k")
 
     class RacePlannerWindow(QtWidgets.QMainWindow, RacePlannerWindowMixin):
+        def _offer_team_model_data(self, exc: MissingDriverStrategyModelError) -> bool:
+            if exc.team_model_driver is None:
+                QtWidgets.QMessageBox.warning(self, "Strategy simulation", str(exc))
+                return False
+            message = QtWidgets.QMessageBox(self)
+            message.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            message.setWindowTitle("Driver strategy data unavailable")
+            message.setText(str(exc))
+            message.setInformativeText(
+                f"Use {exc.team}'s data from {exc.team_model_driver} "
+                f"to simulate {exc.driver} instead?"
+            )
+            use_team_button = message.addButton(
+                "Use team's data instead",
+                QtWidgets.QMessageBox.ButtonRole.AcceptRole,
+            )
+            message.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+            message.exec()
+            return message.clickedButton() is use_team_button
+
         def _font(self, point_size: int) -> QtGui.QFont:
             font = QtGui.QFont()
             font.setPointSize(point_size)
@@ -98,6 +165,16 @@ def main() -> int:
             self.export_menu = QtWidgets.QMenu(self.export_button)
             self.export_file_action = self.export_menu.addAction("PNG to file")
             self.export_clipboard_action = self.export_menu.addAction("PNG to clipboard")
+            self.export_svg_action = self.export_menu.addAction(
+                "SVG vector plot to file"
+            )
+            self.export_menu.addSeparator()
+            self.export_4k_file_action = self.export_menu.addAction(
+                "4K PNG to file (3840 x 2160)"
+            )
+            self.export_4k_clipboard_action = self.export_menu.addAction(
+                "4K PNG to clipboard (3840 x 2160)"
+            )
             self.export_button.setMenu(self.export_menu)
             self.reference_driver = QtWidgets.QComboBox()
             self.reference_mode = QtWidgets.QComboBox()
@@ -158,41 +235,20 @@ def main() -> int:
             range_controls.addWidget(self.auto_range_button)
             range_controls.addStretch(1)
 
-            self.plot_row_widget = QtWidgets.QWidget()
-            plot_row = QtWidgets.QHBoxLayout(self.plot_row_widget)
-            plot_row.setContentsMargins(0, 0, 0, 0)
-            self.start_rank_list = QtWidgets.QListWidget()
-            self.latest_rank_list = QtWidgets.QListWidget()
+            self.plot_row_widget = RelativeDeltaPlotWidget()
+            self.start_rank_list = self.plot_row_widget.start_rank_list
+            self.latest_rank_list = self.plot_row_widget.latest_rank_list
             for rank_list in (self.start_rank_list, self.latest_rank_list):
-                rank_list.setFixedWidth(190)
-                rank_list.setAlternatingRowColors(True)
-                rank_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
                 rank_list.setFont(self._font(RANK_FONT_POINT_SIZE))
-
-            start_panel = QtWidgets.QVBoxLayout()
-            self.start_rank_label = QtWidgets.QLabel("Start")
+            self.start_rank_label = self.plot_row_widget.start_rank_label
             self.start_rank_label.setFont(self._font(RANK_FONT_POINT_SIZE))
-            start_panel.addWidget(self.start_rank_label)
-            start_panel.addWidget(self.start_rank_list)
-            latest_panel = QtWidgets.QVBoxLayout()
-            self.latest_rank_label = QtWidgets.QLabel("Current/Result")
+            self.latest_rank_label = self.plot_row_widget.latest_rank_label
             self.latest_rank_label.setFont(self._font(RANK_FONT_POINT_SIZE))
-            latest_panel.addWidget(self.latest_rank_label)
-            latest_panel.addWidget(self.latest_rank_list)
-
-            self.plot = pg.PlotWidget()
-            self.plot.setLabel("bottom", "Lap", **{"font-size": "17pt"})
-            self.plot.setLabel("left", "Cumulative delta", units="s", **{"font-size": "17pt"})
+            self.plot = self.plot_row_widget.plot
             self.plot.getAxis("bottom").setTickFont(self._font(14))
             self.plot.getAxis("left").setTickFont(self._font(14))
-            self.plot.setBackground("w")
-            self.plot.getPlotItem().invertY(True)
             self.plot.scene().sigMouseClicked.connect(self._plot_clicked)
             self.plot.scene().sigMouseMoved.connect(self._plot_mouse_moved)
-
-            plot_row.addLayout(start_panel)
-            plot_row.addWidget(self.plot, stretch=1)
-            plot_row.addLayout(latest_panel)
 
             layout.addLayout(controls)
             layout.addLayout(range_controls)
@@ -203,6 +259,15 @@ def main() -> int:
             self.latest_button.clicked.connect(self._load_latest)
             self.export_file_action.triggered.connect(self._export_png)
             self.export_clipboard_action.triggered.connect(self._copy_png_to_clipboard)
+            self.export_svg_action.triggered.connect(self._export_svg)
+            self.export_4k_file_action.triggered.connect(
+                lambda _checked=False: self._export_png(output_size=UHD_4K_SIZE)
+            )
+            self.export_4k_clipboard_action.triggered.connect(
+                lambda _checked=False: self._copy_png_to_clipboard(
+                    output_size=UHD_4K_SIZE
+                )
+            )
             self.reference_driver.currentTextChanged.connect(self._redraw)
             self.reference_mode.currentTextChanged.connect(self._redraw)
             self.line_width.valueChanged.connect(self._redraw)
@@ -509,17 +574,31 @@ def main() -> int:
                 nonlocal applied
                 checked = compound_buttons.checkedButton()
                 compound = checked.property("compound") if checked is not None else "HARD"
+                simulation_kwargs = {
+                    "driver": driver,
+                    "stop_after_lap": stop_after_lap,
+                    "compound": str(compound),
+                    "initial_tyre_age": tyre_age.value(),
+                    "pit_loss_s": pit_loss.value(),
+                    "comparison_mode": str(comparison_mode.currentData()),
+                    "normal_pit_loss_s": self.normal_pit_loss.value(),
+                    "sc_vsc_pit_loss_s": self.sc_pit_loss.value(),
+                }
                 try:
-                    self.service.create_pit_stop_simulation(
-                        driver=driver,
-                        stop_after_lap=stop_after_lap,
-                        compound=str(compound),
-                        initial_tyre_age=tyre_age.value(),
-                        pit_loss_s=pit_loss.value(),
-                        comparison_mode=str(comparison_mode.currentData()),
-                        normal_pit_loss_s=self.normal_pit_loss.value(),
-                        sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
-                    )
+                    self.service.create_pit_stop_simulation(**simulation_kwargs)
+                except MissingDriverStrategyModelError as exc:
+                    if not self._offer_team_model_data(exc):
+                        return
+                    try:
+                        self.service.create_pit_stop_simulation(
+                            **simulation_kwargs,
+                            use_team_model_data=True,
+                        )
+                    except Exception as fallback_exc:
+                        QtWidgets.QMessageBox.warning(
+                            self, "Strategy simulation", str(fallback_exc)
+                        )
+                        return
                 except MissingStrategyModelError as exc:
                     QtWidgets.QMessageBox.critical(self, "Strategy model missing", str(exc))
                     return
@@ -835,7 +914,10 @@ def main() -> int:
                 self.plot.addItem(region)
                 self.track_status_items.append(region)
 
-        def _draw_lap_delta_guides(self) -> None:
+        def _draw_lap_delta_guides(
+            self,
+            x_range: tuple[float, float] | None = None,
+        ) -> None:
             for item in self.guide_items:
                 try:
                     self.plot.removeItem(item)
@@ -845,7 +927,11 @@ def main() -> int:
             if self.service.session is None or not self.reference_driver.currentText():
                 return
 
-            x_min, x_max = self._plot_x_range_from_lap_inputs()
+            x_min, x_max = (
+                self._plot_x_range_from_lap_inputs()
+                if x_range is None
+                else x_range
+            )
             y_min, y_max = self._ordered_range(self.y_min_input, self.y_max_input)
             guides = self.service.build_lap_delta_guide_data(
                 self.reference_driver.currentText(),
@@ -1076,7 +1162,7 @@ def main() -> int:
                 self.tyre_items.append(text)
 
         def _tyre_marker_clicked(self, _plot, points) -> None:
-            if not points:
+            if len(points) == 0:
                 return
             data = points[0].data() or {}
             data = dict(data)
@@ -1242,16 +1328,30 @@ def main() -> int:
             buttons.rejected.connect(dialog.reject)
 
             def apply() -> None:
+                simulation_kwargs = {
+                    "driver": driver,
+                    "first_lap_after_stop": first_lap,
+                    "pit_loss_s": loss.value(),
+                    "pit_loss_source": "manual",
+                    "comparison_mode": str(comparison_mode.currentData()),
+                    "normal_pit_loss_s": self.normal_pit_loss.value(),
+                    "sc_vsc_pit_loss_s": self.sc_pit_loss.value(),
+                }
                 try:
-                    self.service.create_remove_observed_pit_simulation(
-                        driver=driver,
-                        first_lap_after_stop=first_lap,
-                        pit_loss_s=loss.value(),
-                        pit_loss_source="manual",
-                        comparison_mode=str(comparison_mode.currentData()),
-                        normal_pit_loss_s=self.normal_pit_loss.value(),
-                        sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
-                    )
+                    self.service.create_remove_observed_pit_simulation(**simulation_kwargs)
+                except MissingDriverStrategyModelError as exc:
+                    if not self._offer_team_model_data(exc):
+                        return
+                    try:
+                        self.service.create_remove_observed_pit_simulation(
+                            **simulation_kwargs,
+                            use_team_model_data=True,
+                        )
+                    except Exception as fallback_exc:
+                        QtWidgets.QMessageBox.warning(
+                            self, "Strategy simulation", str(fallback_exc)
+                        )
+                        return
                 except MissingStrategyModelError as exc:
                     QtWidgets.QMessageBox.critical(self, "Strategy model missing", str(exc))
                     return
@@ -1304,6 +1404,11 @@ def main() -> int:
                     f"{COMPARISON_MODE_LABELS.get(scenario.comparison_mode, scenario.comparison_mode)}\n"
                     f"First simulated lap: {first_simulated_lap}\n"
                     "Model source: woStrategy race-performance-review median"
+                    + (
+                        " (team data fallback enabled)"
+                        if scenario.use_team_model_data
+                        else ""
+                    )
                 )
             warnings = []
             for comparison in self.service.scenarios.active_comparisons():
@@ -1547,7 +1652,7 @@ def main() -> int:
             )
             return badge
 
-        def _export_png(self) -> None:
+        def _export_png(self, _checked=False, output_size=None) -> None:
             if self.service.session is None:
                 QtWidgets.QMessageBox.information(
                     self,
@@ -1571,7 +1676,7 @@ def main() -> int:
             if not path.lower().endswith(".png"):
                 path = f"{path}.png"
 
-            pixmap = self._grab_export_pixmap()
+            pixmap = self._grab_export_pixmap(output_size=output_size)
             if not pixmap.save(path, "PNG"):
                 QtWidgets.QMessageBox.warning(
                     self,
@@ -1579,7 +1684,7 @@ def main() -> int:
                     f"Could not save image to {path}",
                 )
 
-        def _copy_png_to_clipboard(self) -> None:
+        def _copy_png_to_clipboard(self, _checked=False, output_size=None) -> None:
             if self.service.session is None:
                 QtWidgets.QMessageBox.information(
                     self,
@@ -1587,10 +1692,142 @@ def main() -> int:
                     "Load a race before exporting.",
                 )
                 return
-            pixmap = self._grab_export_pixmap()
+            pixmap = self._grab_export_pixmap(output_size=output_size)
             QtWidgets.QApplication.clipboard().setPixmap(pixmap)
 
-        def _grab_export_pixmap(self) -> QtGui.QPixmap:
+        def _export_svg(self, _checked=False) -> None:
+            if self.service.session is None:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Export SVG",
+                    "Load a race before exporting.",
+                )
+                return
+            default_name = (
+                f"woplanner_{self.service.session.year}_"
+                f"{self.service.session.round_number}_"
+                f"{self.service.session.session_name}.svg"
+            )
+            path, _ = QtWidgets.QFileDialog.getSaveFileName(
+                self,
+                "Export SVG",
+                default_name,
+                "SVG images (*.svg)",
+            )
+            if not path:
+                return
+            if not path.lower().endswith(".svg"):
+                path = f"{path}.svg"
+
+            try:
+                exported = self._render_export_svg(path)
+            except Exception as exc:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Export SVG",
+                    f"Could not save vector image to {path}:\n{exc}",
+                )
+                return
+            if not exported:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Export SVG",
+                    f"Could not save vector image to {path}",
+                )
+
+        def _render_export_svg(self, path: str) -> bool:
+            hidden_items = self._hide_transient_export_items()
+            vector_scatter_items = []
+            try:
+                vector_scatter_items = self._vectorise_scatter_items_for_export()
+                QtWidgets.QApplication.processEvents()
+                scene = self.plot.scene()
+                source_rect = self.plot.getPlotItem().sceneBoundingRect()
+                export_size = source_rect.size().toSize()
+                generator = QtSvg.QSvgGenerator()
+                generator.setFileName(path)
+                generator.setSize(export_size)
+                generator.setViewBox(QtCore.QRect(QtCore.QPoint(0, 0), export_size))
+                generator.setTitle("woPlanner race plot")
+                generator.setDescription("Vector export generated by woPlanner")
+
+                painter = QtGui.QPainter(generator)
+                try:
+                    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+                    scene.render(
+                        painter,
+                        QtCore.QRectF(QtCore.QPointF(0, 0), source_rect.size()),
+                        source_rect,
+                    )
+                finally:
+                    painter.end()
+                file_info = QtCore.QFileInfo(path)
+                return file_info.exists() and file_info.size() > 0
+            finally:
+                self._restore_scatter_items_after_vector_export(
+                    vector_scatter_items
+                )
+                self._restore_transient_export_items(hidden_items)
+                QtWidgets.QApplication.processEvents()
+
+        def _vectorise_scatter_items_for_export(self) -> list:
+            replacements = []
+            for layer in list(self.plot.getPlotItem().items):
+                if not isinstance(layer, pg.ScatterPlotItem):
+                    continue
+                was_visible = bool(layer.isVisible())
+                vector_items = []
+                if was_visible:
+                    for point in layer.points():
+                        if not point.isVisible():
+                            continue
+                        symbol = point.symbol()
+                        path = (
+                            Symbols.get(symbol)
+                            if isinstance(symbol, str)
+                            else symbol
+                        )
+                        if not isinstance(path, QtGui.QPainterPath):
+                            continue
+                        pen = point.pen()
+                        pen.setCosmetic(True)
+                        vector_item = QtWidgets.QGraphicsPathItem(path)
+                        vector_item.setFlag(
+                            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations,
+                            True,
+                        )
+                        vector_item.setScale(float(point.size()))
+                        vector_item.setPos(point.pos())
+                        vector_item.setPen(pen)
+                        vector_item.setBrush(point.brush())
+                        vector_item.setZValue(layer.zValue())
+                        self.plot.addItem(vector_item, ignoreBounds=True)
+                        vector_items.append(vector_item)
+                layer.setVisible(False)
+                replacements.append((layer, was_visible, vector_items))
+            return replacements
+
+        def _restore_scatter_items_after_vector_export(self, replacements) -> None:
+            for layer, was_visible, vector_items in replacements:
+                for vector_item in vector_items:
+                    try:
+                        self.plot.removeItem(vector_item)
+                    except Exception:
+                        pass
+                layer.setVisible(was_visible)
+
+        def _grab_export_pixmap(self, output_size=None) -> QtGui.QPixmap:
+            hidden_items = self._hide_transient_export_items()
+            try:
+                QtWidgets.QApplication.processEvents()
+                if output_size is not None:
+                    return self._render_sized_export_pixmap(output_size)
+                return self.plot_row_widget.grab()
+            finally:
+                self._restore_transient_export_items(hidden_items)
+                QtWidgets.QApplication.processEvents()
+
+        def _hide_transient_export_items(self) -> list[tuple[object, bool]]:
             hidden_items = []
             for item in self._transient_export_items():
                 try:
@@ -1599,15 +1836,77 @@ def main() -> int:
                     hidden_items.append((item, was_visible))
                 except Exception:
                     continue
+            return hidden_items
+
+        def _restore_transient_export_items(self, hidden_items) -> None:
+            for item, was_visible in hidden_items:
+                try:
+                    item.setVisible(was_visible)
+                except Exception:
+                    pass
+
+        def _render_sized_export_pixmap(
+            self,
+            output_size: tuple[int, int],
+        ) -> QtGui.QPixmap:
+            output_width, output_height = output_size
+            widget = self.plot_row_widget
+            original_widget_size = widget.size()
+            original_window_size = self.size()
+            view_box = self.plot.getPlotItem().vb
+            original_view_size = (float(view_box.width()), float(view_box.height()))
+            original_view_range = view_box.viewRange()
+            original_x_range = tuple(float(value) for value in original_view_range[0])
+            original_y_range = tuple(float(value) for value in original_view_range[1])
+            render_width, render_height = expanded_size_for_aspect(
+                max(original_widget_size.width(), 1),
+                max(original_widget_size.height(), 1),
+                output_width,
+                output_height,
+            )
+
             try:
+                self.resize(
+                    original_window_size.width()
+                    + render_width
+                    - original_widget_size.width(),
+                    original_window_size.height()
+                    + render_height
+                    - original_widget_size.height(),
+                )
                 QtWidgets.QApplication.processEvents()
-                return self.plot_row_widget.grab()
+                render_width = widget.width()
+                render_height = widget.height()
+                target_view_size = (float(view_box.width()), float(view_box.height()))
+                export_x_range, export_y_range = symmetrically_expanded_ranges(
+                    original_x_range,
+                    original_y_range,
+                    original_view_size,
+                    target_view_size,
+                )
+                self.plot.setXRange(*export_x_range, padding=0)
+                self.plot.setYRange(*export_y_range, padding=0)
+                self._draw_lap_delta_guides(x_range=export_x_range)
+                QtWidgets.QApplication.processEvents()
+
+                pixmap = QtGui.QPixmap(output_width, output_height)
+                pixmap.fill(QtGui.QColor("white"))
+                painter = QtGui.QPainter(pixmap)
+                try:
+                    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+                    painter.scale(
+                        output_width / render_width,
+                        output_height / render_height,
+                    )
+                    widget.render(painter, QtCore.QPoint(0, 0))
+                finally:
+                    painter.end()
+                return pixmap
             finally:
-                for item, was_visible in hidden_items:
-                    try:
-                        item.setVisible(was_visible)
-                    except Exception:
-                        pass
+                self.plot.setXRange(*original_x_range, padding=0)
+                self.plot.setYRange(*original_y_range, padding=0)
+                self.resize(original_window_size)
+                self._draw_lap_delta_guides()
                 QtWidgets.QApplication.processEvents()
 
         def _transient_export_items(self) -> list:
