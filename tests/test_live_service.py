@@ -1,5 +1,6 @@
-from pathlib import Path
+import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -30,6 +31,114 @@ def loaded_service():
         time.sleep(0.01)
     service.poll()
     return service
+
+
+def test_jsonl_archive_replay_reaches_planner_plot_pipeline(tmp_path):
+    path = tmp_path / "merged_replay_v1.jsonl"
+    events = [
+        {
+            "schema_version": 1,
+            "topic": "DriverList",
+            "session_time_seconds": 0.0,
+            "sequence": 1,
+            "payload": {
+                "1": {
+                    "Tla": "AAA",
+                    "FullName": "Archive Driver",
+                    "TeamName": "Mercedes",
+                }
+            },
+            "source": "f1_archive_replay",
+        },
+        {
+            "schema_version": 1,
+            "topic": "TimingAppData",
+            "session_time_seconds": 0.5,
+            "sequence": 2,
+            "payload": {
+                "Lines": {
+                    "1": {
+                        "Stints": {
+                            "0": {"Compound": "MEDIUM", "New": "true", "StartLaps": 0}
+                        }
+                    }
+                }
+            },
+            "source": "f1_archive_replay",
+        },
+        {
+            "schema_version": 1,
+            "topic": "TimingData",
+            "session_time_seconds": 90.0,
+            "sequence": 3,
+            "payload": {
+                "Lines": {
+                    "1": {
+                        "Position": "1",
+                        "NumberOfLaps": 1,
+                        "LastLapTime": {"Value": "01:30.000"},
+                    }
+                }
+            },
+            "source": "f1_archive_replay",
+        },
+        {
+            "schema_version": 1,
+            "topic": "TimingAppData",
+            "session_time_seconds": 91.0,
+            "sequence": 4,
+            "payload": {
+                "Lines": {
+                    "1": {
+                        "Stints": {
+                            "1": {"Compound": "HARD", "New": "true", "StartLaps": 0}
+                        }
+                    }
+                }
+            },
+            "source": "f1_archive_replay",
+        },
+        {
+            "schema_version": 1,
+            "topic": "TimingData",
+            "session_time_seconds": 181.0,
+            "sequence": 5,
+            "payload": {
+                "Lines": {
+                    "1": {
+                        "Position": "1",
+                        "NumberOfLaps": 2,
+                        "LastLapTime": {"Value": "01:31.000"},
+                    }
+                }
+            },
+            "source": "f1_archive_replay",
+        },
+    ]
+    path.write_text(
+        "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8"
+    )
+    service = LivePlannerService()
+    service.start_replay(ReplayConfig(path, speed=0))
+    deadline = time.monotonic() + 2
+    while service.controller.is_running and time.monotonic() < deadline:
+        time.sleep(0.01)
+    update = service.poll()
+
+    assert update.snapshot.drivers[0].driver_code == "AAA"
+    assert len(update.snapshot.completed_laps) == 2
+    plot_data = service.build_plot_data("AAA")
+    assert plot_data[["lap", "compound", "tyre_age"]].to_dict("records") == [
+        {"lap": 1, "compound": "MEDIUM", "tyre_age": 1.0},
+        {"lap": 2, "compound": "HARD", "tyre_age": 1.0},
+    ]
+    tyre_events = service.build_tyre_event_data()
+    assert tyre_events[["lap", "compound", "tyre_age_label"]].to_dict("records") == [
+        {"lap": 2, "compound": "HARD", "tyre_age_label": "0"}
+    ]
+    ranks = service.build_driver_ranks().iloc[0]
+    assert ranks["start_tyre_compound"] == "MEDIUM"
+    assert ranks["latest_tyre_compound"] == "HARD"
 
 
 def test_reference_rebases_actual_completed_laps_only():

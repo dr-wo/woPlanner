@@ -7,6 +7,7 @@ import pandas as pd
 from wodata.live import LiveConfig, LiveSessionSnapshot, LiveTimingController, ReplayConfig
 
 from .driver_styles import assign_driver_styles
+from .service import build_tyre_event_data as tyre_event_data_from_plot
 
 REFERENCE_MODE_ACTUAL_PACE = "actual_pace"
 REFERENCE_MODE_AVERAGED_PACE = "averaged_pace"
@@ -28,13 +29,16 @@ class LivePlannerService:
         self.controller = controller or LiveTimingController()
         self.snapshot = LiveSessionSnapshot.empty()
         self._start_rank_by_driver: dict[str, int] = {}
+        self._last_plot_data: pd.DataFrame | None = None
 
     def start_live(self, config: LiveConfig) -> None:
         self._start_rank_by_driver.clear()
+        self._last_plot_data = None
         self.controller.start_live(config)
 
     def start_replay(self, config: ReplayConfig) -> None:
         self._start_rank_by_driver.clear()
+        self._last_plot_data = None
         self.controller.start_replay(config)
 
     def poll(self) -> LivePlannerUpdate:
@@ -84,7 +88,7 @@ class LivePlannerService:
         columns = [
             "driver", "team", "lap", "sector", "segment_index", "x_lap",
             "lap_time_s", "segment_time_s", "cumulative_time_s", "position", "plot_role",
-            "scenario_id", "is_simulated", "is_faded",
+            "compound", "tyre_age", "stint", "scenario_id", "is_simulated", "is_faded",
         ]
         plot_rows = pd.DataFrame(rows, columns=columns)
         if plot_rows.empty:
@@ -98,7 +102,10 @@ class LivePlannerService:
         output["delta_s"] = (
             output["cumulative_time_s"] - output["reference_cumulative_time_s"]
         )
-        return output.sort_values(["driver", "segment_index"], kind="mergesort").reset_index(drop=True)
+        self._last_plot_data = output.sort_values(
+            ["driver", "segment_index"], kind="mergesort"
+        ).reset_index(drop=True)
+        return self._last_plot_data
 
     def _plot_rows(self) -> list[dict]:
         if self.snapshot.completed_sectors:
@@ -114,6 +121,9 @@ class LivePlannerService:
                     "segment_time_s": sector.sector_time_s,
                     "cumulative_time_s": sector.cumulative_time_s,
                     "position": sector.position,
+                    "compound": sector.compound,
+                    "tyre_age": sector.tyre_life,
+                    "stint": sector.stint,
                     "plot_role": "actual",
                     "scenario_id": pd.NA,
                     "is_simulated": False,
@@ -133,6 +143,9 @@ class LivePlannerService:
                 "segment_time_s": lap.lap_time_s,
                 "cumulative_time_s": lap.cumulative_time_s,
                 "position": lap.position,
+                "compound": lap.compound,
+                "tyre_age": lap.tyre_life,
+                "stint": lap.stint,
                 "plot_role": "actual",
                 "scenario_id": pd.NA,
                 "is_simulated": False,
@@ -162,7 +175,36 @@ class LivePlannerService:
                 fallback_rank = {driver: rank for rank, driver in enumerate(fallback_order.index, 1)}
                 current.loc[missing] = drivers.loc[missing, "driver"].map(fallback_rank)
         drivers["latest_rank"] = current
+        tyre_rows = pd.DataFrame(
+            [
+                {
+                    "driver": lap.driver_code,
+                    "lap": lap.lap_number,
+                    "compound": lap.compound,
+                    "tyre_age": lap.tyre_life,
+                }
+                for lap in self.snapshot.completed_laps
+                if lap.compound is not None
+            ]
+        )
+        if not tyre_rows.empty:
+            tyre_rows = tyre_rows.sort_values(["driver", "lap"], kind="mergesort")
+            first = tyre_rows.groupby("driver", sort=False).first()
+            latest = tyre_rows.groupby("driver", sort=False).last()
+            drivers["start_tyre_compound"] = drivers["driver"].map(first["compound"])
+            drivers["start_tyre_age_label"] = drivers["driver"].map(
+                first["tyre_age"].map(_tyre_age_label)
+            )
+            drivers["latest_tyre_compound"] = drivers["driver"].map(latest["compound"])
+            drivers["latest_tyre_age_label"] = drivers["driver"].map(
+                latest["tyre_age"].map(_tyre_age_label)
+            )
         return drivers
+
+    def build_tyre_event_data(self) -> pd.DataFrame:
+        if self._last_plot_data is None:
+            return pd.DataFrame()
+        return tyre_event_data_from_plot(self._last_plot_data)
 
 
 def _normalize_reference_mode(value: str) -> str:
@@ -170,6 +212,13 @@ def _normalize_reference_mode(value: str) -> str:
     if mode in {REFERENCE_MODE_ACTUAL_PACE, REFERENCE_MODE_AVERAGED_PACE}:
         return mode
     raise ValueError(f"Unknown reference mode: {value}")
+
+
+def _tyre_age_label(value: object) -> str:
+    age = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(age):
+        return "?"
+    return str(max(int(round(float(age))) - 1, 0))
 
 
 def _reference_cumulative_time(

@@ -21,8 +21,9 @@ woplanner
 
 Run `woplanner-live` for the live observation view. It uses FastF1's browser
 authentication, subscribes only to the Phase 1 timing topics, and records every
-canonical raw message before applying it. The same text recording can be selected
-in the window for max-speed, 1x, 5x, or 20x replay.
+canonical raw message before applying it. The replay picker accepts both merged
+archive `*.jsonl` files and legacy live `*.txt` recordings for max-speed, 1x, 5x,
+or 20x replay.
 
 Live mode plots sector-level deltas when the feed provides
 `TimingData.Lines[*].Sectors`. If a recording only contains completed-lap timing,
@@ -30,6 +31,17 @@ or if the app connects late and earlier sector timing is unavailable, it falls
 back to completed-lap S3 points. Both live and post-race planners default to
 averaged reference mode; the mode selector can switch back to actual reference
 pace.
+
+Hovering near a Live curve highlights the driver and shows driver, lap, sector,
+cumulative delta, compound, and tyre age. Incremental `TimingAppData` is retained
+by the shared reducer: compound changes are drawn as colour-coded tyre markers,
+and the start/current rank lists include compact compound and tyre-age labels.
+
+To replay a completed archive, click **Browse**, select
+`merged_replay_v1.jsonl` from the matching
+`wodata/live_archive/schema_v1/year=.../round=.../session=.../replay/` directory,
+choose Max/1x/5x/20x, and click **Replay**. The same reducers and rendering path are
+used for JSONL archive replay and live SignalR messages.
 
 Live mode performs no strategy modelling, correction, prediction, or
 interpolation. Missing internal lap timing invalidates later cumulative deltas for

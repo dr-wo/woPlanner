@@ -77,6 +77,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         status_row.addWidget(self.session_status)
         status_row.addWidget(self.last_message_status)
         self.relative_plot = RelativeDeltaPlotWidget()
+        self.relative_plot.set_hover_enabled(True)
         layout.addLayout(controls)
         layout.addLayout(status_row)
         layout.addWidget(self.relative_plot, stretch=1)
@@ -135,7 +136,11 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
 
     def _browse_replay(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Open live timing replay", "", "Live timing (*.txt);;All files (*)"
+            self,
+            "Open live timing replay",
+            "",
+            "Replay files (*.jsonl *.txt);;JSONL replay (*.jsonl);;"
+            "Legacy replay (*.txt);;All files (*)",
         )
         if path:
             self.replay_path.setText(path)
@@ -202,12 +207,14 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.relative_plot.set_line_width(self.line_width.value())
         self.relative_plot.set_session_drivers(drivers)
         self.relative_plot.set_rank_data(start, current)
-        self.relative_plot.set_plot_data(
-            self.service.build_plot_data(
-                reference,
-                reference_mode=str(self.reference_mode.currentData() or REFERENCE_MODE_AVERAGED_PACE),
-            )
+        plot_data = self.service.build_plot_data(
+            reference,
+            reference_mode=str(
+                self.reference_mode.currentData() or REFERENCE_MODE_AVERAGED_PACE
+            ),
         )
+        self.relative_plot.set_plot_data(plot_data)
+        self.relative_plot.set_tyre_event_data(self.service.build_tyre_event_data())
 
     def _select_reference(self, driver: str) -> None:
         index = self.reference_driver.findText(driver)
