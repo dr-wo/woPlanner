@@ -43,14 +43,88 @@ To replay a completed archive, click **Browse**, select
 choose Max/1x/5x/20x, and click **Replay**. The same reducers and rendering path are
 used for JSONL archive replay and live SignalR messages.
 
-Live mode performs no strategy modelling, correction, prediction, or
-interpolation. Missing internal lap timing invalidates later cumulative deltas for
-that driver instead of assuming the missing lap took zero time.
+The live timing plot performs no correction or interpolation. The shared
+**Strategy Prediction** window can, however, consume the same canonical live
+snapshot: when the leader lap advances it checks for newly eligible sector-filtered
+clean laps. Replay expands batched leader-lap jumps into point-in-time snapshots
+and processes them through a FIFO recalculation queue. Live mode does not queue an
+update received while calculation is active; the newest accumulated data is picked
+up by the next leader-lap trigger. Unchanged clean-lap fingerprints are skipped
+quickly. Updated models record their version and refresh sequence-level strategy
+predictions after replay's queued model updates drain. Missing internal lap
+timing still invalidates later cumulative deltas
+for that driver instead of assuming the missing lap took zero time.
 
 Use **Latest** to load the latest completed race FastF1 can find and set the
 reference driver to the race winner. The plot uses an inverted y-axis so slower
 cars appear lower, with start order on the left and current/result order on the
 right.
+
+## Strategy Prediction window
+
+Both `woplanner` and `woplanner-live` use the same modeless **Strategy Prediction**
+window. It reads
+canonical schema-v1 weekend models, displays uncertainty/support diagnostics, runs
+up-to-10 compound-sequence searches in a worker thread, optimizes pit timing once
+per sequence, renders proportional stint bars, persists results, shows parameter
+history plots, supports editable degradation/delta overrides, and allows up to
+three pinned comparisons. In live mode, selecting a driver fills the current lap,
+compound, and tyre age from the feed.
+
+The result-count control chooses how many distinct compound sequences the exact
+strategy search should return. This search does not use Monte Carlo samples. The
+separate sample-count control on **Live recalculation** defaults to 5,000 and does
+not inherit the pre-race run's sample count.
+
+Strategy Prediction remembers its controls, selected tab, live settings, and
+manual tyre inputs in `strategy_prediction_state.json`. Replay state is stored
+beside the selected replay file; live state is stored beside that connection's
+raw live-timing recording. The offline planner falls back to the event's canonical
+weekend-model directory.
+
+Replay uses a fresh in-memory value-versus-lap plot every time Replay is pressed.
+It restores settings but does not retain generated strategies or the working plot
+unless **Save snapshot long-term** is pressed. Live mode automatically updates one
+durable whole-plot snapshot. The Update history selector reads only these saved
+whole plots; it starts at **Select saved plot**, leaving the table and chart empty.
+Legacy per-analysis history CSVs are no longer used by this selector.
+
+Update history displays tyre degradation and compound delta in separate labelled
+charts. Hovering either chart snaps a synchronized vertical cursor to the nearest
+recorded leader lap and shows every compound's degradation and relative pace.
+Hovering near a compound curve temporarily uses that compound as the `0.000 s`
+pace reference; elsewhere the configured default reference compound is used.
+Hovering never changes the stored model values. Left-clicking opens **Use lap N tyre values for strategy
+calculation**, which copies that lap's degradation and compound-delta values into
+the editable **Used** inputs and opens the Strategy predictions tab.
+
+The Live recalculation page's **Clean-lap details** dialog exposes required
+tyre/stint metadata, allowed compounds, driver-relative quick-lap threshold,
+consecutive-run minimum, run-start/end exclusions, and configurable clear-ahead
+and clear-behind gaps. The default **Sector start/end position based** traffic
+filter reconstructs crossing times at lap start, S1, S2 and lap end. It accepts a
+lap only when both neighbouring cars are known and all four checkpoints satisfy
+the gap thresholds. This is a sector-level approximation, not continuous car
+telemetry. Each processed leader-lap update logs previous and new clean-lap counts
+and the FP/R source breakdown, total wall-clock calculation time, and remaining
+queue length. The elapsed time can be compared directly with a normal lap time when
+tuning the live Monte Carlo sample count.
+
+The tyre-input table keeps three views separate: **Initial FP** is the preserved
+lap-zero FP estimate, **Latest** follows live/replay recalculation, and **Used** is
+the editable value passed into the next exact strategy search.
+
+The **Strategy predictions** tab shows the exact tyre inputs used by the search.
+Its used baseline, delta, and degradation cells are directly editable (single-click
+or select the cell and type; double-click is not required). Session estimates are
+combined with a usable-lap-weighted mean, so a session with more accepted clean laps
+has more influence. **Load tyre info from file** accepts the canonical weekend
+model `latest_parameters.csv`, or the woStrategy race-review
+`summary_compound_degradation.csv` and `summary_compound_delta.csv` files (select
+both summary files together). The ordering switch is on **Live recalculation**
+because it also controls the next joint model update; it constrains baseline pace to
+SOFT ≤ MEDIUM ≤ HARD and degradation to SOFT ≥ MEDIUM ≥ HARD. Baseline is displayed
+as seconds relative to the quickest compound, where `0.0000` is quickest.
 
 ## Strategy simulation
 
@@ -61,21 +135,29 @@ time domain by applying modelled strategy changes on top of the observed race
 scaffold.
 
 Before using simulation, run `woStrategy`'s `race_performance_review` for the
-same race/session and make sure the generated CSV summaries are available under
-the shared race-performance-review cache:
+same race/session. By default, woPlanner discovers its outputs from the canonical
+woData event directory:
 
 ```text
-cache/race_performance_review/
+woData/wostrategy/race_performance_review/schema_v1/
+  year={year}/round={round}/session={session}/
 ```
 
 `woData` owns cache path conventions for normalized planner artifacts. With the
 usual sibling-checkout workflow from the workspace root, generated planner caches
 are written under `woData/`, not inside the `woPlanner` or `woStrategy` source
-trees. `WODATA_ROOT` can override that location.
+trees. `WODATA_ROOT` can override that location. The planner-facing tyre summary
+is `tyre_information.csv`; it holds global and team compound baseline speed,
+compound delta, and degradation values in one file. The detailed source and
+Monte Carlo files remain beside it for strategy modelling and reproducibility.
+
+Older flat files under `cache/race_performance_review/` remain readable for
+backward compatibility, but new woStrategy writes use woData.
 
 Required source files are named like:
 
 ```text
+tyre_information.csv
 race_performance_{year}_{round}_{session}_summary_baseline_pace.csv
 race_performance_{year}_{round}_{session}_summary_fuel_rate.csv
 race_performance_{year}_{round}_{session}_summary_track_rate.csv
@@ -110,7 +192,8 @@ Clicking tyre markers opens additional actions:
 - removed actual pit marker: edit the removed pit-loss estimate, restore the
   real pit, delete the edit, or inspect strategy deltas.
 
-Use **Strategy deltas** to inspect the sector-level detail table and simulated
+In `woplanner`, open **Retro Analysis → Strategy deltas** to inspect the
+sector-level detail table and simulated
 delta-to-reference chart. Same-driver model deltas remain in the table for
 debugging, but the charted cumulative delta is relative to the selected
 reference.

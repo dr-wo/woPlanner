@@ -15,6 +15,7 @@ def test_live_window_constructs_and_disconnects_before_connect():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = LivePlannerWindow()
     assert window.reference_mode.currentData() == REFERENCE_MODE_AVERAGED_PACE
+    assert window.strategy_prediction_button.text() == "Strategy Prediction"
     window._disconnect()
     assert "Disconnected" in window.connection_status.text()
     window.close()
@@ -35,6 +36,19 @@ def test_replay_browser_accepts_jsonl(monkeypatch):
 
     assert window.replay_path.text() == "/tmp/merged_replay_v1.jsonl"
     assert "*.jsonl" in selected_filter[0]
+    window.close()
+    app.processEvents()
+
+
+def test_replay_strategy_state_is_kept_beside_replay(tmp_path):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = LivePlannerWindow()
+    replay = tmp_path / "replay" / "merged_replay_v1.jsonl"
+    window.replay_path.setText(str(replay))
+    window._active_source_mode = "replay"
+
+    assert window._strategy_state_directory() == replay.parent
+
     window.close()
     app.processEvents()
 

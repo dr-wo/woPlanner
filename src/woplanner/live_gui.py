@@ -18,12 +18,17 @@ from .live_service import (
 from .plot_widget import RelativeDeltaPlotWidget
 
 
+WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[3] / "woData"
+
+
 class LivePlannerWindow(QtWidgets.QMainWindow):
     def __init__(self, service: LivePlannerService | None = None) -> None:
         super().__init__()
         self.service = service or LivePlannerService()
         self._driver_signature: tuple = ()
         self._metadata_warning_shown = False
+        self._active_source_mode: str | None = None
+        self.strategy_prediction_window = None
         self.setWindowTitle("woPlanner Live")
         self.resize(1200, 760)
         central = QtWidgets.QWidget()
@@ -38,6 +43,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.session_input.setMaximumWidth(50)
         self.connect_button = QtWidgets.QPushButton("Connect")
         self.disconnect_button = QtWidgets.QPushButton("Disconnect")
+        self.strategy_prediction_button = QtWidgets.QPushButton("Strategy Prediction")
         self.replay_path = QtWidgets.QLineEdit()
         self.replay_path.setPlaceholderText("Replay file")
         self.replay_browse_button = QtWidgets.QPushButton("Browse")
@@ -68,6 +74,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         controls.addWidget(self.connect_button)
         controls.addWidget(self.replay_button)
         controls.addWidget(self.disconnect_button)
+        controls.addWidget(self.strategy_prediction_button)
         status_row = QtWidgets.QHBoxLayout()
         self.connection_status = QtWidgets.QLabel("Idle")
         self.last_message_status = QtWidgets.QLabel("Last message: —")
@@ -93,6 +100,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.reference_mode.currentTextChanged.connect(self._redraw)
         self.line_width.valueChanged.connect(self._redraw)
         self.relative_plot.driver_selected.connect(self._select_reference)
+        self.strategy_prediction_button.clicked.connect(
+            self._show_strategy_prediction_window
+        )
 
     def _connect(self) -> None:
         session = self.session_input.text().strip().upper()
@@ -102,8 +112,18 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._prepare_start()
         try:
             self.service.start_live(
-                LiveConfig(self.year_input.value(), self.round_input.value(), session)
+                LiveConfig(
+                    self.year_input.value(), self.round_input.value(), session,
+                    data_root=(WORKSPACE_DATA_ROOT if WORKSPACE_DATA_ROOT.is_dir() else None),
+                )
             )
+            self._active_source_mode = "live"
+            if self.strategy_prediction_window is not None:
+                self.strategy_prediction_window.configure_session_context(
+                    persistence_mode="durable",
+                    state_directory=self._strategy_state_directory(),
+                    auto_save_history=True,
+                )
         except Exception as exc:
             self._show_start_error(exc)
 
@@ -117,10 +137,21 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             self.service.start_replay(
                 ReplayConfig(path, float(self.replay_speed.currentData()))
             )
+            self._active_source_mode = "replay"
+            if self.strategy_prediction_window is not None:
+                try:
+                    self.strategy_prediction_window.configure_session_context(
+                        persistence_mode="temporary",
+                        state_directory=self._strategy_state_directory(),
+                        auto_save_history=False,
+                    )
+                except RuntimeError:
+                    self.strategy_prediction_window = None
         except Exception as exc:
             self._show_start_error(exc)
 
     def _prepare_start(self) -> None:
+        self._active_source_mode = None
         self.connect_button.setEnabled(False)
         self.replay_button.setEnabled(False)
         self._driver_signature = ()
@@ -153,6 +184,12 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 self.connect_button.setEnabled(True)
                 self.replay_button.setEnabled(True)
         snapshot = update.snapshot
+        if self.strategy_prediction_window is not None:
+            try:
+                if self.strategy_prediction_window.isVisible():
+                    self.strategy_prediction_window.consume_live_snapshot(snapshot)
+            except RuntimeError:
+                self.strategy_prediction_window = None
         self._warn_for_metadata_mismatch(snapshot.session_info)
         self.session_status.setText(f"Session: {snapshot.session_status or '—'}")
         if snapshot.last_message_at_utc is not None:
@@ -227,6 +264,41 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.connect_button.setEnabled(True)
         self.replay_button.setEnabled(True)
         self.connection_status.setText("Disconnected by user")
+
+    def _show_strategy_prediction_window(self) -> None:
+        from .analysis_gui import StrategyPredictionWindow
+
+        if self.strategy_prediction_window is not None:
+            try:
+                if self.strategy_prediction_window.isVisible():
+                    self.strategy_prediction_window.raise_()
+                    self.strategy_prediction_window.activateWindow()
+                    return
+            except RuntimeError:
+                self.strategy_prediction_window = None
+        self.strategy_prediction_window = StrategyPredictionWindow(
+            year=self.year_input.value(),
+            round_number=self.round_input.value(),
+            state_directory=self._strategy_state_directory(),
+            persistence_mode=(
+                "temporary" if self._active_source_mode == "replay" else "durable"
+            ),
+            auto_save_history=self._active_source_mode == "live",
+            parent=self,
+        )
+        self.strategy_prediction_window.destroyed.connect(
+            lambda: setattr(self, "strategy_prediction_window", None)
+        )
+        self.strategy_prediction_window.show()
+        self.strategy_prediction_window.consume_live_snapshot(self.service.snapshot)
+
+    def _strategy_state_directory(self) -> Path | None:
+        if self._active_source_mode == "replay":
+            replay = Path(self.replay_path.text().strip()).expanduser()
+            return replay.parent if replay.name else None
+        if self._active_source_mode == "live" and self.service.recording_path is not None:
+            return self.service.recording_path.parent
+        return None
 
     def closeEvent(self, event) -> None:
         self._disconnect()

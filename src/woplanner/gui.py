@@ -159,8 +159,16 @@ def main() -> int:
             self.load_button = QtWidgets.QPushButton("Load")
             self.latest_button = QtWidgets.QPushButton("Latest")
             self.export_button = QtWidgets.QPushButton("Export")
-            self.assumptions_button = QtWidgets.QPushButton("Assumptions")
-            self.strategy_delta_button = QtWidgets.QPushButton("Strategy deltas")
+            self.retro_analysis_button = QtWidgets.QPushButton("Retro Analysis")
+            self.retro_analysis_menu = QtWidgets.QMenu(self.retro_analysis_button)
+            self.retro_assumptions_action = self.retro_analysis_menu.addAction(
+                "Assumptions"
+            )
+            self.retro_strategy_delta_action = self.retro_analysis_menu.addAction(
+                "Strategy deltas"
+            )
+            self.retro_analysis_button.setMenu(self.retro_analysis_menu)
+            self.strategy_prediction_button = QtWidgets.QPushButton("Strategy Prediction")
             self.clear_sims_button = QtWidgets.QPushButton("Clear sims")
             self.export_menu = QtWidgets.QMenu(self.export_button)
             self.export_file_action = self.export_menu.addAction("PNG to file")
@@ -211,8 +219,8 @@ def main() -> int:
             controls.addWidget(self.load_button)
             controls.addWidget(self.latest_button)
             controls.addWidget(self.export_button)
-            controls.addWidget(self.assumptions_button)
-            controls.addWidget(self.strategy_delta_button)
+            controls.addWidget(self.retro_analysis_button)
+            controls.addWidget(self.strategy_prediction_button)
             controls.addWidget(self.clear_sims_button)
             controls.addStretch(1)
 
@@ -273,8 +281,13 @@ def main() -> int:
             self.line_width.valueChanged.connect(self._redraw)
             self.normal_pit_loss.valueChanged.connect(self._update_pit_window)
             self.sc_pit_loss.valueChanged.connect(self._update_pit_window)
-            self.assumptions_button.clicked.connect(self._show_assumptions)
-            self.strategy_delta_button.clicked.connect(self._show_strategy_delta_details)
+            self.retro_assumptions_action.triggered.connect(self._show_assumptions)
+            self.strategy_prediction_button.clicked.connect(
+                self._show_strategy_prediction_window
+            )
+            self.retro_strategy_delta_action.triggered.connect(
+                self._show_strategy_delta_details
+            )
             self.clear_sims_button.clicked.connect(self._clear_all_simulations)
             self.apply_range_button.clicked.connect(self._apply_custom_ranges)
             self.auto_range_button.clicked.connect(self._reset_auto_ranges)
@@ -1367,6 +1380,16 @@ def main() -> int:
         def _clear_all_simulations(self) -> None:
             self.service.clear_all_simulations()
             self._redraw()
+
+        def _show_strategy_prediction_window(self) -> None:
+            from .analysis_gui import StrategyPredictionWindow
+
+            self.strategy_prediction_window = StrategyPredictionWindow(
+                year=self.year_input.value(),
+                round_number=self.round_input.value(),
+                parent=self,
+            )
+            self.strategy_prediction_window.show()
 
         def _show_assumptions(self) -> None:
             scenarios = self.service.scenarios.active_scenarios()

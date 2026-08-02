@@ -14,6 +14,7 @@ from .strategy_model import (
     MissingStrategyModelError,
     WoStrategyRaceModelAdapter,
 )
+from .analysis_service import ModelSummary, OfflineAnalysisService
 
 __all__ = [
     "MissingStrategyModelError",
@@ -26,4 +27,6 @@ __all__ = [
     "ScenarioTrajectory",
     "StrategyEdit",
     "WoStrategyRaceModelAdapter",
+    "ModelSummary",
+    "OfflineAnalysisService",
 ]

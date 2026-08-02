@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from wodata import get_cache_path
+from wodata import get_cache_path, get_race_performance_review_event_dir
 from .model import StrategyPlan, StintSegment
 
 MODEL_VERSION = "strategy_sim_mvp_v3"
@@ -302,7 +302,12 @@ class WoStrategyRaceModelAdapter:
         candidates = (
             [self.source_cache_dir]
             if self.source_cache_dir is not None
-            else _source_cache_dir_candidates()
+            else _source_cache_dir_candidates(
+                data_root=self.data_root,
+                year=year,
+                round_number=round_number,
+                session_name=session_name,
+            )
         )
         best_paths: dict[str, Path] | None = None
         best_missing: list[Path] | None = None
@@ -324,13 +329,18 @@ class WoStrategyRaceModelAdapter:
         return best_paths or {}, best_missing or [], expected
 
     def _source_paths(self, year: int, round_number: int, session_name: str) -> dict[str, Path]:
-        source_cache_dir = self.source_cache_dir or _source_cache_dir_candidates()[0]
+        source_cache_dir = self.source_cache_dir or _source_cache_dir_candidates(
+            data_root=self.data_root,
+            year=year,
+            round_number=round_number,
+            session_name=session_name,
+        )[0]
         return _source_paths(source_cache_dir, year, round_number, session_name)
 
     def _source_cache_path_label(self) -> str:
         if self.source_cache_dir is not None:
             return str(self.source_cache_dir)
-        return " or ".join(str(path) for path in _source_cache_dir_candidates())
+        return "woData/wostrategy/race_performance_review/schema_v1"
 
     def _normalized_cache_path(self, year: int, round_number: int, session_name: str) -> Path:
         return get_cache_path(
@@ -431,9 +441,17 @@ def _source_paths(
     }
 
 
-def _source_cache_dir_candidates() -> list[Path]:
+def _source_cache_dir_candidates(
+    *, data_root: Path | None, year: int, round_number: int, session_name: str
+) -> list[Path]:
     workspace_root = Path(__file__).resolve().parents[3]
     return [
+        get_race_performance_review_event_dir(
+            year=year,
+            round_number=round_number,
+            session=session_name,
+            data_root=data_root,
+        ),
         workspace_root / "cache" / "race_performance_review",
     ]
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pandas as pd
 
@@ -52,6 +53,10 @@ class LivePlannerService:
 
     def stop(self) -> None:
         self.controller.stop()
+
+    @property
+    def recording_path(self) -> Path | None:
+        return self.controller.recording_path
 
     def available_drivers(self) -> pd.DataFrame:
         rows = [
