@@ -73,8 +73,19 @@ compound, and tyre age from the feed.
 
 The result-count control chooses how many distinct compound sequences the exact
 strategy search should return. This search does not use Monte Carlo samples. The
-separate sample-count control on **Live recalculation** defaults to 5,000 and does
-not inherit the pre-race run's sample count.
+separate sample-count control on **Live recalculation** is initialized from the
+latest compatible resolved race-review settings when available, otherwise from
+the pre-race model configuration, and remains editable. The value shown in the UI
+is passed explicitly to recalculation and therefore wins over a stored value.
+
+Resolved fitting settings use this precedence: successful event cache metadata,
+event-specific `latest_resolved_settings.json`, global
+`latest_resolved_settings.json`, then the pre-race model configuration. The first
+choice reproduces the settings behind an existing event result; the invocation
+artifacts allow a race-review command to communicate its intended settings even
+when no Monte Carlo result was produced. Only fields with a direct joint-model
+meaning are overlaid. Race-review-only controls are intentionally ignored because
+the live joint model does not implement the same parameterization.
 
 Strategy Prediction remembers its controls, selected tab, live settings, and
 manual tyre inputs in `strategy_prediction_state.json`. Replay state is stored
@@ -101,14 +112,23 @@ the editable **Used** inputs and opens the Strategy predictions tab.
 The Live recalculation page's **Clean-lap details** dialog exposes required
 tyre/stint metadata, allowed compounds, driver-relative quick-lap threshold,
 consecutive-run minimum, run-start/end exclusions, and configurable clear-ahead
-and clear-behind gaps. The default **Sector start/end position based** traffic
-filter reconstructs crossing times at lap start, S1, S2 and lap end. It accepts a
-lap only when both neighbouring cars are known and all four checkpoints satisfy
-the gap thresholds. This is a sector-level approximation, not continuous car
-telemetry. Each processed leader-lap update logs previous and new clean-lap counts
+and clear-behind gaps. **Traffic source** defaults to **Automatic telemetry with
+sector fallback**. Live and archive `CarData.z` samples are normalized and passed
+to the same continuous direct and circular-physical traffic evaluator used by
+retrospective analysis. `Position.z` can be archived but is not required by this
+calculation. Completed-lap direct, physical, and selected values remain separate;
+the selected telemetry value currently uses the versioned conservative
+`compatibility_min` rule.
+
+If telemetry is unavailable or below its coverage requirements, the calculation
+automatically uses lap-start/S1/S2/lap-end crossing gaps and marks the result as
+`SECTOR_BOUNDARY_FALLBACK`; sector gaps are never blended into telemetry means.
+**Force sector-boundary only** is a diagnostic override, not the normal fallback
+switch. Each processed leader-lap update logs previous and new clean-lap counts
 and the FP/R source breakdown, total wall-clock calculation time, and remaining
-queue length. The elapsed time can be compared directly with a normal lap time when
-tuning the live Monte Carlo sample count.
+queue length. The elapsed time can be compared directly with a normal lap time
+when tuning the live Monte Carlo sample count. That sample count affects fitting,
+not the number of telemetry traffic comparisons.
 
 The tyre-input table keeps three views separate: **Initial FP** is the preserved
 lap-zero FP estimate, **Latest** follows live/replay recalculation, and **Used** is

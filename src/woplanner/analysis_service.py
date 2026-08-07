@@ -30,7 +30,18 @@ from wostrategy.algorithm.exact_strategy_search import (
     search_best_compound_sequences,
 )
 from wostrategy.core.pre_race_session_data import prepare_weekend_sessions
+from wostrategy.core.race_performance_settings import resolve_race_performance_settings
 from wostrategy.model.pre_race_performance import WeekendModelConfig, run_joint_weekend_model
+from wostrategy.analysis.traffic import (
+    COMBINATION_MODE_COMPATIBILITY_MIN,
+    SECTOR_BOUNDARY_FALLBACK,
+    TRAFFIC_EVALUATOR_VERSION,
+    TrafficEvaluationConfig,
+    combine_lap_traffic_components,
+    evaluate_direct_fastf1_style,
+    evaluate_physical_traffic,
+)
+from wostrategy.analysis.traffic import traffic_clean_mask
 
 
 @dataclass(frozen=True)
@@ -398,6 +409,53 @@ class OfflineAnalysisService:
             year=year, round_number=round_number, data_root=self.data_root
         )
 
+    def live_model_config(
+        self, year: int, round_number: int, session: str = "R"
+    ) -> dict[str, object]:
+        """Merge compatible race-review settings over the pre-race model config."""
+        effective = dict(self.model_config(year, round_number))
+        if not effective:
+            return {}
+        resolved = resolve_race_performance_settings(
+            year=year,
+            round_number=round_number,
+            session=session,
+            data_root=self.data_root,
+        )
+        if resolved is None:
+            effective["settings_source"] = "pre_race_model_config"
+            return effective
+
+        aliases = {
+            "default_compound_degradation_bounds": "default_degradation_bounds",
+            "compound_delta_reference": "reference_compound",
+            "dry_compounds": "expected_compounds",
+        }
+        compatible = (
+            "sample_count",
+            "fuel_rate_bounds",
+            "track_rate_bounds",
+            "default_compound_degradation_bounds",
+            "default_compound_delta_bounds",
+            "compound_delta_reference",
+            "clean_lap_noise_sigma",
+            "quick_lap_threshold",
+            "min_clean_air_laps",
+            "clean_mean_time_delta_seconds",
+            "clean_mean_time_delta_behind_seconds",
+            "dry_compounds",
+        )
+        for source_key in compatible:
+            value = resolved.settings.get(source_key)
+            if value is not None:
+                effective[aliases.get(source_key, source_key)] = value
+        random_seed = resolved.settings.get("random_seed")
+        if random_seed is not None:
+            effective["random_seed"] = random_seed
+        effective["settings_source"] = resolved.source
+        effective["settings_path"] = str(resolved.path)
+        return effective
+
     def parameter_history(
         self, year: int, round_number: int, *, include_temporary: bool = True
     ) -> list[dict[str, object]]:
@@ -464,7 +522,7 @@ class OfflineAnalysisService:
                 sample_count=int(sample_count),
             )
 
-        stored = self.model_config(year, round_number)
+        stored = self.live_model_config(year, round_number, "R")
         if not stored:
             raise ValueError("Run pre_race_analysis first; model_config.json is missing.")
         config = WeekendModelConfig(
@@ -861,19 +919,18 @@ def _live_analysis_laps(
     laps = laps.loc[laps["Compound"].isin(normalized_compounds)].copy()
     fastest = laps.groupby("Driver")["LapTimeSeconds"].transform("min")
     laps = laps.loc[laps["LapTimeSeconds"] <= float(quick_lap_threshold) * fastest].copy()
-    if use_sector_boundary_traffic:
-        traffic = _sector_boundary_traffic_gaps(snapshot)
-        if not traffic.empty:
-            laps = laps.merge(traffic, on=["Driver", "LapNumber"], how="inner")
-            laps = laps.loc[
-                laps["MinGapAheadSeconds"].ge(float(min_gap_ahead_seconds))
-                & laps["MinGapBehindSeconds"].ge(float(min_gap_behind_seconds))
-            ].copy()
-        else:
-            return laps.iloc[0:0].assign(
-                MinGapAheadSeconds=pd.Series(dtype="float64"),
-                MinGapBehindSeconds=pd.Series(dtype="float64"),
-            )
+    traffic = _live_traffic_gaps(snapshot, force_sector=use_sector_boundary_traffic)
+    laps = laps.merge(traffic, on=["Driver", "LapNumber"], how="left")
+    laps = laps.loc[
+        traffic_clean_mask(
+            laps,
+            minimum_ahead_seconds=min_gap_ahead_seconds,
+            minimum_behind_seconds=min_gap_behind_seconds,
+            ahead_column="TrafficGapAheadSeconds",
+            behind_column="TrafficGapBehindSeconds",
+            allow_missing_side_with_other_evidence=False,
+        )
+    ].copy()
     laps = laps.sort_values(["Driver", "Stint", "LapNumber"], kind="mergesort")
     gap = laps.groupby(["Driver", "Stint"])["LapNumber"].diff().fillna(1).ne(1)
     laps["_run_group"] = gap.groupby([laps["Driver"], laps["Stint"]]).cumsum()
@@ -894,6 +951,162 @@ def _live_analysis_laps(
     ].copy()
     run_sizes = laps.groupby("RunId")["RunId"].transform("size")
     return laps.loc[run_sizes >= int(min_clean_laps)].drop(columns="_run_group")
+
+
+def _live_traffic_gaps(snapshot, *, force_sector: bool = False) -> pd.DataFrame:
+    keys = ["Driver", "LapNumber"]
+    sector = _sector_boundary_traffic_gaps(snapshot)
+    if force_sector:
+        forced = _sector_as_selected_traffic(sector, reason="sector mode forced")
+        return forced if not forced.empty else _unknown_live_traffic(
+            snapshot, reason="sector mode forced but boundary data unavailable"
+        )
+
+    telemetry = _snapshot_telemetry_frame(snapshot)
+    circuit_length = _estimate_live_circuit_length(telemetry)
+    if telemetry.empty or circuit_length is None:
+        reason = "telemetry unavailable" if telemetry.empty else "circuit length unavailable"
+        fallback = _sector_as_selected_traffic(sector, reason=reason)
+        return fallback if not fallback.empty else _unknown_live_traffic(
+            snapshot, reason=f"{reason}; sector fallback unavailable"
+        )
+
+    physical = evaluate_physical_traffic(
+        telemetry,
+        config=TrafficEvaluationConfig(circuit_length_m=circuit_length),
+        group_columns=("Driver", "LapNumber"),
+    ).laps
+    direct = evaluate_direct_fastf1_style(
+        telemetry,
+        group_columns=("Driver", "LapNumber"),
+    ).laps
+    selected = combine_lap_traffic_components(
+        direct,
+        physical,
+        group_columns=tuple(keys),
+        combination_mode=COMBINATION_MODE_COMPATIBILITY_MIN,
+    )
+    selected["TrafficGapAheadSeconds"] = selected["MeanTimeDeltaToDriverAhead"]
+    selected["TrafficGapBehindSeconds"] = selected["MeanTimeDeltaToDriverBehind"]
+
+    fallback = _sector_as_selected_traffic(
+        sector,
+        reason="telemetry unavailable or below coverage threshold",
+    )
+    if fallback.empty:
+        return selected
+    fallback = fallback.set_index(keys)
+    selected = selected.set_index(keys)
+    bad = ~selected["TrafficStatus"].eq("ok")
+    replacement_keys = selected.index[bad].intersection(fallback.index)
+    if len(replacement_keys):
+        replacement_columns = [
+            "TrafficGapAheadSeconds",
+            "TrafficGapBehindSeconds",
+            "TrafficMethod",
+            "TrafficStatus",
+            "TrafficStatusReason",
+            "CoverageFraction",
+        ]
+        selected.loc[replacement_keys, replacement_columns] = fallback.loc[
+            replacement_keys, replacement_columns
+        ]
+    missing_keys = fallback.index.difference(selected.index)
+    if len(missing_keys):
+        selected = pd.concat([selected, fallback.loc[missing_keys]], axis=0, sort=False)
+    return selected.reset_index()
+
+
+def _snapshot_telemetry_frame(snapshot) -> pd.DataFrame:
+    samples = getattr(snapshot, "telemetry_samples", ())
+    if not samples:
+        return pd.DataFrame(columns=["Driver", "SessionTime", "LapNumber", "Speed"])
+    driver_codes = {driver.driver_number: driver.driver_code for driver in snapshot.drivers}
+    return pd.DataFrame(
+        [
+            {
+                "Driver": driver_codes.get(sample.driver_number, sample.driver_number),
+                "SessionTime": float(sample.session_time_seconds),
+                "LapNumber": int(sample.lap_number),
+                "Speed": float(sample.speed_kph),
+            }
+            for sample in samples
+        ]
+    )
+
+
+def _estimate_live_circuit_length(telemetry: pd.DataFrame) -> float | None:
+    if telemetry.empty:
+        return None
+    ordered = telemetry.sort_values(["Driver", "LapNumber", "SessionTime"], kind="stable").copy()
+    ordered["_Delta"] = ordered.groupby(["Driver", "LapNumber"])["SessionTime"].diff()
+    ordered["_Distance"] = (ordered["Speed"] / 3.6) * ordered["_Delta"].clip(lower=0.0)
+    spans = ordered.groupby(["Driver", "LapNumber"])["_Distance"].sum()
+    spans = spans.loc[spans.ge(1000.0)]
+    if spans.empty:
+        return None
+    median = float(spans.median())
+    plausible = spans.loc[spans.between(median * 0.75, median * 1.25)]
+    return float(plausible.median()) if not plausible.empty else median
+
+
+def _sector_as_selected_traffic(sector: pd.DataFrame, *, reason: str) -> pd.DataFrame:
+    if sector.empty:
+        return pd.DataFrame(
+            columns=[
+                "Driver", "LapNumber", "TrafficGapAheadSeconds",
+                "TrafficGapBehindSeconds", "TrafficMethod", "TrafficStatus",
+                "TrafficStatusReason", "CoverageFraction",
+            ]
+        )
+    output = sector.copy()
+    output["TrafficGapAheadSeconds"] = output["MinGapAheadSeconds"]
+    output["TrafficGapBehindSeconds"] = output["MinGapBehindSeconds"]
+    output["TrafficMethod"] = SECTOR_BOUNDARY_FALLBACK
+    output["TrafficStatus"] = "sector_fallback"
+    output["TrafficStatusReason"] = reason
+    output["CoverageFraction"] = 1.0
+    return _with_live_traffic_contract(output)
+
+
+def _unknown_live_traffic(snapshot, *, reason: str) -> pd.DataFrame:
+    rows = {
+        (str(lap.driver_code), int(lap.lap_number))
+        for lap in snapshot.completed_laps
+    }
+    return _with_live_traffic_contract(pd.DataFrame(
+        [
+            {
+                "Driver": driver,
+                "LapNumber": lap_number,
+                "TrafficGapAheadSeconds": pd.NA,
+                "TrafficGapBehindSeconds": pd.NA,
+                "TrafficMethod": pd.NA,
+                "TrafficStatus": "unknown",
+                "TrafficStatusReason": reason,
+                "CoverageFraction": 0.0,
+            }
+            for driver, lap_number in sorted(rows)
+        ]
+    ))
+
+
+def _with_live_traffic_contract(traffic: pd.DataFrame) -> pd.DataFrame:
+    output = traffic.copy()
+    for prefix in ("Direct", "Physical", ""):
+        for side in ("Ahead", "Behind"):
+            column = f"{prefix}MeanTimeDeltaToDriver{side}"
+            if column not in output:
+                output[column] = float("nan")
+    if "DirectTrafficStatus" not in output:
+        output["DirectTrafficStatus"] = "unknown"
+    if "PhysicalTrafficStatus" not in output:
+        output["PhysicalTrafficStatus"] = "unknown"
+    if "PhysicalCoverageFraction" not in output:
+        output["PhysicalCoverageFraction"] = 0.0
+    output["TrafficCombinationMode"] = COMBINATION_MODE_COMPATIBILITY_MIN
+    output["TrafficEvaluatorVersion"] = TRAFFIC_EVALUATOR_VERSION
+    return output
 
 
 def _sector_boundary_traffic_gaps(snapshot) -> pd.DataFrame:

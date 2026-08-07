@@ -6,18 +6,30 @@ from types import MappingProxyType
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import pandas as pd
 from PySide6 import QtWidgets
 
 from wodata.artifacts import write_model_snapshot, write_weekend_model_config
+from wodata import get_race_performance_review_root
 from wodata.contracts import ModelSnapshot, ParameterEstimate, StrategySearchState
-from wodata.live import CompletedLap, CompletedSector, LiveSessionSnapshot
+from wodata.live import (
+    CompletedLap,
+    CompletedSector,
+    LiveDriver,
+    LiveSessionSnapshot,
+    LiveTelemetrySample,
+)
 from woplanner.analysis_service import (
     LiveRecalculationResult,
     ModelSummary,
     OfflineAnalysisService,
     _live_analysis_laps,
+    _live_traffic_gaps,
 )
 from woplanner.analysis_gui import StrategyPredictionWindow, format_history_hover_text
+from wostrategy.core.race_performance_settings import (
+    write_resolved_race_performance_settings,
+)
 
 
 def model_snapshot():
@@ -38,6 +50,66 @@ def model_snapshot():
             )
         )
     return ModelSnapshot("a1", "b1", "aggregate", 0, tuple(rows), "input", "config", created)
+
+
+def test_live_model_config_uses_compatible_race_review_settings(tmp_path):
+    write_weekend_model_config(
+        {
+            "sample_count": 100_000,
+            "random_seed": 7,
+            "fuel_rate_bounds": [0.0, 0.08],
+            "track_rate_bounds": [-0.03, 0.03],
+            "default_degradation_bounds": [0.0, 0.2],
+            "default_compound_delta_bounds": [-1.0, 1.0],
+        },
+        year=2026,
+        round_number=11,
+        data_root=tmp_path,
+    )
+    write_resolved_race_performance_settings(
+        {
+            "sample_count": 80_000,
+            "default_compound_degradation_bounds": [0.0, 0.5],
+            "compound_delta_reference": "HARD",
+            "team_variation_fraction": 0.5,
+        },
+        output_root=get_race_performance_review_root(tmp_path),
+        year=2026,
+        races=[11],
+        session="R",
+    )
+
+    config = OfflineAnalysisService(tmp_path).live_model_config(2026, 11)
+
+    assert config["sample_count"] == 80_000
+    assert config["default_degradation_bounds"] == [0.0, 0.5]
+    assert config["reference_compound"] == "HARD"
+    assert config["random_seed"] == 7
+    assert config["settings_source"] == "event_latest_invocation"
+    assert "team_variation_fraction" not in config
+
+
+def snapshot_with_clear_sector_traffic(laps):
+    sectors = []
+    for lap in laps:
+        finish = float(lap.session_time_seconds or lap.lap_number * 100.0)
+        for number, code, offset, position in (
+            ("98", "AHEAD", -5.0, 1),
+            (lap.driver_number, lap.driver_code, 0.0, 2),
+            ("99", "BEHIND", 5.0, 3),
+        ):
+            for index, sector in enumerate(("S1", "S2", "S3"), start=1):
+                sectors.append(
+                    CompletedSector(
+                        number, code, "Team", lap.lap_number, sector,
+                        lap.lap_number * 3 - 3 + index, 30.0, 30.0 * index,
+                        position, None, session_time_seconds=finish + offset,
+                    )
+                )
+    return LiveSessionSnapshot(
+        MappingProxyType({}), "Started", (), tuple(laps),
+        MappingProxyType({"98": 1, "1": 2, "99": 3}), None, tuple(sectors),
+    )
 
 
 def test_history_hover_readings_use_hovered_compound_as_pace_reference():
@@ -103,9 +175,7 @@ def test_live_clean_lap_definition_supports_stint_edge_trimming():
         )
         for lap in range(1, 7)
     )
-    snapshot = LiveSessionSnapshot(
-        MappingProxyType({}), "Started", (), laps, MappingProxyType({"1": 1}), None
-    )
+    snapshot = snapshot_with_clear_sector_traffic(laps)
     selected = _live_analysis_laps(
         snapshot,
         quick_lap_threshold=1.1,
@@ -146,6 +216,14 @@ def test_live_clean_lap_sector_boundary_filter_requires_clear_ahead_and_behind()
         tuple(completed_sectors),
     )
 
+    automatic = _live_traffic_gaps(snapshot)
+    target_traffic = automatic.loc[automatic["Driver"].eq("TARGET")].iloc[0]
+    assert target_traffic["TrafficMethod"] == "SECTOR_BOUNDARY_FALLBACK"
+    assert target_traffic["TrafficStatus"] == "sector_fallback"
+    assert target_traffic["DirectTrafficStatus"] == "unknown"
+    assert target_traffic["PhysicalTrafficStatus"] == "unknown"
+    assert pd.isna(target_traffic["MeanTimeDeltaToDriverAhead"])
+
     selected = _live_analysis_laps(
         snapshot,
         quick_lap_threshold=1.1,
@@ -167,6 +245,117 @@ def test_live_clean_lap_sector_boundary_filter_requires_clear_ahead_and_behind()
         min_gap_behind_seconds=2.0,
     )
     assert blocked.empty
+
+
+def test_missing_live_telemetry_and_sector_data_is_explicitly_unknown():
+    lap = CompletedLap(
+        "1", "AAA", "Team", 1, 90.0, 90.0, 1, None,
+        "MEDIUM", 1.0, 1, True,
+    )
+    snapshot = LiveSessionSnapshot(
+        MappingProxyType({}), "Started", (), (lap,), MappingProxyType({}), None
+    )
+    traffic = _live_traffic_gaps(snapshot)
+    assert traffic["TrafficStatus"].tolist() == ["unknown"]
+    assert traffic["CoverageFraction"].tolist() == [0.0]
+    assert "fallback unavailable" in traffic["TrafficStatusReason"].iloc[0]
+
+
+def test_live_traffic_uses_shared_circular_physical_evaluator():
+    speed = 180.0
+    samples = []
+    for number, lap, start in (("1", 10, -10.0), ("2", 8, -12.0), ("3", 12, -9.0)):
+        for index in range(41):
+            time = start + index * 0.5
+            samples.append(LiveTelemetrySample(number, time, lap, speed))
+    drivers = (
+        LiveDriver("1", "TARGET", "Team", "Target", 1, None),
+        LiveDriver("2", "LAPPED_AHEAD", "Team", "Ahead", 2, None),
+        LiveDriver("3", "BEHIND", "Team", "Behind", 3, None),
+    )
+    snapshot = LiveSessionSnapshot(
+        MappingProxyType({}), "Started", drivers, (), MappingProxyType({}), None,
+        telemetry_samples=tuple(samples),
+    )
+
+    traffic = _live_traffic_gaps(snapshot)
+    target = traffic.loc[traffic["Driver"].eq("TARGET")].iloc[0]
+    assert target["TrafficMethod"] == "PHYSICAL_CIRCULAR"
+    assert target["TrafficStatus"] == "ok"
+    assert target["PhysicalMeanTimeDeltaToDriverAhead"] > 0.0
+    assert target["PhysicalMeanTimeDeltaToDriverBehind"] > 0.0
+    assert target["DirectMeanTimeDeltaToDriverAhead"] != target["DirectMeanTimeDeltaToDriverAhead"]
+
+
+def test_live_traffic_exposes_shared_completed_lap_direct_component():
+    samples = tuple(
+        LiveTelemetrySample(number, start + index * 0.5, 5, 180.0)
+        for number, start in (("1", -10.0), ("2", -12.0), ("3", -8.5))
+        for index in range(41)
+    )
+    drivers = (
+        LiveDriver("1", "TARGET", "Team", "Target", 1, None),
+        LiveDriver("2", "AHEAD", "Team", "Ahead", 2, None),
+        LiveDriver("3", "BEHIND", "Team", "Behind", 3, None),
+    )
+    snapshot = LiveSessionSnapshot(
+        MappingProxyType({}), "Started", drivers, (), MappingProxyType({}), None,
+        telemetry_samples=samples,
+    )
+
+    traffic = _live_traffic_gaps(snapshot)
+    target = traffic.loc[traffic["Driver"].eq("TARGET")].iloc[0]
+
+    assert target["DirectTrafficStatus"] == "ok"
+    assert target["DirectMeanDistanceToDriverAhead"] == 100.0
+    assert target["DirectMeanTimeDeltaToDriverAhead"] == 2.0
+    assert target["TrafficMethod"] == "compatibility_min"
+
+
+def test_finalized_live_traffic_is_identical_for_batch_and_replay_sample_order():
+    samples = tuple(
+        LiveTelemetrySample(number, start + index * 0.5, lap, 180.0)
+        for number, lap, start in (("1", 5, -10.0), ("2", 3, -11.5))
+        for index in range(41)
+    )
+    drivers = (
+        LiveDriver("1", "TARGET", "Team", "Target", 1, None),
+        LiveDriver("2", "OTHER", "Team", "Other", 2, None),
+    )
+
+    def snapshot(telemetry_samples):
+        return LiveSessionSnapshot(
+            MappingProxyType({}),
+            "Started",
+            drivers,
+            (),
+            MappingProxyType({}),
+            None,
+            telemetry_samples=telemetry_samples,
+        )
+
+    batch = _live_traffic_gaps(snapshot(samples)).sort_values(["Driver", "LapNumber"])
+    replay = _live_traffic_gaps(snapshot(tuple(reversed(samples)))).sort_values(
+        ["Driver", "LapNumber"]
+    )
+    columns = [
+        "Driver",
+        "LapNumber",
+        "PhysicalMeanTimeDeltaToDriverAhead",
+        "PhysicalMeanTimeDeltaToDriverBehind",
+        "DirectMeanTimeDeltaToDriverAhead",
+        "DirectMeanTimeDeltaToDriverBehind",
+        "MeanTimeDeltaToDriverAhead",
+        "MeanTimeDeltaToDriverBehind",
+        "TrafficMethod",
+        "TrafficStatus",
+        "DirectTrafficStatus",
+        "CoverageFraction",
+    ]
+    pd.testing.assert_frame_equal(
+        batch.loc[:, columns].reset_index(drop=True),
+        replay.loc[:, columns].reset_index(drop=True),
+    )
 
 
 def test_service_loads_canonical_and_race_review_tyre_information(tmp_path):
@@ -273,9 +462,7 @@ def test_live_recalculation_runs_once_for_new_clean_laps(tmp_path):
         )
         for lap in range(1, 5)
     )
-    snapshot = LiveSessionSnapshot(
-        MappingProxyType({}), "Started", (), laps, MappingProxyType({"1": 1}), None
-    )
+    snapshot = snapshot_with_clear_sector_traffic(laps)
     service = OfflineAnalysisService(tmp_path)
     first = service.recalculate_from_live_snapshot(
         year=2026, round_number=5, snapshot=snapshot, sample_count=100,
@@ -414,9 +601,7 @@ def test_replay_recalculation_stays_temporary_until_promoted(tmp_path):
         )
         for lap in range(1, 5)
     )
-    snapshot = LiveSessionSnapshot(
-        MappingProxyType({}), "Started", (), laps, MappingProxyType({"1": 1}), None
-    )
+    snapshot = snapshot_with_clear_sector_traffic(laps)
     service = OfflineAnalysisService(tmp_path)
     service.activate_temporary_replay_model(2026, 5)
     result = service.recalculate_from_live_snapshot(
@@ -444,7 +629,7 @@ def test_strategy_prediction_restores_context_local_state(tmp_path):
     )
     assert first.strategy_tab.isAncestorOf(first.load_tyre_file_button)
     assert first.live_tab.isAncestorOf(first.enforce_compound_order)
-    assert first.sector_traffic_filter.isChecked()
+    assert first.traffic_source.currentData() == "automatic"
     first.result_count.setValue(17)
     first.sample_count.setValue(4321)
     first.enforce_compound_order.setChecked(False)

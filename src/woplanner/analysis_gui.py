@@ -367,10 +367,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.exclude_stint_start_laps.setRange(0, 10)
         self.exclude_stint_end_laps = QtWidgets.QSpinBox()
         self.exclude_stint_end_laps.setRange(0, 10)
-        self.sector_traffic_filter = QtWidgets.QCheckBox(
-            "Sector start/end position based"
+        self.traffic_source = QtWidgets.QComboBox()
+        self.traffic_source.addItem(
+            "Automatic telemetry with sector fallback", "automatic"
         )
-        self.sector_traffic_filter.setChecked(True)
+        self.traffic_source.addItem("Force sector-boundary only", "sector")
         self.min_gap_ahead = QtWidgets.QDoubleSpinBox()
         self.min_gap_ahead.setRange(0.0, 30.0)
         self.min_gap_ahead.setDecimals(1)
@@ -395,9 +396,10 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         controls.addRow("Live recalculation samples", self.sample_count)
         controls.addRow("Compound constraints", self.enforce_compound_order)
         controls.addRow("Clean-lap definition", self.clean_details_button)
+        controls.addRow("Traffic source", self.traffic_source)
         self.live_note = QtWidgets.QLabel(
-            "Traffic is approximated from crossing times at each sector start/end; "
-            "car telemetry is not required."
+            "Traffic uses rolling car telemetry when coverage is sufficient and "
+            "falls back to sector-boundary crossing times automatically."
         )
         self.live_note.setWordWrap(True)
         self.calculation_log = QtWidgets.QPlainTextEdit()
@@ -410,10 +412,15 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         for control in (
             self.quick_threshold, self.min_clean_laps,
             self.exclude_stint_start_laps, self.exclude_stint_end_laps,
-            self.sector_traffic_filter, self.min_gap_ahead, self.min_gap_behind,
+            self.traffic_source, self.min_gap_ahead, self.min_gap_behind,
             *self.clean_compound_checks.values(),
         ):
-            signal = control.toggled if isinstance(control, QtWidgets.QCheckBox) else control.valueChanged
+            if isinstance(control, QtWidgets.QCheckBox):
+                signal = control.toggled
+            elif isinstance(control, QtWidgets.QComboBox):
+                signal = control.currentIndexChanged
+            else:
+                signal = control.valueChanged
             signal.connect(self._update_clean_definition_label)
         self._update_clean_definition_label()
         return widget
@@ -424,8 +431,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(dialog)
         fixed = QtWidgets.QLabel(
             "A lap must have a positive completed lap time plus compound, tyre-life, "
-            "and stint metadata. Traffic proximity is estimated at sector boundaries "
-            "rather than continuously around the lap."
+            "and stint metadata. Traffic proximity uses rolling car telemetry around "
+            "the lap when coverage is sufficient. Sector-boundary crossing times are "
+            "used automatically when telemetry is unavailable or fails coverage checks."
         )
         fixed.setWordWrap(True)
         layout.addWidget(fixed)
@@ -434,9 +442,6 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         form.addRow("Minimum consecutive laps after exclusions", self.min_clean_laps)
         form.addRow("Exclude laps at run start", self.exclude_stint_start_laps)
         form.addRow("Exclude laps at run end", self.exclude_stint_end_laps)
-        traffic = QtWidgets.QVBoxLayout()
-        traffic.addWidget(self.sector_traffic_filter)
-        form.addRow("Traffic filter", traffic)
         form.addRow("Clear ahead by at least", self.min_gap_ahead)
         form.addRow("Clear behind by at least", self.min_gap_behind)
         compounds = QtWidgets.QHBoxLayout()
@@ -447,9 +452,10 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         layout.addLayout(form)
         explanation = QtWidgets.QLabel(
             "Filtering order: required metadata → allowed compound → lap-time threshold "
-            "→ sector-boundary traffic gaps → consecutive driver/stint run → "
-            "start/end exclusions → minimum run length. The traffic option requires "
-            "all four boundaries (lap start, S1, S2 and lap end) to be available."
+            "→ selected traffic gaps → consecutive driver/stint run → start/end "
+            "exclusions → minimum run length. Normally, physical gaps come from rolling "
+            "telemetry with automatic sector fallback. Forcing sector fallback requires "
+            "all four boundaries: lap start, S1, S2 and lap end."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
@@ -464,6 +470,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             if checkbox.isChecked()
         )
 
+    def _force_sector_traffic(self) -> bool:
+        return self.traffic_source.currentData() == "sector"
+
     def _update_clean_definition_label(self, *_args) -> None:
         compounds = "/".join(self._selected_clean_compounds()) or "none"
         self.clean_definition_label.setText(
@@ -472,10 +481,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             f"{self.exclude_stint_start_laps.value()} at start / "
             f"{self.exclude_stint_end_laps.value()} at end; compounds {compounds}; "
             + (
-                f"sector gaps ≥{self.min_gap_ahead.value():.1f}s ahead / "
+                f"forced sector gaps ≥{self.min_gap_ahead.value():.1f}s ahead / "
                 f"≥{self.min_gap_behind.value():.1f}s behind."
-                if self.sector_traffic_filter.isChecked()
-                else "sector traffic filter disabled."
+                if self._force_sector_traffic()
+                else (
+                    f"automatic telemetry traffic ≥{self.min_gap_ahead.value():.1f}s "
+                    f"ahead / ≥{self.min_gap_behind.value():.1f}s behind, with sector "
+                    "fallback when required."
+                )
             )
         )
 
@@ -522,10 +535,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._refresh_history_entries(selected_key=selected)
 
     def _load_model_config(self) -> None:
-        config = self.service.model_config(self.year, self.round_number)
+        config = self.service.live_model_config(self.year, self.round_number, "R")
         if not config:
             self._append_log("No model_config.json found; run pre_race_analysis first.")
             return
+        self.sample_count.setValue(int(config.get("sample_count", self.sample_count.value())))
         self.quick_threshold.setValue(float(config.get("quick_lap_threshold", 1.10)))
         self.min_clean_laps.setValue(int(config.get("min_clean_air_laps", 4)))
         self.min_gap_ahead.setValue(
@@ -541,10 +555,13 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._sync_strategy_overrides()
         self._render_strategy_inputs()
         self._append_log(
-            f"Pre-race model used {config.get('sample_count', '—')} Monte Carlo samples, "
+            f"Effective fitting settings ({config.get('settings_source', 'unknown')}) use "
+            f"{config.get('sample_count', '—')} Monte Carlo samples, "
             f"seed {config.get('random_seed', '—')}. Live recalculation is set to "
             f"{self.sample_count.value()} samples (editable above)."
         )
+        if config.get("settings_path"):
+            self._append_log(f"Fitting settings source: {config['settings_path']}")
 
     def _start_search(self) -> None:
         if self._future is not None:
@@ -709,7 +726,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             "allowed_compounds": self._selected_clean_compounds(),
             "exclude_stint_start_laps": self.exclude_stint_start_laps.value(),
             "exclude_stint_end_laps": self.exclude_stint_end_laps.value(),
-            "use_sector_boundary_traffic": self.sector_traffic_filter.isChecked(),
+            "use_sector_boundary_traffic": self._force_sector_traffic(),
             "min_gap_ahead_seconds": self.min_gap_ahead.value(),
             "min_gap_behind_seconds": self.min_gap_behind.value(),
             "enforce_compound_order": self.enforce_compound_order.isChecked(),
@@ -1423,7 +1440,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.enforce_compound_order, self.auto_recalculate, self.sample_count,
             self.quick_threshold, self.min_clean_laps,
             self.exclude_stint_start_laps, self.exclude_stint_end_laps,
-            self.sector_traffic_filter, self.min_gap_ahead, self.min_gap_behind,
+            self.traffic_source, self.min_gap_ahead, self.min_gap_behind,
             *self.clean_compound_checks.values(), self.tabs,
         ):
             if isinstance(control, QtWidgets.QAbstractButton):
@@ -1461,9 +1478,13 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.exclude_stint_end_laps.setValue(
                 int(controls.get("exclude_stint_end_laps", 0))
             )
-            self.sector_traffic_filter.setChecked(
-                bool(controls.get("sector_traffic_filter", True))
-            )
+            traffic_source = controls.get("traffic_source")
+            if traffic_source is None:
+                traffic_source = (
+                    "sector" if controls.get("sector_traffic_filter", False) else "automatic"
+                )
+            traffic_source_index = self.traffic_source.findData(str(traffic_source))
+            self.traffic_source.setCurrentIndex(max(traffic_source_index, 0))
             self.min_gap_ahead.setValue(
                 float(controls.get("min_gap_ahead_seconds", self.min_gap_ahead.value()))
             )
@@ -1536,7 +1557,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "min_clean_laps": self.min_clean_laps.value(),
                 "exclude_stint_start_laps": self.exclude_stint_start_laps.value(),
                 "exclude_stint_end_laps": self.exclude_stint_end_laps.value(),
-                "sector_traffic_filter": self.sector_traffic_filter.isChecked(),
+                "traffic_source": str(self.traffic_source.currentData()),
                 "min_gap_ahead_seconds": self.min_gap_ahead.value(),
                 "min_gap_behind_seconds": self.min_gap_behind.value(),
                 "clean_compounds": list(self._selected_clean_compounds()),
