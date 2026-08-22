@@ -9,6 +9,7 @@ from wodata.live import LiveConfig, LiveSessionSnapshot, LiveTimingController, R
 
 from .driver_styles import assign_driver_styles
 from .service import build_tyre_event_data as tyre_event_data_from_plot
+from .telemetry_worker import ReplayPipelineConfig, TelemetryAnalysisWorker
 
 REFERENCE_MODE_ACTUAL_PACE = "actual_pace"
 REFERENCE_MODE_AVERAGED_PACE = "averaged_pace"
@@ -23,11 +24,26 @@ class LivePlannerUpdate:
     snapshot: LiveSessionSnapshot
     statuses: tuple
     changed: bool
+    changes: frozenset[str] = frozenset()
 
 
 class LivePlannerService:
-    def __init__(self, controller: LiveTimingController | None = None) -> None:
+    def __init__(
+        self,
+        controller: LiveTimingController | None = None,
+        *,
+        replay_pipeline_config: ReplayPipelineConfig | None = None,
+    ) -> None:
+        self.telemetry_worker = TelemetryAnalysisWorker(
+            replay_pipeline_config=replay_pipeline_config
+        )
         self.controller = controller or LiveTimingController()
+        if hasattr(self.controller, "set_telemetry_sink"):
+            self.controller.set_telemetry_sink(self.telemetry_worker.enqueue_message)
+        if hasattr(self.controller, "set_replay_flow_control"):
+            self.controller.set_replay_flow_control(
+                self.telemetry_worker.wait_for_replay_capacity
+            )
         self.snapshot = LiveSessionSnapshot.empty()
         self._start_rank_by_driver: dict[str, int] = {}
         self._last_plot_data: pd.DataFrame | None = None
@@ -35,11 +51,13 @@ class LivePlannerService:
     def start_live(self, config: LiveConfig) -> None:
         self._start_rank_by_driver.clear()
         self._last_plot_data = None
+        self.telemetry_worker.reset()
         self.controller.start_live(config)
 
     def start_replay(self, config: ReplayConfig) -> None:
         self._start_rank_by_driver.clear()
         self._last_plot_data = None
+        self.telemetry_worker.reset()
         self.controller.start_replay(config)
 
     def poll(self) -> LivePlannerUpdate:
@@ -49,14 +67,24 @@ class LivePlannerService:
             if driver.driver_code not in self._start_rank_by_driver:
                 rank = driver.position or len(self._start_rank_by_driver) + 1
                 self._start_rank_by_driver[driver.driver_code] = int(rank)
-        return LivePlannerUpdate(self.snapshot, result.statuses, result.changed)
+        return LivePlannerUpdate(
+            self.snapshot, result.statuses, result.changed, result.changes
+        )
 
     def stop(self) -> None:
         self.controller.stop()
 
+    def shutdown(self) -> None:
+        self.controller.stop()
+        self.telemetry_worker.shutdown()
+
     @property
     def recording_path(self) -> Path | None:
         return self.controller.recording_path
+
+    def latest_track_map_snapshot(self):
+        """Return the latest lightweight position view for a future track-map widget."""
+        return self.telemetry_worker.track_map_snapshot()
 
     def available_drivers(self) -> pd.DataFrame:
         rows = [

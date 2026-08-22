@@ -1,24 +1,31 @@
 from __future__ import annotations
 
-from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timezone
 import json
+import time
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
+import numpy as np
 import pyqtgraph as pg
 
 from wodata.contracts import StrategySearchState
 from wodata.artifacts import weekend_model_root
 
 from .analysis_service import OfflineAnalysisService
+from .analysis_worker import AnalysisQueuePolicy, LiveAnalysisProcessService
+from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
 
 
 COMPOUND_COLOURS = {"SOFT": "#e10600", "MEDIUM": "#f2c500", "HARD": "#d5d7da"}
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[3] / "woData"
 LIVE_DEFAULT_SAMPLE_COUNT = 5000
+
+
+def _version_text(version: int | None) -> str:
+    return "—" if version is None else f"V{version}"
 
 
 def history_values_at_lap(rows, leader_lap: int) -> dict[str, dict[str, float]]:
@@ -70,12 +77,56 @@ def format_history_hover_text(
             if compound in degradation
             else "—"
         )
+        degradation_row = next(
+            (
+                row for row in rows
+                if str(row.get("source_scope", "")).upper() == "AGGREGATE"
+                and int(float(row.get("as_of_leader_lap") or 0)) == int(leader_lap)
+                and str(row.get("parameter") or "") == "degradation"
+                and str(row.get("compound") or "").upper() == compound
+            ),
+            {},
+        )
+        source_text = (
+            " (Relative degradation assumption)"
+            if degradation_row.get("degradation_source")
+            == "relative_degradation_assumption"
+            else ""
+        )
         pace_text = (
             f"{deltas[compound] - reference_value:+.3f} s"
             if compound in deltas
             else "—"
         )
-        lines.append(f"{compound}: degradation {degradation_text} | pace Δ {pace_text}")
+        lines.append(
+            f"{compound}: degradation {degradation_text} | pace Δ {pace_text}{source_text}"
+        )
+    return "\n".join(lines)
+
+
+def format_quality_hover_text(rows, *, leader_lap: int) -> str:
+    selected = [row for row in rows if int(float(row.get("as_of_leader_lap") or 0)) == leader_lap]
+    quality = next((row for row in selected if row.get("sampler_ess") is not None), None)
+    if quality is None:
+        return f"Leader lap {leader_lap} | model-quality data unavailable"
+    evidence = quality.get("compound_evidence") or {}
+    lines = [
+        f"Leader lap {leader_lap}",
+        f"ESS {float(quality['sampler_ess']):,.1f} / {int(quality['sample_count']):,} "
+        f"({float(quality['ess_fraction']):.2%})",
+        f"Max weight {float(quality['max_weight']):.3g}",
+        f"Sampler status {quality.get('numerical_quality_status', 'unknown')}",
+        f"Clean Race laps {int(quality['clean_race_laps'])}; runs {int(quality['clean_race_runs'])}",
+    ]
+    for compound in ("SOFT", "MEDIUM", "HARD"):
+        item = evidence.get(compound, {})
+        width = next((row.get("p10_p90_width") for row in selected
+                      if row.get("parameter") == "degradation" and row.get("compound") == compound), None)
+        width_text = f"; width {float(width):.3f} s/lap" if width is not None else ""
+        lines.append(
+            f"{compound}: {item.get('status', 'unknown')}; "
+            f"{int(item.get('clean_laps', 0))} laps/{int(item.get('clean_runs', 0))} runs{width_text}"
+        )
     return "\n".join(lines)
 
 
@@ -109,6 +160,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         state_directory: str | Path | None = None,
         persistence_mode: str = "durable",
         auto_save_history: bool = False,
+        telemetry_worker=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -121,6 +173,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             raise ValueError("persistence_mode must be 'temporary' or 'durable'.")
         self.persistence_mode = persistence_mode
         self.auto_save_history = bool(auto_save_history)
+        self._telemetry_worker = telemetry_worker
+        self._telemetry_build_options: dict[int, tuple[int, dict[str, object]]] = {}
         state_root = (
             Path(state_directory).expanduser()
             if state_directory is not None
@@ -130,10 +184,20 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._state_ready = False
         self._restored_driver_code: str | None = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="strategy-search")
+        self._fp_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fp-tyre-evidence")
+        self._analysis_worker = LiveAnalysisProcessService(
+            self.service.data_root,
+            policy=self._analysis_queue_policy(),
+        )
+        self._sync_bounded_replay_pipeline_flow_control()
         self._future: Future | None = None
-        self._future_mode: str | None = None
-        self._live_recalculation_queue: deque[tuple[int, object, dict[str, object]]] = deque()
-        self._strategy_refresh_pending = False
+        self._fp_future: Future | None = None
+        self._resolved_tyre_inputs = None
+        self._cached_fp_evidence: dict[str, object] | None = None
+        self._tyre_input_loading = False
+        self._strategy_started_at: float | None = None
+        self._reported_analysis_error: str | None = None
+        self._current_model_summary = None
         self._live_snapshot = None
         self._last_seen_leader_lap = 0
         self._manual_overrides: dict[tuple[str, str], float] = {}
@@ -145,6 +209,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._degradation_values: dict[str, float] = {}
         self._estimated_strategy_inputs: dict[str, dict[str, object]] = {}
         self._initial_strategy_inputs: dict[str, dict[str, object]] = {}
+        self._race_informed_degradation_compounds: set[str] = set()
         self._external_tyre_sources: dict[str, str] = {}
         self._last_strategy_rows: list[dict[str, object]] = []
         self._working_plot_rows: list[dict[str, object]] = []
@@ -156,7 +221,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         )
         self._reference_compound = "HARD"
         self.enforce_compound_order = QtWidgets.QCheckBox(
-            "Enforce SOFT quickest/highest degradation → MEDIUM → HARD"
+            "Show advisory tyre-order warnings"
         )
         self.enforce_compound_order.setChecked(True)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -167,23 +232,31 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.status_label = QtWidgets.QLabel("Loading model…")
         self.tabs = QtWidgets.QTabWidget()
         self.model_table = QtWidgets.QTableWidget()
+        self.tyre_inputs_tab = self._build_tyre_inputs_tab()
         self.strategy_tab = self._build_strategy_tab()
         self.history_tab = self._build_history_tab()
         self.live_tab = self._build_live_tab()
         self.tabs.addTab(self.model_table, "Model summary")
+        self.tabs.addTab(self.tyre_inputs_tab, "Tyre Inputs")
         self.tabs.addTab(self.strategy_tab, "Strategy predictions")
         self.tabs.addTab(self.history_tab, "Update history")
         self.tabs.addTab(self.live_tab, "Live recalculation")
+        self.tabs.currentChanged.connect(self._strategy_tab_changed)
         layout.addWidget(self.status_label)
         layout.addWidget(self.tabs)
         self._poll_timer = QtCore.QTimer(self)
         self._poll_timer.setInterval(100)
         self._poll_timer.timeout.connect(self._poll_future)
+        self._fp_poll_timer = QtCore.QTimer(self)
+        self._fp_poll_timer.setInterval(100)
+        self._fp_poll_timer.timeout.connect(self._poll_fp_evidence)
         if self.persistence_mode == "temporary":
             self.service.activate_temporary_replay_model(self.year, self.round_number)
         self._load_model()
         self._load_history()
         self._load_model_config()
+        self._refresh_tyre_inputs()
+        self._refresh_fp_evidence()
         self._load_saved_state()
         self._state_ready = True
         self._connect_state_persistence()
@@ -195,22 +268,344 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         else:
             self._append_log("Durable persistence: live calculations and results are retained.")
 
+    def _build_tyre_inputs_tab(self):
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(widget)
+
+        input_group = QtWidgets.QGroupBox("Strategy tyre inputs")
+        input_layout = QtWidgets.QVBoxLayout(input_group)
+        input_help = QtWidgets.QLabel(
+            "Manual values are event-specific and authoritative. Blank means no override; "
+            "use Clear to return a field to the Legacy FP-derived fallback."
+        )
+        input_help.setWordWrap(True)
+        self.tyre_input_table = QtWidgets.QTableWidget()
+        self.tyre_input_table.setColumnCount(6)
+        self.tyre_input_table.setHorizontalHeaderLabels(
+            ["Parameter", "Selected", "Source", "Manual", "Legacy", "Clear"]
+        )
+        self.tyre_input_table.itemChanged.connect(self._manual_tyre_input_changed)
+        self.clear_all_tyre_inputs_button = QtWidgets.QPushButton("Clear all manual overrides")
+        self.clear_all_tyre_inputs_button.clicked.connect(self._clear_all_manual_tyre_inputs)
+        self.tyre_warning_label = QtWidgets.QLabel("")
+        self.tyre_warning_label.setWordWrap(True)
+        input_layout.addWidget(input_help)
+        input_layout.addWidget(self.tyre_input_table)
+        input_layout.addWidget(self.tyre_warning_label)
+        input_layout.addWidget(self.clear_all_tyre_inputs_button, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
+
+        evidence_group = QtWidgets.QGroupBox("FP LongRun Evidence")
+        evidence_layout = QtWidgets.QVBoxLayout(evidence_group)
+        self.fp_evidence_status_label = QtWidgets.QLabel("FP evidence not calculated")
+        self.fp_evidence_status_label.setWordWrap(True)
+        self.fp_evidence_summary = QtWidgets.QPlainTextEdit()
+        self.fp_evidence_summary.setReadOnly(True)
+        self.fp_evidence_summary.setMaximumHeight(230)
+        fp_controls = QtWidgets.QHBoxLayout()
+        self.calculate_fp_evidence_button = QtWidgets.QPushButton("Calculate FP Evidence")
+        self.recalculate_fp_evidence_button = QtWidgets.QPushButton("Recalculate FP Evidence")
+        self.view_fp_evidence_button = QtWidgets.QPushButton("View LongRun Evidence…")
+        self.recalculate_fp_evidence_button.setVisible(False)
+        self.view_fp_evidence_button.setEnabled(False)
+        self.calculate_fp_evidence_button.setToolTip(
+            "Explicitly analyse available FP1–FP3 data. This may load/download data and take time."
+        )
+        self.recalculate_fp_evidence_button.setToolTip(
+            "Explicitly reload available FP data and replace the cache only after success."
+        )
+        self.calculate_fp_evidence_button.clicked.connect(
+            lambda: self._start_fp_evidence_calculation(force_refresh=False)
+        )
+        self.recalculate_fp_evidence_button.clicked.connect(
+            lambda: self._start_fp_evidence_calculation(force_refresh=True)
+        )
+        self.view_fp_evidence_button.clicked.connect(self._view_longrun_evidence)
+        fp_controls.addWidget(self.calculate_fp_evidence_button)
+        fp_controls.addWidget(self.recalculate_fp_evidence_button)
+        fp_controls.addWidget(self.view_fp_evidence_button)
+        fp_controls.addStretch(1)
+        evidence_layout.addWidget(self.fp_evidence_status_label)
+        evidence_layout.addWidget(self.fp_evidence_summary)
+        evidence_layout.addLayout(fp_controls)
+
+        sign_help = QtWidgets.QLabel(
+            "Performance convention: HARD vs MEDIUM = HARD pace − MEDIUM pace; "
+            "SOFT vs MEDIUM = SOFT pace − MEDIUM pace. Positive means the first "
+            "compound is slower; negative means it is faster."
+        )
+        sign_help.setWordWrap(True)
+        layout.addWidget(input_group)
+        layout.addWidget(sign_help)
+        layout.addWidget(evidence_group)
+        layout.addStretch(1)
+        return widget
+
+    @staticmethod
+    def _tyre_parameter_label(parameter: str) -> str:
+        return {
+            "Deg_HARD": "HARD degradation",
+            "Deg_MEDIUM": "MEDIUM degradation",
+            "Deg_SOFT": "SOFT degradation",
+            "Perf_HARD_vs_MEDIUM": "HARD vs MEDIUM pace",
+            "Perf_SOFT_vs_MEDIUM": "SOFT vs MEDIUM pace",
+        }[parameter]
+
+    def _refresh_tyre_inputs(self, *, apply_to_strategy: bool = False) -> None:
+        try:
+            resolved = self.service.resolve_tyre_inputs(self.year, self.round_number)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            self._resolved_tyre_inputs = None
+            self.tyre_input_table.setRowCount(0)
+            self.tyre_warning_label.setText(f"Tyre inputs unavailable: {exc}")
+            return
+        self._resolved_tyre_inputs = resolved
+        self._render_tyre_input_table()
+        warnings = self.service.tyre_inputs.physical_order_warnings(resolved)
+        self.tyre_warning_label.setText(
+            "Advisory: " + " ".join(warnings) if warnings else "No physical-order warning."
+        )
+        if apply_to_strategy and self._current_model_summary is not None:
+            self._manual_baseline_compounds.clear()
+            self._manual_degradation_compounds.clear()
+            self._load_strategy_inputs(self._current_model_summary, resolved=resolved)
+
+    def _render_tyre_input_table(self) -> None:
+        if self._resolved_tyre_inputs is None:
+            return
+        self._tyre_input_loading = True
+        rows = self._resolved_tyre_inputs.by_parameter()
+        self.tyre_input_table.setRowCount(len(TYRE_PARAMETERS))
+        for row_index, parameter in enumerate(TYRE_PARAMETERS):
+            row = rows[parameter]
+            values = [
+                self._tyre_parameter_label(parameter),
+                f"{row.selected_value:+.4f}",
+                "Manual" if row.selected_source == "manual" else "Legacy FP-derived fallback",
+                "" if row.manual_value is None else f"{row.manual_value:.6g}",
+                f"{row.legacy_value:+.4f}",
+            ]
+            for column, value in enumerate(values):
+                item = QtWidgets.QTableWidgetItem(value)
+                if column == 3:
+                    item.setData(QtCore.Qt.ItemDataRole.UserRole, parameter)
+                    item.setBackground(QtGui.QColor("#fff4c2"))
+                    item.setToolTip("Enter a finite number. Use Clear to remove the override.")
+                else:
+                    item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                self.tyre_input_table.setItem(row_index, column, item)
+            clear = QtWidgets.QPushButton("Clear")
+            clear.setEnabled(row.manual_value is not None)
+            clear.clicked.connect(
+                lambda _checked=False, name=parameter: self._clear_manual_tyre_input(name)
+            )
+            self.tyre_input_table.setCellWidget(row_index, 5, clear)
+        self.tyre_input_table.resizeColumnsToContents()
+        self._tyre_input_loading = False
+
+    def _manual_tyre_input_changed(self, item) -> None:
+        if self._tyre_input_loading or item.column() != 3:
+            return
+        parameter = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        if parameter not in TYRE_PARAMETERS:
+            return
+        text = item.text().strip()
+        if not text:
+            self.tyre_warning_label.setText(
+                "Use the Clear button to explicitly remove a manual override."
+            )
+            self._render_tyre_input_table()
+            return
+        try:
+            self.service.set_manual_tyre_input(
+                self.year, self.round_number, str(parameter), float(text)
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self.tyre_warning_label.setText(str(exc))
+            self._render_tyre_input_table()
+            return
+        self._append_log(f"Manual tyre input saved: {parameter} = {text}")
+        self._refresh_tyre_inputs(apply_to_strategy=True)
+
+    def _clear_manual_tyre_input(self, parameter: str) -> None:
+        try:
+            self.service.clear_manual_tyre_input(
+                self.year, self.round_number, parameter
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self.tyre_warning_label.setText(str(exc))
+            return
+        self._append_log(f"Manual tyre input cleared: {parameter}; Legacy restored")
+        self._refresh_tyre_inputs(apply_to_strategy=True)
+
+    def _clear_all_manual_tyre_inputs(self) -> None:
+        try:
+            self.service.tyre_inputs.clear_all_manual_values(
+                self.year, self.round_number
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self.tyre_warning_label.setText(str(exc))
+            return
+        self._append_log("All manual tyre inputs cleared; Legacy restored")
+        self._refresh_tyre_inputs(apply_to_strategy=True)
+
+    def _refresh_fp_evidence(self) -> None:
+        try:
+            cache = self.service.get_cached_fp_tyre_evidence(
+                self.year, self.round_number
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            self.fp_evidence_status_label.setText(f"FP evidence cache error: {exc}")
+            return
+        evidence = cache.evidence
+        self._cached_fp_evidence = evidence
+        if evidence is None:
+            self.fp_evidence_status_label.setText("FP evidence not calculated")
+            self.fp_evidence_summary.setPlainText(
+                "Strategy Prediction remains available through Manual / Legacy inputs."
+            )
+            self.calculate_fp_evidence_button.setVisible(True)
+            self.recalculate_fp_evidence_button.setVisible(False)
+            self.view_fp_evidence_button.setEnabled(False)
+            return
+        status = (
+            f"Calculated {evidence.get('calculated_at', '—')} using "
+            + " + ".join(evidence.get("sessions_used") or ())
+        )
+        if cache.stale:
+            status += f"\n⚠ FP data have changed since calculation: {cache.stale_reason}"
+        self.fp_evidence_status_label.setText(status)
+        contrasts = {
+            str(row.get("parameter")): row
+            for row in evidence.get("degradation_contrasts") or ()
+        }
+        performance = {
+            str(row.get("parameter")): row
+            for row in evidence.get("performance_support") or ()
+        }
+        lines = []
+        for name, label in (("Delta_HM", "H − M"), ("Delta_SM", "S − M"), ("Delta_SH", "S − H")):
+            row = contrasts.get(name)
+            if not row:
+                lines.append(f"{label}: unavailable")
+                continue
+            lines.extend(
+                [
+                    f"{label}: strict {float(row['strict_central']):+.3f} s/lap; "
+                    f"P10–P90 {float(row['strict_p10']):+.3f} … {float(row['strict_p90']):+.3f}",
+                    f"  one-gap {float(row['one_gap_central']):+.3f}; robust variability "
+                    f"{float(row['robust_variability_central']):+.3f}; support "
+                    f"{int(row['supporting_runs'])} runs / {int(row['supporting_teams'])} teams / "
+                    f"{int(row['supporting_clean_laps'])} laps",
+                ]
+            )
+        for name, label in (
+            ("Perf_HARD_vs_MEDIUM", "HARD vs MEDIUM performance"),
+            ("Perf_SOFT_vs_MEDIUM", "SOFT vs MEDIUM performance"),
+        ):
+            row = performance.get(name, {})
+            if row.get("support_status") == "fp_longrun_direct":
+                lines.append(f"{label}: {float(row['fp_direct_value']):+.3f} s")
+            else:
+                lines.append(f"{label}: No direct LongRun evidence")
+        self.fp_evidence_summary.setPlainText("\n".join(lines))
+        self.calculate_fp_evidence_button.setVisible(False)
+        self.recalculate_fp_evidence_button.setVisible(True)
+        self.view_fp_evidence_button.setEnabled(True)
+
+    def _start_fp_evidence_calculation(self, *, force_refresh: bool) -> None:
+        if self._fp_future is not None:
+            return
+        self.calculate_fp_evidence_button.setEnabled(False)
+        self.recalculate_fp_evidence_button.setEnabled(False)
+        self.fp_evidence_status_label.setText(
+            "FP evidence calculation running… this may load/download FP data."
+        )
+        self._fp_future = self._fp_executor.submit(
+            self.service.calculate_fp_tyre_evidence,
+            self.year,
+            self.round_number,
+            force_refresh=force_refresh,
+        )
+        self._fp_poll_timer.start()
+
+    def _poll_fp_evidence(self) -> None:
+        if self._fp_future is None or not self._fp_future.done():
+            return
+        future, self._fp_future = self._fp_future, None
+        self._fp_poll_timer.stop()
+        self.calculate_fp_evidence_button.setEnabled(True)
+        self.recalculate_fp_evidence_button.setEnabled(True)
+        try:
+            future.result()
+        except Exception as exc:
+            self._append_log(f"FP evidence calculation failed: {exc}")
+            # A failed recalculation never deletes the last successful cache.
+            if self._cached_fp_evidence is not None:
+                self._refresh_fp_evidence()
+                cached_status = self.fp_evidence_status_label.text()
+                self.fp_evidence_status_label.setText(
+                    f"FP evidence calculation failed: {exc}\n{cached_status}"
+                )
+            else:
+                self.fp_evidence_status_label.setText(
+                    f"FP evidence calculation failed: {exc}"
+                )
+            return
+        self._append_log("FP evidence calculation completed")
+        self._refresh_fp_evidence()
+        self._refresh_tyre_inputs()
+
+    def _view_longrun_evidence(self) -> None:
+        evidence = self._cached_fp_evidence
+        if not evidence:
+            return
+        dialog = QtWidgets.QDialog(self)
+        dialog.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.setWindowTitle("FP LongRun Evidence Details")
+        dialog.resize(1100, 560)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        table = QtWidgets.QTableWidget()
+        columns = [
+            "session", "team", "driver", "compound", "run_id", "stint",
+            "lap_number", "tyre_age", "relative_pace", "strict_clean_lap",
+            "exclusion_reason",
+        ]
+        rows = list(evidence.get("longrun_laps") or ())
+        table.setColumnCount(len(columns))
+        table.setHorizontalHeaderLabels(columns)
+        table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            for column_index, column in enumerate(columns):
+                item = QtWidgets.QTableWidgetItem(str(row.get(column, "")))
+                item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row_index, column_index, item)
+        table.resizeColumnsToContents()
+        layout.addWidget(table)
+        dialog.show()
+        self._longrun_evidence_dialog = dialog
+
+    def _strategy_tab_changed(self, _index: int) -> None:
+        if self.tabs.currentWidget() is self.tyre_inputs_tab:
+            self._refresh_tyre_inputs(apply_to_strategy=True)
+            self._refresh_fp_evidence()
+
     def _build_strategy_tab(self):
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
         assumptions_header = QtWidgets.QHBoxLayout()
         assumptions_header.addWidget(QtWidgets.QLabel("Tyre inputs used by strategy search"))
         self.load_tyre_file_button = QtWidgets.QPushButton("Load tyre info from file…")
+        self.load_tyre_file_button.setVisible(False)
         assumptions_header.addStretch(1)
         assumptions_header.addWidget(self.load_tyre_file_button)
         self.strategy_input_table = QtWidgets.QTableWidget()
         self.strategy_input_table.setColumnCount(9)
         self.strategy_input_table.setHorizontalHeaderLabels(
             [
-                "Compound", "Initial FP baseline\n(s vs fastest)",
-                "Latest baseline\n(s vs fastest)", "Used baseline\n(editable)",
-                "Used delta\n(editable, vs reference)", "Initial FP degradation",
-                "Latest degradation", "Used degradation\n(editable)", "Used source",
+                "Compound", "Selected pre-race baseline\n(s vs fastest)",
+                "Latest baseline\n(s vs fastest)", "Used baseline",
+                "Used delta\n(vs MEDIUM)", "Selected pre-race degradation",
+                "Latest degradation", "Used degradation", "Used source",
             ]
         )
         self.strategy_input_table.setEditTriggers(
@@ -221,8 +616,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         )
         self.strategy_input_table.setMaximumHeight(170)
         input_help = QtWidgets.QLabel(
-            "Edit the highlighted Used cells, then calculate again. "
-            "Lower baseline is quicker; degradation is seconds lost per tyre lap."
+            "Edit event-specific engineering values in the Tyre Inputs tab. "
+            "This table shows the exact current values used by Strategy search."
         )
         controls = QtWidgets.QHBoxLayout()
         self.completed_lap = QtWidgets.QSpinBox()
@@ -311,6 +706,18 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.compound_delta_history_plot.setTitle("Compound delta")
         self.compound_delta_history_plot.setLabel("left", "Delta", units="s")
         self.compound_delta_history_plot.setLabel("bottom", "Leader lap")
+        self.model_quality_plot = pg.PlotWidget()
+        self.model_quality_plot.setTitle("Model quality — sampler adequacy, not inference confidence")
+        self.model_quality_plot.setLabel("left", "log10(ESS)")
+        self.model_quality_plot.setLabel("bottom", "Leader lap")
+        for plot in (
+            self.degradation_history_plot,
+            self.compound_delta_history_plot,
+            self.model_quality_plot,
+        ):
+            plot.getAxis("left").setWidth(65)
+        self.compound_delta_history_plot.setXLink(self.degradation_history_plot)
+        self.model_quality_plot.setXLink(self.degradation_history_plot)
         # Compatibility alias for callers that previously accessed the single plot.
         self.history_plot = self.degradation_history_plot
         self._history_cursor_lines = {
@@ -322,23 +729,27 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             for plot in (
                 self.degradation_history_plot,
                 self.compound_delta_history_plot,
+                self.model_quality_plot,
             )
         }
         self._history_hover_labels = {
             self.degradation_history_plot: None,
             self.compound_delta_history_plot: None,
+            self.model_quality_plot: None,
         }
         self.history_table = QtWidgets.QTableWidget()
         layout.addLayout(save_row)
         layout.addWidget(self.history_header)
         layout.addWidget(self.degradation_history_plot, 1)
         layout.addWidget(self.compound_delta_history_plot, 1)
+        layout.addWidget(self.model_quality_plot, 1)
         layout.addWidget(self.history_table, 1)
         self.save_snapshot_button.clicked.connect(self._save_long_term_snapshot)
         self.history_snapshot_combo.currentIndexChanged.connect(
             self._history_selection_changed
         )
         for plot in self._history_cursor_lines:
+            plot.viewport().installEventFilter(self)
             plot.scene().sigMouseMoved.connect(
                 lambda position, source=plot: self._history_mouse_moved(source, position)
             )
@@ -492,13 +903,15 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             )
         )
 
-    def _load_model(self, *, record_history: bool = False) -> None:
+    def _load_model(self, *, summary=None, record_history: bool = False) -> None:
         try:
-            summary = self.service.load_model(self.year, self.round_number)
+            if summary is None:
+                summary = self.service.load_model(self.year, self.round_number)
         except Exception as exc:
             self.status_label.setText(f"Model unavailable: {exc}")
             self.generate_button.setEnabled(False)
             return
+        self._current_model_summary = summary
         columns = [
             "parameter", "compound", "session", "median", "p10", "p90",
             "unit", "ess", "source_scope",
@@ -566,10 +979,21 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def _start_search(self) -> None:
         if self._future is not None:
             return
+        # Cross-process source of truth: reload the event artifact immediately
+        # before calculation.  This is a local read and never triggers FP work.
+        self._refresh_tyre_inputs(apply_to_strategy=True)
+        if self._resolved_tyre_inputs is None:
+            self.status_label.setText(
+                "Strategy calculation blocked: resolve all required Manual / Legacy tyre inputs."
+            )
+            return
         if self.total_laps.value() <= self.completed_lap.value():
             QtWidgets.QMessageBox.warning(self, "Strategy", "Total laps must exceed completed lap.")
             return
         self._sync_strategy_overrides()
+        tyre_input_snapshot = tyre_snapshot_from_overrides(
+            self._manual_overrides, self._resolved_tyre_inputs
+        )
         state = StrategySearchState(
             self.completed_lap.value(), self.total_laps.value(), self.compound.currentText(),
             self.tyre_age.value(), selected_driver=self.driver.currentData(),
@@ -582,51 +1006,36 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             year=self.year, round_number=self.round_number, state=state,
             pit_loss=self.pit_loss.value(), k=self.result_count.value(),
             overrides=self._manual_overrides,
+            tyre_input_snapshot=tyre_input_snapshot,
             persist=self.persistence_mode == "durable",
+            model_summary=self._current_model_summary,
         )
-        self._future_mode = "strategy"
+        self._strategy_started_at = time.perf_counter()
         self._poll_timer.start()
 
     def _poll_future(self) -> None:
+        self._poll_telemetry_inputs()
+        self._poll_analysis_worker()
         if self._future is None or not self._future.done():
+            if self._future is None and not self._analysis_worker.analysis_running:
+                if not self._telemetry_build_options:
+                    self._poll_timer.stop()
             return
-        self._poll_timer.stop()
         future, self._future = self._future, None
-        mode = self._future_mode
-        self._future_mode = None
+        elapsed_ms = (
+            (time.perf_counter() - self._strategy_started_at) * 1000.0
+            if self._strategy_started_at is not None
+            else 0.0
+        )
+        self._strategy_started_at = None
         self.generate_button.setEnabled(True)
         try:
             results = future.result()
         except Exception as exc:
-            label = "Live recalculation" if mode == "live-model" else "Strategy calculation"
-            self.status_label.setText(f"{label} failed: {exc}")
-            self._append_log(f"{label} failed: {exc}")
-            self._start_next_live_recalculation()
+            self.status_label.setText(f"Strategy calculation failed: {exc}")
+            self._append_log(f"Strategy calculation failed after {elapsed_ms:.0f} ms: {exc}")
             return
-        if mode == "live-model":
-            source_text = ", ".join(
-                f"{session}={count}"
-                for session, count in results.clean_lap_sources
-            ) or "none"
-            self._append_log(
-                f"Leader lap {results.leader_lap}: clean laps "
-                f"{results.previous_clean_lap_count} → {results.eligible_lap_count} "
-                f"({results.eligible_lap_count - results.previous_clean_lap_count:+d}); "
-                f"sources [{source_text}]; {results.status}; "
-                f"samples={results.sample_count}; time={results.elapsed_seconds:.2f}s; "
-                f"queued={len(self._live_recalculation_queue)}"
-                + (f"; model={results.analysis_id}" if results.analysis_id else "")
-            )
-            if results.status == "updated":
-                self._load_model(record_history=True)
-                self.status_label.setText(f"Live model updated at leader lap {results.leader_lap}")
-                self._strategy_refresh_pending = True
-            if self._start_next_live_recalculation():
-                return
-            if self._strategy_refresh_pending:
-                self._strategy_refresh_pending = False
-                self._start_search()
-            return
+        self._append_log(f"Strategy calculation completed in {elapsed_ms:.0f} ms")
         self._last_strategy_rows = [
             {
                 "rank": result.rank,
@@ -637,12 +1046,96 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "delta_to_best": result.delta_to_best,
                 "current_lap": self.completed_lap.value(),
                 "total_laps": self.total_laps.value(),
+                "model_version": self._analysis_worker.current_result_version,
             }
             for result in results
         ]
         self._render_strategy_rows()
         self._save_state()
-        self._start_next_live_recalculation()
+
+    def _poll_analysis_worker(self) -> None:
+        completed = self._analysis_worker.poll()
+        if completed is not None:
+            result = completed.result
+            source_text = ", ".join(
+                f"{session}={count}" for session, count in result.clean_lap_sources
+            ) or "none"
+            self._append_log(
+                f"Analysis V{completed.model_version}, leader lap {result.leader_lap}: "
+                f"clean laps {result.previous_clean_lap_count} → {result.eligible_lap_count}; "
+                f"sources [{source_text}]; {result.status}; samples={result.sample_count}; "
+                f"time={result.elapsed_seconds:.2f}s; "
+                f"IPC={completed.ipc_elapsed_seconds * 1000.0:.0f}ms"
+                + (f"; model={result.analysis_id}" if result.analysis_id else "")
+            )
+            if result.status == "updated":
+                if self.persistence_mode == "temporary":
+                    self.service.publish_temporary_worker_snapshot(
+                        self.year, self.round_number, completed
+                    )
+                self._load_model(summary=completed.summary, record_history=True)
+                self.status_label.setText(
+                    f"Current model: V{completed.model_version} (leader lap {result.leader_lap})"
+                )
+            self._reported_analysis_error = None
+        error = self._analysis_worker.last_error
+        if error and error != self._reported_analysis_error:
+            self._reported_analysis_error = error
+            current = self._analysis_worker.current_result_version
+            current_text = f"; retaining V{current}" if current is not None else ""
+            self.status_label.setText(f"Live analysis failed{current_text}: {error}")
+            self._append_log(f"Live analysis failed{current_text}: {error}")
+        if self._analysis_worker.analysis_running:
+            current = self._analysis_worker.current_result_version
+            current_text = f"Current model V{current}. " if current is not None else ""
+            if self._analysis_worker.policy is AnalysisQueuePolicy.FIFO_ALL:
+                pending_text = (
+                    f"; replay queue {self._analysis_worker.queue_depth} "
+                    f"({_version_text(self._analysis_worker.oldest_queued_version)}–"
+                    f"{_version_text(self._analysis_worker.newest_queued_version)})"
+                    if self._analysis_worker.queue_depth
+                    else ""
+                )
+            else:
+                pending = self._analysis_worker.pending_input_version
+                pending_text = f"; latest pending V{pending}" if pending is not None else ""
+            self.status_label.setText(
+                f"{current_text}Analysis: updating V"
+                f"{self._analysis_worker.running_input_version}{pending_text}…"
+            )
+
+    def _poll_telemetry_inputs(self) -> None:
+        if self._telemetry_worker is None:
+            return
+        for prepared in self._telemetry_worker.poll_analysis_inputs():
+            pending = self._telemetry_build_options.pop(prepared.request_id, None)
+            if pending is None:
+                continue
+            leader_lap, options = pending
+            if prepared.error or prepared.analysis_input is None:
+                self._append_log(
+                    f"MC input preparation failed at leader lap {leader_lap}: "
+                    f"{prepared.error or 'no input'}"
+                )
+                continue
+            version = self._analysis_worker.submit(
+                year=self.year,
+                round_number=self.round_number,
+                snapshot=prepared.analysis_input,
+                options=options,
+            )
+            cut_text = (
+                f"; cut=g{prepared.cut.session_generation}/"
+                f"i{prepared.cut.ingress_sequence}/"
+                f"t{prepared.cut.leader_lap_end_session_time:.3f}"
+                if prepared.cut is not None
+                else ""
+            )
+            self._append_log(
+                f"Prepared MC input V{version} for leader lap {leader_lap} in "
+                f"{prepared.elapsed_seconds * 1000.0:.0f} ms; "
+                f"queue={self._analysis_worker.queue_depth}{cut_text}."
+            )
 
     def _render_strategy_rows(self) -> None:
         self.status_label.setText(
@@ -713,12 +1206,6 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         if not self.auto_recalculate.isChecked():
             self._append_log("Automatic recalculation is disabled.")
             return
-        if self.persistence_mode != "temporary" and self._future is not None:
-            self._append_log(
-                "Live calculation already running; this update is not queued and "
-                "the newest data will be covered on the next leader-lap trigger."
-            )
-            return
         options = {
             "sample_count": self.sample_count.value(),
             "quick_lap_threshold": self.quick_threshold.value(),
@@ -732,25 +1219,66 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             "enforce_compound_order": self.enforce_compound_order.isChecked(),
             "persist": self.persistence_mode == "durable",
         }
+        queued_laps = (
+            list(range(max(previous_leader_lap + 1, 1), leader_lap + 1))
+            if self._analysis_worker.policy is AnalysisQueuePolicy.FIFO_ALL
+            else [leader_lap]
+        )
+        if self._telemetry_worker is not None:
+            request_ids = [
+                self._telemetry_worker.request_analysis_input(
+                    leader_lap=queued_lap,
+                    use_sector_boundary_traffic=bool(
+                        options["use_sector_boundary_traffic"]
+                    ),
+                )
+                for queued_lap in queued_laps
+            ]
+            self._telemetry_build_options.update(
+                {
+                    request_id: (queued_lap, dict(options))
+                    for request_id, queued_lap in zip(request_ids, queued_laps)
+                }
+            )
+            self._append_log(
+                f"Queued {len(request_ids)} telemetry-to-MC input build(s) through "
+                f"leader lap {leader_lap}."
+            )
+            self._poll_timer.start()
+            return
         queued_snapshots = (
             self._leader_lap_snapshots(
                 snapshot,
                 first_lap=previous_leader_lap + 1,
                 last_lap=leader_lap,
             )
-            if self.persistence_mode == "temporary"
+            if self._analysis_worker.policy is AnalysisQueuePolicy.FIFO_ALL
             else [(leader_lap, snapshot)]
         )
-        self._live_recalculation_queue.extend(
-            (queued_lap, queued_snapshot, dict(options))
-            for queued_lap, queued_snapshot in queued_snapshots
-        )
-        self._append_log(
-            f"Queued {len(queued_snapshots)} recalculation request(s) through "
-            f"leader lap {leader_lap}; "
-            f"pending={len(self._live_recalculation_queue)}."
-        )
-        self._start_next_live_recalculation()
+        versions = [
+            self._analysis_worker.submit(
+                year=self.year,
+                round_number=self.round_number,
+                snapshot=queued_snapshot,
+                options=options,
+            )
+            for _queued_lap, queued_snapshot in queued_snapshots
+        ]
+        if self._analysis_worker.policy is AnalysisQueuePolicy.FIFO_ALL:
+            self._append_log(
+                f"MC replay queue: requested V{versions[0]}–V{versions[-1]}; "
+                f"running=V{self._analysis_worker.running_input_version}; "
+                f"pending={self._analysis_worker.queue_depth}; "
+                f"oldest={_version_text(self._analysis_worker.oldest_queued_version)}; "
+                f"newest={_version_text(self._analysis_worker.newest_queued_version)}."
+            )
+        else:
+            pending = self._analysis_worker.pending_input_version
+            self._append_log(
+                f"Requested analysis V{versions[-1]} for leader lap {leader_lap}"
+                + (f"; latest pending is V{pending}." if pending else ".")
+            )
+        self._poll_timer.start()
 
     @staticmethod
     def _leader_lap_snapshots(snapshot, *, first_lap: int, last_lap: int):
@@ -780,6 +1308,10 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                     sector for sector in snapshot.completed_sectors
                     if int(sector.lap_number) <= leader_lap
                 )
+                telemetry_samples = tuple(
+                    sample for sample in snapshot.telemetry_samples
+                    if int(sample.lap_number) <= leader_lap
+                )
             else:
                 completed_laps = tuple(
                     lap for lap in snapshot.completed_laps
@@ -795,6 +1327,10 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                         and StrategyPredictionWindow._completion_clock(sector) <= cutoff
                     )
                 )
+                telemetry_samples = tuple(
+                    sample for sample in snapshot.telemetry_samples
+                    if float(sample.session_time_seconds) <= cutoff
+                )
             snapshots.append(
                 (
                     leader_lap,
@@ -802,6 +1338,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                         snapshot,
                         completed_laps=completed_laps,
                         completed_sectors=completed_sectors,
+                        telemetry_samples=telemetry_samples,
+                        position_samples=(),
                     ),
                 )
             )
@@ -815,39 +1353,15 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         timestamp = getattr(value, "source_timestamp_utc", None)
         return timestamp.timestamp() if timestamp is not None else None
 
-    def _start_next_live_recalculation(self) -> bool:
-        if self._future is not None or not self._live_recalculation_queue:
-            return False
-        leader_lap, snapshot, options = self._live_recalculation_queue.popleft()
-        self._future = self._executor.submit(
-            self.service.recalculate_from_live_snapshot,
-            year=self.year,
-            round_number=self.round_number,
-            snapshot=snapshot,
-            **options,
-        )
-        self._future_mode = "live-model"
-        self.status_label.setText(
-            f"Recalculating model at leader lap {leader_lap} "
-            f"({len(self._live_recalculation_queue)} queued)…"
-        )
-        self._append_log(
-            f"Started recalculation for leader lap {leader_lap}; "
-            f"remaining queue={len(self._live_recalculation_queue)}."
-        )
-        self.generate_button.setEnabled(False)
-        self._poll_timer.start()
-        return True
-
     def reset_replay_history(self) -> None:
         """Start each replay with a fresh in-memory value-lap plot."""
         if self.persistence_mode != "temporary":
             return
+        self._restart_analysis_worker()
         self.service.activate_temporary_replay_model(self.year, self.round_number)
         self._working_plot_rows.clear()
+        self._race_informed_degradation_compounds.clear()
         self._last_strategy_rows.clear()
-        self._live_recalculation_queue.clear()
-        self._strategy_refresh_pending = False
         self.strategy_table.setRowCount(0)
         self._last_seen_leader_lap = 0
         self._load_model()
@@ -867,14 +1381,13 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self._state_path = (
                 Path(state_directory).expanduser() / "strategy_prediction_state.json"
             )
-        self.service.reset_live_tracking()
-        self._live_recalculation_queue.clear()
-        self._strategy_refresh_pending = False
         self._working_plot_rows.clear()
         self._show_plot_rows([])
         if persistence_mode == "temporary":
             self.reset_replay_history()
         else:
+            self._restart_analysis_worker()
+            self.service.reset_live_tracking()
             self._auto_history_name = (
                 f"Live {self.year} R{self.round_number} "
                 + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -902,24 +1415,104 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         if latest.tyre_life is not None:
             self.tyre_age.setValue(max(int(round(float(latest.tyre_life))) - 1, 0))
 
-    def _load_strategy_inputs(self, summary) -> None:
-        assumptions = self.service.strategy_assumptions(summary)
+    @staticmethod
+    def _resolved_assumption_rows(resolved) -> list[dict[str, object]]:
+        by_parameter = resolved.by_parameter()
+        deltas = {
+            "HARD": by_parameter["Perf_HARD_vs_MEDIUM"].selected_value,
+            "MEDIUM": 0.0,
+            "SOFT": by_parameter["Perf_SOFT_vs_MEDIUM"].selected_value,
+        }
+        fastest = min(deltas.values())
+        rows = []
+        for compound in ("SOFT", "MEDIUM", "HARD"):
+            degradation = by_parameter[f"Deg_{compound}"]
+            performance = (
+                by_parameter.get(f"Perf_{compound}_vs_MEDIUM")
+                if compound != "MEDIUM" else None
+            )
+            source = degradation.selected_source
+            if performance is not None and performance.selected_source != source:
+                source = f"D:{source}; P:{performance.selected_source}"
+            rows.append(
+                {
+                    "compound": compound,
+                    "baseline_pace": deltas[compound] - fastest,
+                    "compound_delta": deltas[compound],
+                    "compound_delta_available": True,
+                    "degradation": degradation.selected_value,
+                    "degradation_source": degradation.selected_source,
+                    "compound_delta_source": (
+                        performance.selected_source
+                        if performance is not None else "reference"
+                    ),
+                    "degradation_race_informed": False,
+                    "degradation_support_status": "pre_race_resolved",
+                    "sessions": source,
+                    "aggregation": "manual > legacy field resolver",
+                }
+            )
+        return rows
+
+    def _load_strategy_inputs(self, summary, *, resolved=None) -> None:
+        if resolved is None:
+            try:
+                resolved = self.service.resolve_tyre_inputs(self.year, self.round_number)
+            except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                self._append_log(f"Resolved tyre inputs unavailable: {exc}")
+                # Keep the model visible for diagnosis, but do not invent a
+                # missing required pre-race baseline.
+                self.generate_button.setEnabled(False)
+                return
+        self._resolved_tyre_inputs = resolved
+        self._reference_compound = "MEDIUM"
+        initial = self._resolved_assumption_rows(resolved)
+        self._initial_strategy_inputs = {
+            str(row["compound"]): dict(row) for row in initial
+        }
+        current_informed = {
+            str(row.get("compound") or "").upper()
+            for row in summary.parameters
+            if str(row.get("parameter") or "") == "degradation"
+            and str(row.get("support_status") or "").lower() == "race_informed"
+        }
+        self._race_informed_degradation_compounds.update(current_informed)
+        as_of_lap = int(float(summary.manifest.get("as_of_leader_lap") or 0))
+        if as_of_lap == 0:
+            assumptions = initial
+        else:
+            assumptions = self.service.strategy_assumptions(
+                summary,
+                baseline_degradation={
+                    compound: float(row["degradation"])
+                    for compound, row in self._initial_strategy_inputs.items()
+                    if row.get("degradation") is not None
+                },
+                baseline_compound_delta={
+                    compound: float(row["compound_delta"])
+                    for compound, row in self._initial_strategy_inputs.items()
+                    if row.get("compound_delta") is not None
+                },
+                race_informed_compounds=self._race_informed_degradation_compounds,
+            )
+        self._race_informed_degradation_compounds.update(
+            str(row["compound"]).upper()
+            for row in assumptions
+            if row.get("degradation_race_informed")
+        )
         self._estimated_strategy_inputs = {
             str(row["compound"]): dict(row) for row in assumptions
         }
-        if not self._initial_strategy_inputs:
-            initial = self.service.initial_fp_assumptions(self.year, self.round_number)
-            if not initial and int(float(summary.manifest.get("as_of_leader_lap") or 0)) == 0:
-                initial = assumptions
-            self._initial_strategy_inputs = {
-                str(row["compound"]): dict(row) for row in initial
-            }
         for compound, row in self._estimated_strategy_inputs.items():
             if compound not in self._manual_baseline_compounds:
                 self._baseline_values[compound] = float(row["baseline_pace"])
             if compound not in self._manual_degradation_compounds:
                 self._degradation_values[compound] = float(row["degradation"])
-        self._apply_strategy_input_order()
+        # Model/history values are already the resolved source of truth. Do not
+        # reorder them through the optional manual-input convenience control.
+        self._sync_strategy_overrides()
+        self._render_strategy_inputs()
+        self.generate_button.setEnabled(True)
 
     def _load_tyre_information_from_file(self) -> None:
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
@@ -995,20 +1588,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._save_state()
 
     def _apply_strategy_input_order(self, *_args) -> None:
-        compounds = [
-            compound for compound in ("SOFT", "MEDIUM", "HARD")
-            if compound in self._baseline_values and compound in self._degradation_values
-        ]
-        if self.enforce_compound_order.isChecked() and len(compounds) > 1:
-            baseline = sorted(self._baseline_values[compound] for compound in compounds)
-            degradation = sorted(
-                (self._degradation_values[compound] for compound in compounds),
-                reverse=True,
+        # Manual engineering input is authoritative.  Physical ordering is a
+        # warning only; never reorder, clamp, or silently replace values.
+        if self.enforce_compound_order.isChecked() and self._resolved_tyre_inputs is not None:
+            warnings = self.service.tyre_inputs.physical_order_warnings(
+                self._resolved_tyre_inputs
             )
-            for compound, value in zip(compounds, baseline):
-                self._baseline_values[compound] = float(value)
-            for compound, value in zip(compounds, degradation):
-                self._degradation_values[compound] = float(value)
+            if warnings:
+                self.tyre_warning_label.setText("Advisory: " + " ".join(warnings))
         self._sync_strategy_overrides()
         self._render_strategy_inputs()
 
@@ -1061,23 +1648,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             ]
             for column, value in enumerate(values):
                 item = QtWidgets.QTableWidgetItem(str(value))
-                if column == 3:
-                    item.setData(
-                        QtCore.Qt.ItemDataRole.UserRole, ("baseline", compound)
-                    )
-                elif column == 4 and compound != self._reference_compound:
-                    item.setData(
-                        QtCore.Qt.ItemDataRole.UserRole, ("delta", compound)
-                    )
-                elif column == 7:
-                    item.setData(
-                        QtCore.Qt.ItemDataRole.UserRole, ("degradation", compound)
-                    )
-                else:
-                    item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
-                if item.data(QtCore.Qt.ItemDataRole.UserRole):
-                    item.setBackground(QtGui.QColor("#fff4c2"))
-                    item.setToolTip("Editable value used by the next strategy calculation")
+                item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
                 self.strategy_input_table.setItem(row_index, column, item)
         self.strategy_input_table.resizeColumnsToContents()
         self._strategy_input_loading = False
@@ -1087,7 +1658,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             "degradation": self.degradation_history_plot,
             "compound_delta": self.compound_delta_history_plot,
         }
-        for plot in plots.values():
+        for plot in (*plots.values(), self.model_quality_plot):
             plot.clear()
             self._history_hover_labels[plot] = None
             plot.addLegend()
@@ -1102,7 +1673,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "Tyre model update history — hover to select a lap; left-click for actions"
             )
             return
-        grouped: dict[tuple[str, str], dict[int, float]] = {}
+        grouped: dict[tuple[str, str], dict[int, tuple[float, str]]] = {}
         for row in rows:
             if str(row.get("source_scope", "")).upper() != "AGGREGATE":
                 continue
@@ -1115,21 +1686,69 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 median = float(row["median"])
             except (KeyError, TypeError, ValueError):
                 continue
-            grouped.setdefault((parameter, compound), {})[lap] = median
+            source = str(row.get("degradation_source") or "race_evidence")
+            if source != "relative_degradation_assumption":
+                source = "race_evidence"
+            grouped.setdefault((parameter, compound), {})[lap] = (median, source)
         colours = {"SOFT": "#e10600", "MEDIUM": "#d9a900", "HARD": "#777777"}
         for (parameter, compound), values in sorted(grouped.items()):
             points = sorted(values.items())
             if not points:
                 continue
-            pen = pg.mkPen(colours.get(compound, "#3366cc"), width=2)
-            plots[parameter].plot(
-                [point[0] for point in points], [point[1] for point in points],
-                pen=pen, symbol="o", name=compound,
+            if parameter != "degradation":
+                plots[parameter].plot(
+                    [lap for lap, _ in points], [value[0] for _, value in points],
+                    pen=pg.mkPen(colours.get(compound, "#3366cc"), width=2),
+                    symbol="o", name=compound,
+                )
+                continue
+            labelled = False
+            for source, style in (
+                ("relative_degradation_assumption", QtCore.Qt.PenStyle.DashLine),
+                ("race_evidence", QtCore.Qt.PenStyle.SolidLine),
+            ):
+                selected = [(lap, value) for lap, value in points if value[1] == source]
+                if not selected:
+                    continue
+                plots[parameter].plot(
+                    [lap for lap, _ in selected], [value[0] for _, value in selected],
+                    pen=pg.mkPen(colours.get(compound, "#3366cc"), width=2, style=style),
+                    symbol="o",
+                    symbolBrush=(None if source == "relative_degradation_assumption"
+                                 else pg.mkBrush(colours.get(compound, "#3366cc"))),
+                    symbolPen=pg.mkPen(colours.get(compound, "#3366cc"), width=1.5),
+                    name=compound if not labelled else None,
+                )
+                labelled = True
+        quality_points = {}
+        for row in rows:
+            try:
+                lap = int(float(row.get("as_of_leader_lap") or 0))
+                ess = float(row["sampler_ess"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if ess > 0:
+                quality_points[lap] = ess
+        if quality_points:
+            points = sorted(quality_points.items())
+            self.model_quality_plot.plot(
+                [point[0] for point in points], [np.log10(point[1]) for point in points],
+                pen=pg.mkPen("#3366cc", width=2), symbol="o", name="ESS",
             )
+        history_laps = [
+            int(float(row.get("as_of_leader_lap") or 0))
+            for row in rows if row.get("as_of_leader_lap") is not None
+        ]
+        if history_laps:
+            x_min, x_max = min(history_laps), max(history_laps)
+            if x_min == x_max:
+                x_max = x_min + 1
+            for plot in (*plots.values(), self.model_quality_plot):
+                plot.setXRange(x_min, x_max, padding=0)
 
     def _history_mouse_moved(self, plot, scene_position) -> None:
-        if not plot.sceneBoundingRect().contains(scene_position):
-            self._clear_history_hover_label(plot)
+        if not plot.plotItem.vb.sceneBoundingRect().contains(scene_position):
+            self._clear_history_hover()
             return
         laps = sorted(
             {
@@ -1174,6 +1793,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def _history_compound_near_pointer(
         self, plot, scene_position, leader_lap: int
     ) -> str | None:
+        if plot is self.model_quality_plot:
+            return None
         parameter = (
             "degradation"
             if plot is self.degradation_history_plot
@@ -1211,10 +1832,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             0 if float(scene_position.y()) < float(scene_bounds.center().y()) else 1,
         )
         label = pg.TextItem(
-            text=format_history_hover_text(
-                self._displayed_history_rows,
-                leader_lap=leader_lap,
-                reference_compound=reference_compound,
+            text=(
+                format_quality_hover_text(self._displayed_history_rows, leader_lap=leader_lap)
+                if plot is self.model_quality_plot
+                else format_history_hover_text(
+                    self._displayed_history_rows,
+                    leader_lap=leader_lap,
+                    reference_compound=reference_compound,
+                )
             ),
             color="#111111",
             fill=pg.mkBrush(255, 255, 255, 235),
@@ -1235,28 +1860,60 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             pass
         self._history_hover_labels[plot] = None
 
+    def _clear_history_hover(self) -> None:
+        """Clear every transient artist when the pointer leaves the data axes."""
+        had_hover = self._hovered_history_lap is not None or any(
+            label is not None for label in self._history_hover_labels.values()
+        )
+        for plot in self._history_hover_labels:
+            self._clear_history_hover_label(plot)
+        for cursor in self._history_cursor_lines.values():
+            cursor.hide()
+        self._hovered_history_lap = None
+        if had_hover:
+            self.history_header.setText(
+                "Tyre model update history — hover to select a lap; left-click for actions"
+            )
+
+    def eventFilter(self, watched, event):
+        if event.type() == QtCore.QEvent.Type.Leave and any(
+            watched is plot.viewport() for plot in self._history_cursor_lines
+        ):
+            self._clear_history_hover()
+        return super().eventFilter(watched, event)
+
     def _history_mouse_clicked(self, plot, event) -> None:
         if event.button() != QtCore.Qt.MouseButton.LeftButton:
             return
         position = event.scenePos()
-        if not plot.sceneBoundingRect().contains(position):
+        if not plot.plotItem.vb.sceneBoundingRect().contains(position):
             return
         self._history_mouse_moved(plot, position)
         if self._hovered_history_lap is None:
             return
+        if plot is self.model_quality_plot:
+            return
+        # Opening the context menu can emit a Leave event for the plot viewport.
+        # That clears the transient hover state, so retain the selected lap locally
+        # before the menu starts its nested event loop.
+        selected_lap = self._hovered_history_lap
         menu = QtWidgets.QMenu(self)
         action = menu.addAction(
-            f"Use lap {self._hovered_history_lap} tyre values for strategy calculation"
+            f"Use lap {selected_lap} tyre values for strategy calculation"
         )
         selected = menu.exec(event.screenPos().toPoint())
         if selected is action:
-            self._apply_history_lap_to_strategy(self._hovered_history_lap)
+            self._apply_history_lap_to_strategy(selected_lap)
 
-    def _apply_history_lap_to_strategy(self, leader_lap: int) -> bool:
+    def _apply_history_lap_to_strategy(self, leader_lap: int | None) -> bool:
+        try:
+            selected_lap = int(float(leader_lap))
+        except (TypeError, ValueError, OverflowError):
+            return False
         selected_rows = [
             row for row in self._displayed_history_rows
             if str(row.get("source_scope", "")).upper() == "AGGREGATE"
-            and int(float(row.get("as_of_leader_lap") or 0)) == int(leader_lap)
+            and int(float(row.get("as_of_leader_lap") or 0)) == selected_lap
         ]
         degradation: dict[str, float] = {}
         deltas: dict[str, float] = {}
@@ -1287,15 +1944,53 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         if not updated_compounds:
             return False
         for compound in updated_compounds:
-            self._external_tyre_sources[compound] = f"Update history lap {leader_lap}"
-        self._apply_strategy_input_order()
+            self._external_tyre_sources[compound] = f"Update history lap {selected_lap}"
+        self._sync_strategy_overrides()
+        self._render_strategy_inputs()
         self.tabs.setCurrentWidget(self.strategy_tab)
         self._save_state()
         self._append_log(
-            f"Applied tyre degradation and compound delta from leader lap {leader_lap} "
+            f"Applied tyre degradation and compound delta from leader lap {selected_lap} "
             "to Strategy Prediction used values."
         )
         return True
+
+    def _restart_analysis_worker(self) -> None:
+        self._analysis_worker.shutdown(wait=False)
+        self._telemetry_build_options.clear()
+        self._analysis_worker = LiveAnalysisProcessService(
+            self.service.data_root,
+            policy=self._analysis_queue_policy(),
+        )
+        self._sync_bounded_replay_pipeline_flow_control()
+        self._reported_analysis_error = None
+
+    def _sync_bounded_replay_pipeline_flow_control(self) -> None:
+        if self._telemetry_worker is None or not hasattr(
+            self._telemetry_worker,
+            "set_bounded_replay_mc_pipeline_capacity_probe",
+        ):
+            return
+        probe = (
+            self._bounded_replay_mc_pipeline_has_capacity
+            if self.persistence_mode == "temporary"
+            else None
+        )
+        self._telemetry_worker.set_bounded_replay_mc_pipeline_capacity_probe(probe)
+
+    def _bounded_replay_mc_pipeline_has_capacity(self) -> bool:
+        # This is bounded FIFO replay backpressure, not coalescing: every leader-lap
+        # request is preserved, with one running and (by default) one queued behind it.
+        config = getattr(self._telemetry_worker, "replay_pipeline_config", None)
+        max_queued = int(getattr(config, "replay_mc_max_queued_requests", 1))
+        return self._analysis_worker.queue_depth < max_queued
+
+    def _analysis_queue_policy(self) -> AnalysisQueuePolicy:
+        return (
+            AnalysisQueuePolicy.FIFO_ALL
+            if self.persistence_mode == "temporary"
+            else AnalysisQueuePolicy.LATEST_WINS
+        )
 
     def _append_log(self, message: str) -> None:
         stamp = QtCore.QTime.currentTime().toString("HH:mm:ss")
@@ -1329,20 +2024,51 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def _record_history_point(self, summary) -> None:
         leader_lap = int(float(summary.manifest.get("as_of_leader_lap") or 0))
         if not self._working_plot_rows and leader_lap > 0:
+            initial = []
+            for value in self._initial_strategy_inputs.values():
+                row = dict(value)
+                row["degradation_source"] = "relative_degradation_assumption"
+                row["degradation_race_informed"] = False
+                initial.append(row)
             self._working_plot_rows.extend(
-                self._plot_rows_from_assumptions(
-                    list(self._initial_strategy_inputs.values()), 0
-                )
+                self._plot_rows_from_assumptions(initial, 0)
             )
         self._working_plot_rows = [
             row for row in self._working_plot_rows
             if int(float(row.get("as_of_leader_lap") or 0)) != leader_lap
         ]
-        self._working_plot_rows.extend(
-            self._plot_rows_from_assumptions(
-                self.service.strategy_assumptions(summary), leader_lap
-            )
+        # _load_strategy_inputs resolved the current Race-informed and assumed
+        # degradations once. Persist exactly those same values for plotting and
+        # later Strategy Prediction selection.
+        new_rows = self._plot_rows_from_assumptions(
+            list(self._estimated_strategy_inputs.values()), leader_lap
         )
+        quality = dict(summary.manifest.get("sampler_quality") or {})
+        if quality:
+            evidence = quality.get("compound_evidence") or {}
+            common = {
+                "sampler_ess": quality.get("ess"),
+                "sample_count": quality.get("sample_count"),
+                "ess_fraction": quality.get("ess_fraction"),
+                "max_weight": quality.get("max_weight"),
+                "top5_weight": quality.get("top5_weight"),
+                "numerical_quality_status": quality.get("numerical_quality_status"),
+                "clean_race_laps": quality.get("clean_race_laps"),
+                "clean_race_runs": quality.get("clean_race_runs"),
+                "compound_evidence": evidence,
+            }
+            for row in new_rows:
+                row.update(common)
+                compound = str(row.get("compound") or "").upper()
+                parameter = str(row.get("parameter") or "")
+                match = next((item for item in summary.parameters
+                              if str(item.get("parameter")) == parameter
+                              and str(item.get("compound") or "").upper() == compound), None)
+                if match:
+                    row["p10"] = match.get("p10")
+                    row["p90"] = match.get("p90")
+                    row["p10_p90_width"] = float(match["p90"]) - float(match["p10"])
+        self._working_plot_rows.extend(new_rows)
         self.history_snapshot_combo.blockSignals(True)
         self.history_snapshot_combo.setCurrentIndex(0)
         self.history_snapshot_combo.blockSignals(False)
@@ -1366,24 +2092,37 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             compound = str(assumption.get("compound") or "").upper()
             if not compound:
                 continue
-            rows.extend(
-                [
-                    {
-                        "as_of_leader_lap": int(leader_lap),
-                        "source_scope": "aggregate",
-                        "parameter": "degradation",
-                        "compound": compound,
-                        "median": float(assumption["degradation"]),
-                    },
+            rows.append(
+                {
+                    "as_of_leader_lap": int(leader_lap),
+                    "source_scope": "aggregate",
+                    "parameter": "degradation",
+                    "compound": compound,
+                    "median": float(assumption["degradation"]),
+                    "degradation_source": str(
+                        assumption.get("degradation_source") or "model"
+                    ),
+                    "degradation_race_informed": bool(
+                        assumption.get("degradation_race_informed", False)
+                    ),
+                    "degradation_support_status": str(
+                        assumption.get("degradation_support_status") or ""
+                    ),
+                }
+            )
+            if assumption.get("compound_delta_available", True):
+                rows.append(
                     {
                         "as_of_leader_lap": int(leader_lap),
                         "source_scope": "aggregate",
                         "parameter": "compound_delta",
                         "compound": compound,
                         "median": float(assumption["compound_delta"]),
-                    },
-                ]
-            )
+                        "compound_delta_source": str(
+                            assumption.get("compound_delta_source") or "model"
+                        ),
+                    }
+                )
         return rows
 
     def _show_plot_rows(self, rows) -> None:
@@ -1504,18 +2243,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.tabs.setCurrentIndex(int(controls.get("tab_index", self.tabs.currentIndex())))
             driver = controls.get("driver")
             self._restored_driver_code = str(driver) if driver else None
-            baseline = state.get("manual_baseline", {})
-            degradation = state.get("manual_degradation", {})
-            for compound, value in baseline.items():
-                compound = str(compound).upper()
-                if compound in self._estimated_strategy_inputs:
-                    self._baseline_values[compound] = float(value)
-                    self._manual_baseline_compounds.add(compound)
-            for compound, value in degradation.items():
-                compound = str(compound).upper()
-                if compound in self._estimated_strategy_inputs:
-                    self._degradation_values[compound] = float(value)
-                    self._manual_degradation_compounds.add(compound)
+            # Event-specific manual tyre values live only in
+            # manual_tyre_inputs_v1.json.  Older dialog-local copies are
+            # deliberately ignored to prevent Planner/live divergence.
             self._external_tyre_sources = {
                 str(compound).upper(): str(source)
                 for compound, source in dict(state.get("external_tyre_sources", {})).items()
@@ -1563,16 +2293,6 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "clean_compounds": list(self._selected_clean_compounds()),
                 "tab_index": self.tabs.currentIndex(),
             },
-            "manual_baseline": {
-                compound: self._baseline_values[compound]
-                for compound in sorted(self._manual_baseline_compounds)
-                if compound in self._baseline_values
-            },
-            "manual_degradation": {
-                compound: self._degradation_values[compound]
-                for compound in sorted(self._manual_degradation_compounds)
-                if compound in self._degradation_values
-            },
             "external_tyre_sources": dict(self._external_tyre_sources),
         }
         if self.persistence_mode == "durable":
@@ -1602,5 +2322,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
 
     def closeEvent(self, event) -> None:
         self._save_state()
+        self._poll_timer.stop()
+        self._fp_poll_timer.stop()
+        if self._telemetry_worker is not None and hasattr(
+            self._telemetry_worker,
+            "set_bounded_replay_mc_pipeline_capacity_probe",
+        ):
+            self._telemetry_worker.set_bounded_replay_mc_pipeline_capacity_probe(None)
+        self._analysis_worker.shutdown(wait=False)
         self._executor.shutdown(wait=False, cancel_futures=True)
+        self._fp_executor.shutdown(wait=False, cancel_futures=True)
         super().closeEvent(event)

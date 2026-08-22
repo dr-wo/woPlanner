@@ -71,6 +71,12 @@ history plots, supports editable degradation/delta overrides, and allows up to
 three pinned comparisons. In live mode, selecting a driver fills the current lap,
 compound, and tyre age from the feed.
 
+The shared **Tyre Inputs** tab and the live/replay worker architecture are
+documented in
+[`doc/FP_TYRE_LIVE_INTEGRATION.md`](doc/FP_TYRE_LIVE_INTEGRATION.md). In
+particular, FP analysis is explicit-only: opening either application, this
+window, the tab, history, or replay never calculates or downloads FP data.
+
 The result-count control chooses how many distinct compound sequences the exact
 strategy search should return. This search does not use Monte Carlo samples. The
 separate sample-count control on **Live recalculation** is initialized from the
@@ -87,8 +93,10 @@ when no Monte Carlo result was produced. Only fields with a direct joint-model
 meaning are overlaid. Race-review-only controls are intentionally ignored because
 the live joint model does not implement the same parameterization.
 
-Strategy Prediction remembers its controls, selected tab, live settings, and
-manual tyre inputs in `strategy_prediction_state.json`. Replay state is stored
+Strategy Prediction remembers its controls, selected tab, and live settings in
+`strategy_prediction_state.json`. Event-specific manual tyre inputs are instead
+shared through `manual_tyre_inputs_v1.json` under the event weekend-model root.
+Replay state is stored
 beside the selected replay file; live state is stored beside that connection's
 raw live-timing recording. The offline planner falls back to the event's canonical
 weekend-model directory.
@@ -130,21 +138,17 @@ queue length. The elapsed time can be compared directly with a normal lap time
 when tuning the live Monte Carlo sample count. That sample count affects fitting,
 not the number of telemetry traffic comparisons.
 
-The tyre-input table keeps three views separate: **Initial FP** is the preserved
-lap-zero FP estimate, **Latest** follows live/replay recalculation, and **Used** is
-the editable value passed into the next exact strategy search.
+The **Tyre Inputs** tab separates editable Strategy inputs from read-only FP
+LongRun evidence. Each Selected value is Manual when explicitly supplied and
+otherwise the exact Legacy FP-derived fallback. FP contrasts are advisory and do
+not automatically update Strategy values.
 
 The **Strategy predictions** tab shows the exact tyre inputs used by the search.
-Its used baseline, delta, and degradation cells are directly editable (single-click
-or select the cell and type; double-click is not required). Session estimates are
-combined with a usable-lap-weighted mean, so a session with more accepted clean laps
-has more influence. **Load tyre info from file** accepts the canonical weekend
-model `latest_parameters.csv`, or the woStrategy race-review
-`summary_compound_degradation.csv` and `summary_compound_delta.csv` files (select
-both summary files together). The ordering switch is on **Live recalculation**
-because it also controls the next joint model update; it constrains baseline pace to
-SOFT ≤ MEDIUM ≤ HARD and degradation to SOFT ≥ MEDIUM ≥ HARD. Baseline is displayed
-as seconds relative to the quickest compound, where `0.0000` is quickest.
+The Tyre Inputs tab is the authoritative editor for the persisted pre-race
+baseline; current Race-informed values continue to follow live/replay inference.
+Physical-order checks are advisory only and never reorder or clamp manual values.
+Baseline is displayed as seconds relative to the quickest compound, where
+`0.0000` is quickest.
 
 ## Strategy simulation
 

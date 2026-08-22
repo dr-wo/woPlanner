@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Mapping
 
 import pandas as pd
+import numpy as np
 
 from wodata import get_fastf1_session_laps_path
 from wodata.artifacts import (
@@ -31,7 +32,16 @@ from wostrategy.algorithm.exact_strategy_search import (
 )
 from wostrategy.core.pre_race_session_data import prepare_weekend_sessions
 from wostrategy.core.race_performance_settings import resolve_race_performance_settings
-from wostrategy.model.pre_race_performance import WeekendModelConfig, run_joint_weekend_model
+from wostrategy.model.pre_race_performance import WeekendModelConfig
+from wostrategy.model.race_specific_performance import (
+    FrozenPreRacePrior,
+    MarginalPrior,
+    run_race_specific_model,
+)
+from wostrategy.model.live_retro_performance import run_live_retro_model
+from wostrategy.algorithm.monte_carlo_race_performance import (
+    MonteCarloRacePerformanceConfig,
+)
 from wostrategy.analysis.traffic import (
     COMBINATION_MODE_COMPATIBILITY_MIN,
     SECTOR_BOUNDARY_FALLBACK,
@@ -42,6 +52,8 @@ from wostrategy.analysis.traffic import (
     evaluate_physical_traffic,
 )
 from wostrategy.analysis.traffic import traffic_clean_mask
+
+from .tyre_inputs import ResolvedTyreInputs, TyreInputService
 
 
 @dataclass(frozen=True)
@@ -64,6 +76,8 @@ class LiveRecalculationResult:
     clean_lap_sources: tuple[tuple[str, int], ...] = ()
     elapsed_seconds: float = 0.0
     sample_count: int = 0
+    runtime_breakdown: tuple[tuple[str, float], ...] = ()
+    sampler_quality: tuple[tuple[str, object], ...] = ()
 
 
 class OfflineAnalysisService:
@@ -71,6 +85,7 @@ class OfflineAnalysisService:
 
     def __init__(self, data_root: str | Path | None = None) -> None:
         self.data_root = data_root
+        self.tyre_inputs = TyreInputService(data_root)
         self.pinned_strategy_ids: list[str] = []
         self._last_live_fingerprint: str | None = None
         self._last_clean_lap_count = 0
@@ -81,6 +96,31 @@ class OfflineAnalysisService:
         self._ephemeral_parameter_rows: list[dict[str, object]] = []
         self._ephemeral_run_rows: list[dict[str, object]] = []
         self._last_strategy_search = None
+
+    def get_cached_fp_tyre_evidence(self, year: int, round_number: int):
+        """Read/cache-check FP evidence without ever invoking calculation."""
+        return self.tyre_inputs.get_cached_fp_tyre_evidence(year, round_number)
+
+    def calculate_fp_tyre_evidence(
+        self, year: int, round_number: int, *, force_refresh: bool = False
+    ) -> dict[str, object]:
+        """Explicit user-action bridge to the public woStrategy Python API."""
+        return self.tyre_inputs.calculate_fp_tyre_evidence(
+            year, round_number, force_refresh=force_refresh
+        )
+
+    def resolve_tyre_inputs(self, year: int, round_number: int) -> ResolvedTyreInputs:
+        return self.tyre_inputs.resolve(year, round_number)
+
+    def set_manual_tyre_input(
+        self, year: int, round_number: int, parameter: str, value: float
+    ) -> Path:
+        return self.tyre_inputs.set_manual_value(year, round_number, parameter, value)
+
+    def clear_manual_tyre_input(
+        self, year: int, round_number: int, parameter: str
+    ) -> Path:
+        return self.tyre_inputs.clear_manual_value(year, round_number, parameter)
 
     def load_model(
         self, year: int, round_number: int, source_scope: str = "aggregate"
@@ -142,13 +182,82 @@ class OfflineAnalysisService:
             version=str(summary.manifest.get("config_hash") or "unknown"),
         )
 
-    def strategy_assumptions(self, summary: ModelSummary) -> list[dict[str, object]]:
+    def strategy_assumptions(
+        self,
+        summary: ModelSummary,
+        *,
+        baseline_degradation: Mapping[str, float] | None = None,
+        baseline_compound_delta: Mapping[str, float] | None = None,
+        race_informed_compounds: set[str] | frozenset[str] | None = None,
+    ) -> list[dict[str, object]]:
         """Return transparent support-weighted FP/race inputs used by strategy search."""
         model = self.build_strategy_model(summary)
         fastest = min(model.compound_delta.values(), default=0.0)
+        support = {
+            str(row.get("compound") or "").upper(): str(
+                row.get("support_status") or ""
+            ).lower()
+            for row in summary.parameters
+            if str(row.get("parameter") or "") == "degradation"
+            and row.get("compound")
+        }
+        informed = {
+            compound for compound, status in support.items()
+            if status == "race_informed"
+        }
+        quality = summary.manifest.get("sampler_quality") or {}
+        if isinstance(quality, (list, tuple)):
+            quality = dict(quality)
+        if isinstance(quality, Mapping):
+            evidence = quality.get("compound_evidence") or {}
+            if isinstance(evidence, Mapping):
+                informed.update(
+                    str(compound).upper()
+                    for compound, item in evidence.items()
+                    if isinstance(item, Mapping)
+                    and str(item.get("status") or "").lower() == "race_informed"
+                )
+            # The established retro path only emits degradation coordinates for
+            # compounds present in its selected Race laps. Reuse that explicit
+            # model availability state; do not invent another evidence threshold.
+            if str(quality.get("architecture") or "").startswith("live-retro"):
+                informed.update(
+                    str(compound).upper()
+                    for compound in quality.get("observed_compounds", ())
+                )
+        informed.update(str(value).upper() for value in (race_informed_compounds or ()))
+        resolved_degradation = dict(model.degradation)
+        available_deltas = {
+            str(row.get("compound") or "").upper()
+            for row in summary.parameters
+            if str(row.get("parameter") or "") == "compound_delta"
+            and row.get("compound")
+        }
+        sources = {compound: "race_evidence" for compound in informed}
+        if baseline_degradation:
+            baseline = {
+                str(compound).upper(): float(value)
+                for compound, value in baseline_degradation.items()
+            }
+            ratios = [
+                float(model.degradation[compound]) / baseline[compound]
+                for compound in informed
+                if compound in model.degradation
+                and compound in baseline
+                and baseline[compound] != 0.0
+            ]
+            scale = float(np.mean(ratios)) if ratios else 1.0
+            for compound, value in baseline.items():
+                if compound not in informed:
+                    resolved_degradation[compound] = value * scale
+                    sources[compound] = "relative_degradation_assumption"
+        baseline_deltas = {
+            str(compound).upper(): float(value)
+            for compound, value in (baseline_compound_delta or {}).items()
+        }
         rows = []
         for compound in ("SOFT", "MEDIUM", "HARD"):
-            if compound not in model.degradation:
+            if compound not in resolved_degradation:
                 continue
             contributing = [
                 str(row.get("session") or "")
@@ -156,13 +265,24 @@ class OfflineAnalysisService:
                 if str(row.get("parameter")) == "degradation"
                 and str(row.get("compound") or "").upper() == compound
             ]
-            delta = float(model.compound_delta.get(compound, 0.0))
+            delta = float(model.compound_delta.get(
+                compound, baseline_deltas.get(compound, 0.0)
+            ))
             rows.append(
                 {
                     "compound": compound,
                     "baseline_pace": delta - fastest,
                     "compound_delta": delta,
-                    "degradation": float(model.degradation[compound]),
+                    "compound_delta_available": compound in available_deltas,
+                    "compound_delta_source": (
+                        "race_model"
+                        if compound in available_deltas
+                        else "resolved_pre_race_baseline"
+                    ),
+                    "degradation": float(resolved_degradation[compound]),
+                    "degradation_source": sources.get(compound, "model"),
+                    "degradation_race_informed": compound in informed,
+                    "degradation_support_status": support.get(compound, ""),
                     "sessions": "+".join(dict.fromkeys(contributing)),
                     "aggregation": "usable-lap weighted mean",
                 }
@@ -331,6 +451,70 @@ class OfflineAnalysisService:
         selected = tuple(row for row in rows if row.get("analysis_id") == latest_analysis)
         return self.strategy_assumptions(ModelSummary({"analysis_id": latest_analysis}, selected))
 
+    def frozen_pre_race_prior(self, year: int, round_number: int) -> FrozenPreRacePrior:
+        """Load or create the immutable marginal-approximation Race prior artifact."""
+        root = weekend_model_root(year, round_number, self.data_root)
+        path = root / "pre_race_prior_v1.json"
+        if path.exists():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return FrozenPreRacePrior(
+                schema_version=int(payload["schema_version"]), year=int(payload["year"]),
+                round_number=int(payload["round_number"]),
+                source_analysis_id=str(payload["source_analysis_id"]),
+                source_sessions=tuple(payload["source_sessions"]),
+                source_created_at=str(payload["source_created_at"]),
+                frozen_at=str(payload["frozen_at"]), construction=str(payload["construction"]),
+                fuel=MarginalPrior(**payload["fuel"]),
+                degradation={key: MarginalPrior(**value) for key, value in payload["degradation"].items()},
+                performance={key: MarginalPrior(**value) for key, value in payload["performance"].items()},
+            )
+        history = [
+            row for row in self.parameter_history(year, round_number, include_temporary=False)
+            if str(row.get("source_scope", "")).upper() == "AGGREGATE"
+            and int(float(row.get("as_of_leader_lap") or 0)) == 0
+        ]
+        if not history:
+            raise ValueError("No preserved lap-zero pre-race posterior is available.")
+        latest = max(history, key=lambda row: str(row.get("created_at") or ""))
+        selected = [row for row in history if row.get("analysis_id") == latest.get("analysis_id")]
+
+        def marginal(parameter: str, compound: str | None = None) -> MarginalPrior:
+            rows = [row for row in selected if str(row.get("parameter")) == parameter]
+            if compound is not None:
+                rows = [row for row in rows if str(row.get("compound") or "").upper() == compound]
+            if not rows:
+                raise ValueError(f"Pre-race prior lacks {parameter}:{compound or ''}")
+            weights = np.asarray([max(float(row.get("usable_lap_count") or 1), 1) for row in rows])
+            return MarginalPrior(
+                **{key: float(np.average([float(row[key]) for row in rows], weights=weights))
+                   for key in ("p10", "median", "p90")},
+                unit=str(rows[0].get("unit") or ("s" if parameter == "compound_delta" else "s/lap")),
+            )
+
+        fuel = marginal("fuel_rate")
+        degradation = {compound: marginal("degradation", compound) for compound in ("HARD", "MEDIUM", "SOFT")}
+        raw_performance = {compound: marginal("compound_delta", compound) for compound in ("HARD", "MEDIUM", "SOFT")}
+        # Convert the arbitrary display gauge using one common median shift. This
+        # preserves each stored marginal width; it does not invent covariance.
+        centre = np.mean([value.median for value in raw_performance.values()])
+        raw_performance = {
+            key: MarginalPrior(value.p10 - centre, value.median - centre,
+                               value.p90 - centre, value.unit, value.approximation)
+            for key, value in raw_performance.items()
+        }
+        prior = FrozenPreRacePrior(
+            1, int(year), int(round_number), str(latest["analysis_id"]),
+            tuple(dict.fromkeys(str(row.get("session") or "") for row in selected)),
+            str(latest.get("created_at") or ""), datetime.now(timezone.utc).isoformat(),
+            "marginal_split_normal_approximation_no_joint_covariance",
+            fuel, degradation, raw_performance,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(asdict(prior), indent=2) + "\n", encoding="utf-8")
+        temporary.replace(path)
+        return prior
+
     def activate_temporary_replay_model(self, year: int, round_number: int) -> None:
         """Start a replay from its lap-zero FP model without future-data leakage."""
         rows = [
@@ -367,6 +551,16 @@ class OfflineAnalysisService:
         self._last_clean_lap_count = 0
         self._last_clean_lap_sources = ()
 
+    def publish_temporary_worker_snapshot(
+        self, year: int, round_number: int, snapshot
+    ) -> None:
+        """Publish all temporary fields together after a successful process result."""
+        self._ephemeral_event = (int(year), int(round_number))
+        self._ephemeral_summary = snapshot.summary
+        self._ephemeral_result = snapshot.ephemeral_result
+        self._ephemeral_parameter_rows = list(snapshot.parameter_rows)
+        self._ephemeral_run_rows = list(snapshot.run_rows)
+
     def generate_continuations(
         self,
         *,
@@ -378,8 +572,10 @@ class OfflineAnalysisService:
         source_scope: str = "aggregate",
         overrides: Mapping[tuple[str, str], float] | None = None,
         persist: bool = True,
+        model_summary: ModelSummary | None = None,
+        tyre_input_snapshot: Mapping[str, object] | None = None,
     ) -> list[StrategyResult]:
-        summary = self.load_model(year, round_number, source_scope)
+        summary = model_summary or self.load_model(year, round_number, source_scope)
         model = self.build_strategy_model(summary, overrides)
         results = search_best_compound_sequences(
             state,
@@ -393,7 +589,7 @@ class OfflineAnalysisService:
         )
         target = state.selected_driver or "global"
         records = results_to_records(results, state, model)
-        self._last_strategy_search = (records, target, int(year), int(round_number))
+        persistence_started = time.perf_counter()
         if persist:
             write_strategy_records(
                 records,
@@ -402,6 +598,22 @@ class OfflineAnalysisService:
                 target=target,
                 data_root=self.data_root,
             )
+            if records and tyre_input_snapshot is not None:
+                destination = (
+                    strategy_search_root(year, round_number, target, self.data_root)
+                    / "tyre_input_snapshots"
+                    / f"{records[0].search_id}.json"
+                )
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                temporary = destination.with_suffix(".json.tmp")
+                with temporary.open("w", encoding="utf-8") as handle:
+                    json.dump(dict(tyre_input_snapshot), handle, indent=2, sort_keys=True)
+                    handle.write("\n")
+                temporary.replace(destination)
+        self._last_strategy_search = (
+            records, target, int(year), int(round_number),
+            dict(tyre_input_snapshot) if tyre_input_snapshot is not None else None,
+        )
         return results
 
     def model_config(self, year: int, round_number: int) -> dict[str, object]:
@@ -481,10 +693,17 @@ class OfflineAnalysisService:
         min_gap_ahead_seconds: float = 2.5,
         min_gap_behind_seconds: float = 1.0,
         enforce_compound_order: bool | None = None,
+        race_baseline_architecture: str = "retro",
+        scheduled_total_laps_override: int | None = None,
         persist: bool = True,
     ) -> LiveRecalculationResult:
         started_at = time.perf_counter()
         leader_lap = _leader_lap(snapshot)
+        scheduled_total_laps, scheduled_total_laps_source = _resolve_scheduled_total_laps(
+            snapshot,
+            manual_override=scheduled_total_laps_override,
+            current_leader_lap=leader_lap,
+        )
         previous_clean_lap_count = self._last_clean_lap_count
         race_laps = _live_analysis_laps(
             snapshot,
@@ -544,38 +763,83 @@ class OfflineAnalysisService:
                 else bool(enforce_compound_order)
             ),
         )
-        sessions: dict[str, pd.DataFrame] = {"R": race_laps}
-        raw_fp = {}
-        for session in ("FP1", "FP2", "FP3"):
-            path = get_fastf1_session_laps_path(
-                year=year, round_number=round_number, session=session, data_root=self.data_root
+        prior_started = time.perf_counter()
+        if race_baseline_architecture == "retro":
+            resolved = resolve_race_performance_settings(
+                year=year, round_number=round_number, session="R", data_root=self.data_root
             )
-            if path.exists():
-                raw_fp[session] = pd.read_pickle(path)
-        if raw_fp:
-            prepared, _ = prepare_weekend_sessions(
-                raw_fp,
-                min_clean_air_laps=int(stored.get("min_clean_air_laps", 4)),
-                clean_mean_time_delta_seconds=float(
-                    stored.get("clean_mean_time_delta_seconds", 2.5)
+            retro_settings = dict(resolved.settings) if resolved else {}
+            order_threshold = retro_settings.get("degradation_order_track_temperature")
+            live_track_temperature = retro_settings.get("track_temperature")
+            if (
+                live_track_temperature is None
+                and order_threshold is not None
+                and (enforce_compound_order is None or enforce_compound_order)
+            ):
+                # The retro review normally reads TrackTemp from its lap frame.
+                # Live completed-lap contracts do not carry weather, so make the
+                # requested ordering explicit instead of silently disabling it.
+                live_track_temperature = float(order_threshold) + 1.0
+            retro_config = MonteCarloRacePerformanceConfig(
+                sample_count=int(sample_count),
+                fuel_rate_bounds=tuple(retro_settings.get("fuel_rate_bounds", stored["fuel_rate_bounds"])),
+                track_rate_bounds=tuple(retro_settings.get("track_rate_bounds", stored["track_rate_bounds"])),
+                limit_negative_track_correction=bool(
+                    retro_settings.get("limit_negative_track_correction", False)
                 ),
-                clean_mean_time_delta_behind_seconds=stored.get(
-                    "clean_mean_time_delta_behind_seconds", 1.0
-                ),
-                quick_lap_threshold=float(stored.get("quick_lap_threshold", 1.10)),
-                dry_compounds=tuple(stored.get("expected_compounds", ("SOFT", "MEDIUM", "HARD"))),
+                compound_degradation_bounds={
+                    str(key).upper(): tuple(value) for key, value in
+                    dict(retro_settings.get("compound_degradation_bounds", {})).items()
+                },
+                default_compound_degradation_bounds=tuple(retro_settings.get(
+                    "default_compound_degradation_bounds", stored["default_degradation_bounds"]
+                )),
+                compound_delta_bounds={
+                    str(key).upper(): tuple(value) for key, value in
+                    dict(retro_settings.get("compound_delta_bounds", {})).items()
+                },
+                default_compound_delta_bounds=tuple(retro_settings.get(
+                    "default_compound_delta_bounds", stored["default_compound_delta_bounds"]
+                )),
+                compound_delta_reference=str(retro_settings.get(
+                    "compound_delta_reference", stored.get("reference_compound", "HARD")
+                )),
+                team_variation_fraction=float(retro_settings.get("team_variation_fraction", .5)),
+                team_variation_absolute_min=float(retro_settings.get(
+                    "team_variation_absolute_min", .005
+                )),
+                clean_lap_noise_sigma=float(retro_settings.get(
+                    "clean_lap_noise_sigma", stored.get("clean_lap_noise_sigma", .15)
+                )),
+                weight_strategy=str(retro_settings.get("weight_strategy", "gaussian")),
+                weight_effective_sample_count=retro_settings.get("weight_effective_sample_count"),
+                baseline_group=str(retro_settings.get("baseline_group", "driver")),
+                fuel_ref=float(retro_settings.get("fuel_ref", 0.0)),
+                race_lap_ref=retro_settings.get("race_lap_ref"),
+                tyre_age_ref=float(retro_settings.get("tyre_age_ref", 0.0)),
+                random_seed=int(stored["random_seed"]),
+                sampling_strategy=str(retro_settings.get("sampling_strategy", "random")),
+                track_temperature_celsius=live_track_temperature,
+                degradation_order_track_temperature_celsius=order_threshold,
+                evaluator_backend=str(retro_settings.get("evaluator_backend", "accelerated")),
+                candidate_chunk_size=int(retro_settings.get("candidate_chunk_size", 2_000)),
             )
-            sessions.update(prepared)
-        clean_lap_sources = tuple(
-            (session, int(len(laps))) for session, laps in sorted(sessions.items())
-        )
-        result = run_joint_weekend_model(
-            sessions,
-            config,
-            expected_sessions=tuple(stored.get("expected_sessions", ("FP1", "FP2", "FP3", "R"))),
-            expected_compounds=tuple(stored.get("expected_compounds", ("SOFT", "MEDIUM", "HARD"))),
-            as_of_leader_lap=leader_lap,
-        )
+            result = run_live_retro_model(
+                race_laps, retro_config, as_of_leader_lap=leader_lap,
+                race_lap_count=scheduled_total_laps,
+            )
+            result.quality["fuel_proxy_total_laps"] = scheduled_total_laps
+            result.quality["fuel_proxy_total_laps_source"] = scheduled_total_laps_source
+            prior_loaded = time.perf_counter()
+        else:
+            prior = self.frozen_pre_race_prior(year, round_number)
+            prior_loaded = time.perf_counter()
+            result = run_race_specific_model(
+                race_laps, prior, config, as_of_leader_lap=leader_lap,
+                baseline_architecture=race_baseline_architecture,
+            )
+        clean_lap_sources = (("R", int(len(race_laps))),)
+        persistence_started = time.perf_counter()
         if persist:
             for model_snapshot in result.session_snapshots.values():
                 write_model_snapshot(
@@ -604,12 +868,21 @@ class OfflineAnalysisService:
         self._last_live_fingerprint = fingerprint
         self._last_clean_lap_count = len(race_laps)
         self._last_clean_lap_sources = clean_lap_sources
+        persistence_finished = time.perf_counter()
+        runtime = {
+            "pre_race_artifact_loading_seconds": prior_loaded - prior_started,
+            **result.timings,
+            "ui_history_persistence_seconds": persistence_finished - persistence_started,
+        }
+        runtime["total_recalculation_seconds"] = persistence_finished - started_at
         return LiveRecalculationResult(
             "updated", leader_lap, len(race_laps), result.aggregate_snapshot.analysis_id,
             previous_clean_lap_count=previous_clean_lap_count,
             clean_lap_sources=clean_lap_sources,
-            elapsed_seconds=time.perf_counter() - started_at,
+            elapsed_seconds=persistence_finished - started_at,
             sample_count=int(sample_count),
+            runtime_breakdown=tuple(runtime.items()),
+            sampler_quality=tuple(result.quality.items()),
         )
 
     def load_saved_strategies(
@@ -664,9 +937,13 @@ class OfflineAnalysisService:
                 round_number=round_number,
                 data_root=self.data_root,
             )
+        tyre_input_snapshot = None
         if self._last_strategy_search is not None:
-            records, target, search_year, search_round = self._last_strategy_search
+            records, target, search_year, search_round, candidate_tyre_snapshot = (
+                self._last_strategy_search
+            )
             if (search_year, search_round) == (int(year), int(round_number)):
+                tyre_input_snapshot = candidate_tyre_snapshot
                 write_strategy_records(
                     records, year=year, round_number=round_number,
                     target=target, data_root=self.data_root,
@@ -691,6 +968,7 @@ class OfflineAnalysisService:
             "model_manifest": summary.manifest,
             "parameters": list(summary.parameters),
             "strategy_results": strategy_rows,
+            "tyre_input_snapshot": tyre_input_snapshot,
         }
         temporary = destination.with_suffix(".json.tmp")
         with temporary.open("w", encoding="utf-8") as handle:
@@ -860,6 +1138,7 @@ def _model_summary_from_snapshot(snapshot) -> ModelSummary:
         "stale_reason": snapshot.stale_reason,
         "contributing_sessions": list(snapshot.contributing_sessions),
         "excluded_sessions": dict(snapshot.excluded_sessions),
+        "sampler_quality": dict(getattr(snapshot, "sampler_quality", ())),
     }
     return ModelSummary(manifest, tuple(asdict(row) for row in snapshot.parameters))
 
@@ -875,6 +1154,18 @@ def _leader_lap(snapshot) -> int:
     leader = [lap.lap_number for lap in snapshot.completed_laps if lap.position == 1]
     all_laps = [lap.lap_number for lap in snapshot.completed_laps]
     return int(max(leader or all_laps or [0]))
+
+
+def _resolve_scheduled_total_laps(
+    snapshot, *, manual_override: int | None, current_leader_lap: int
+) -> tuple[int, str]:
+    """Resolve Lmax without inferring scheduled distance from completed laps."""
+    live_value = getattr(snapshot, "scheduled_total_laps", None)
+    if live_value is not None and int(live_value) > 0:
+        return int(live_value), "live_lap_count"
+    if manual_override is not None and int(manual_override) > 0:
+        return int(manual_override), "manual_override"
+    return int(current_leader_lap), "current_leader_lap_fallback"
 
 
 def _live_analysis_laps(
@@ -915,6 +1206,8 @@ def _live_analysis_laps(
     laps = pd.DataFrame(rows)
     if laps.empty:
         return laps
+    laps = laps.sort_values(["Driver", "Stint", "LapNumber"], kind="mergesort")
+    laps["StintLapNumber"] = laps.groupby(["Driver", "Stint"]).cumcount() + 1
     normalized_compounds = tuple(str(value).upper() for value in allowed_compounds)
     laps = laps.loc[laps["Compound"].isin(normalized_compounds)].copy()
     fastest = laps.groupby("Driver")["LapTimeSeconds"].transform("min")
@@ -955,6 +1248,9 @@ def _live_analysis_laps(
 
 def _live_traffic_gaps(snapshot, *, force_sector: bool = False) -> pd.DataFrame:
     keys = ["Driver", "LapNumber"]
+    prepared_rows = getattr(snapshot, "traffic_rows", ())
+    if prepared_rows:
+        return pd.DataFrame(list(prepared_rows))
     sector = _sector_boundary_traffic_gaps(snapshot)
     if force_sector:
         forced = _sector_as_selected_traffic(sector, reason="sector mode forced")

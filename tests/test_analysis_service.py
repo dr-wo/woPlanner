@@ -1,4 +1,5 @@
 import os
+import json
 from concurrent.futures import Future
 from datetime import datetime, timezone
 
@@ -7,7 +8,8 @@ from types import MappingProxyType
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
-from PySide6 import QtWidgets
+import pytest
+from PySide6 import QtCore, QtWidgets
 
 from wodata.artifacts import write_model_snapshot, write_weekend_model_config
 from wodata import get_race_performance_review_root
@@ -25,8 +27,13 @@ from woplanner.analysis_service import (
     OfflineAnalysisService,
     _live_analysis_laps,
     _live_traffic_gaps,
+    _resolve_scheduled_total_laps,
 )
 from woplanner.analysis_gui import StrategyPredictionWindow, format_history_hover_text
+from woplanner.analysis_worker import (
+    AnalysisQueuePolicy,
+    ModelSnapshot as PublishedModelSnapshot,
+)
 from wostrategy.core.race_performance_settings import (
     write_resolved_race_performance_settings,
 )
@@ -89,6 +96,24 @@ def test_live_model_config_uses_compatible_race_review_settings(tmp_path):
     assert "team_variation_fraction" not in config
 
 
+def test_scheduled_total_laps_resolution_prefers_live_then_manual_then_fallback():
+    snapshot = LiveSessionSnapshot.empty()
+    assert _resolve_scheduled_total_laps(
+        snapshot, manual_override=57, current_leader_lap=9
+    ) == (57, "manual_override")
+    snapshot = LiveSessionSnapshot(
+        snapshot.session_info, snapshot.session_status, snapshot.drivers,
+        snapshot.completed_laps, snapshot.latest_position_by_driver,
+        snapshot.last_message_at_utc, scheduled_total_laps=70,
+    )
+    assert _resolve_scheduled_total_laps(
+        snapshot, manual_override=57, current_leader_lap=9
+    ) == (70, "live_lap_count")
+    assert _resolve_scheduled_total_laps(
+        LiveSessionSnapshot.empty(), manual_override=None, current_leader_lap=9
+    ) == (9, "current_leader_lap_fallback")
+
+
 def snapshot_with_clear_sector_traffic(laps):
     sectors = []
     for lap in laps:
@@ -110,6 +135,37 @@ def snapshot_with_clear_sector_traffic(laps):
         MappingProxyType({}), "Started", (), tuple(laps),
         MappingProxyType({"98": 1, "1": 2, "99": 3}), None, tuple(sectors),
     )
+
+
+def write_test_pre_race_prior(data_root, year=2026, round_number=5):
+    path = (
+        data_root / "wostrategy/weekend_model/schema_v1"
+        / f"year={year}" / f"round={round_number}" / "pre_race_prior_v1.json"
+    )
+    marginal = lambda p10, median, p90, unit: {
+        "p10": p10, "median": median, "p90": p90, "unit": unit,
+        "approximation": "split_normal_from_marginal_p10_median_p90",
+    }
+    payload = {
+        "schema_version": 1, "year": year, "round_number": round_number,
+        "source_analysis_id": "test-pre-race", "source_sessions": ["FP2"],
+        "source_created_at": "2026-01-01T00:00:00Z",
+        "frozen_at": "2026-01-02T00:00:00Z",
+        "construction": "marginal_split_normal_approximation_no_joint_covariance",
+        "fuel": marginal(0.01, 0.03, 0.05, "s/lap"),
+        "degradation": {
+            "HARD": marginal(0.01, 0.04, 0.08, "s/lap"),
+            "MEDIUM": marginal(0.04, 0.08, 0.12, "s/lap"),
+            "SOFT": marginal(0.10, 0.15, 0.20, "s/lap"),
+        },
+        "performance": {
+            "HARD": marginal(0.2, 0.4, 0.6, "s"),
+            "MEDIUM": marginal(-0.1, 0.0, 0.1, "s"),
+            "SOFT": marginal(-0.7, -0.5, -0.3, "s"),
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_history_hover_readings_use_hovered_compound_as_pace_reference():
@@ -139,6 +195,138 @@ def test_history_hover_readings_use_hovered_compound_as_pace_reference():
     assert "SOFT: degradation 0.180 s/lap | pace Δ -0.350 s" in text
     assert "MEDIUM: degradation 0.100 s/lap | pace Δ +0.000 s" in text
     assert "HARD: degradation 0.060 s/lap | pace Δ +0.350 s" in text
+
+
+def test_strategy_assumptions_scale_only_uninformed_degradation():
+    service = OfflineAnalysisService()
+
+    def summary(statuses, degradation):
+        rows = []
+        for compound, value in degradation.items():
+            rows.append({
+                "parameter": "degradation", "compound": compound,
+                "median": value, "usable_lap_count": 10, "session": "R",
+                "support_status": statuses.get(compound, "prior_only"),
+            })
+            rows.append({
+                "parameter": "compound_delta", "compound": compound,
+                "median": 0.0, "usable_lap_count": 10, "session": "R",
+                "support_status": "prior_only",
+            })
+        return ModelSummary({"analysis_id": "race"}, tuple(rows))
+
+    baseline = {"HARD": .10, "MEDIUM": .20, "SOFT": .30}
+    one = service.strategy_assumptions(
+        summary(
+            {"MEDIUM": "race_informed"},
+            {"HARD": .50, "MEDIUM": .18, "SOFT": .60},
+        ),
+        baseline_degradation=baseline,
+    )
+    one = {row["compound"]: row for row in one}
+    assert one["MEDIUM"]["degradation"] == .18
+    assert one["HARD"]["degradation"] == pytest.approx(.09)
+    assert one["SOFT"]["degradation"] == pytest.approx(.27)
+    assert one["MEDIUM"]["degradation_source"] == "race_evidence"
+    assert one["HARD"]["degradation_source"] == "relative_degradation_assumption"
+
+    two = service.strategy_assumptions(
+        summary(
+            {"HARD": "race_informed", "MEDIUM": "race_informed"},
+            {"HARD": .11, "MEDIUM": .19, "SOFT": .60},
+        ),
+        baseline_degradation=baseline,
+    )
+    two = {row["compound"]: row for row in two}
+    assert two["HARD"]["degradation"] == pytest.approx(.11)
+    assert two["MEDIUM"]["degradation"] == pytest.approx(.19)
+    assert two["SOFT"]["degradation"] == pytest.approx(.3075)
+
+
+def test_history_hover_clear_hides_label_cursor_and_selection(tmp_path):
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    plot = window.history_plot
+    label = __import__("pyqtgraph").TextItem("hover")
+    plot.addItem(label)
+    window._history_hover_labels[plot] = label
+    window._hovered_history_lap = 4
+    for cursor in window._history_cursor_lines.values():
+        cursor.show()
+
+    window._clear_history_hover()
+
+    assert all(value is None for value in window._history_hover_labels.values())
+    assert all(not cursor.isVisible() for cursor in window._history_cursor_lines.values())
+    assert window._hovered_history_lap is None
+    window.close()
+    app.processEvents()
+
+
+def test_history_click_retains_selected_lap_when_menu_clears_hover(
+    tmp_path, monkeypatch
+):
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    plot = window.history_plot
+    applied = []
+
+    class MenuThatClearsHover:
+        def __init__(self, parent):
+            self.action = object()
+
+        def addAction(self, text):
+            assert "lap 9" in text
+            return self.action
+
+        def exec(self, position):
+            window._clear_history_hover()
+            return self.action
+
+    class ClickEvent:
+        @staticmethod
+        def button():
+            return QtCore.Qt.MouseButton.LeftButton
+
+        @staticmethod
+        def scenePos():
+            return plot.plotItem.vb.sceneBoundingRect().center()
+
+        @staticmethod
+        def screenPos():
+            return QtCore.QPointF(0, 0)
+
+    monkeypatch.setattr(QtWidgets, "QMenu", MenuThatClearsHover)
+    monkeypatch.setattr(window, "_history_mouse_moved", lambda *_: setattr(
+        window, "_hovered_history_lap", 9
+    ))
+    monkeypatch.setattr(window, "_apply_history_lap_to_strategy", applied.append)
+
+    window._history_mouse_clicked(plot, ClickEvent())
+
+    assert applied == [9]
+    assert window._hovered_history_lap is None
+    window.close()
+    app.processEvents()
+
+
+def test_apply_history_lap_rejects_missing_selection(tmp_path):
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+
+    assert window._apply_history_lap_to_strategy(None) is False
+
+    window.close()
+    app.processEvents()
 
 
 def test_service_loads_canonical_model_generates_and_persists_top_ten(tmp_path):
@@ -438,6 +626,7 @@ def test_strategy_model_uses_usable_lap_weighted_session_mean(tmp_path):
 
 
 def test_live_recalculation_runs_once_for_new_clean_laps(tmp_path):
+    write_test_pre_race_prior(tmp_path)
     write_weekend_model_config(
         {
             "sample_count": 100,
@@ -477,11 +666,93 @@ def test_live_recalculation_runs_once_for_new_clean_laps(tmp_path):
     assert first.leader_lap == 4
     assert first.previous_clean_lap_count == 0
     assert dict(first.clean_lap_sources)["R"] == 4
+    assert dict(first.sampler_quality)["architecture"] == "live-retro-v1"
     assert second.status == "no-new-clean-laps"
     assert second.previous_clean_lap_count == 4
 
 
-def test_replay_strategy_prediction_queues_leader_laps_while_worker_is_busy(tmp_path):
+class _FakeAnalysisWorker:
+    def __init__(self, policy=AnalysisQueuePolicy.LATEST_WINS):
+        self.policy = policy
+        self.requests = []
+        self.analysis_running = False
+        self.running_input_version = None
+        self.pending_input_version = None
+        self.current_result_version = None
+        self.last_error = None
+        self.completed = None
+        self.completed_version = None
+
+    @property
+    def queue_depth(self):
+        return max(len(self.requests) - (1 if self.analysis_running else 0), 0)
+
+    @property
+    def oldest_queued_version(self):
+        return 2 if self.queue_depth else None
+
+    @property
+    def newest_queued_version(self):
+        return len(self.requests) if self.queue_depth else None
+
+    def submit(self, **request):
+        version = max(
+            len(self.requests),
+            int(self.running_input_version or 0),
+            int(self.pending_input_version or 0),
+        ) + 1
+        self.requests.append(request)
+        if self.analysis_running:
+            self.pending_input_version = version
+        else:
+            self.analysis_running = True
+            self.running_input_version = version
+        return version
+
+    def poll(self):
+        completed, self.completed = self.completed, None
+        return completed
+
+    def shutdown(self, **_kwargs):
+        self.analysis_running = False
+
+
+class _FakeTelemetryWorker:
+    def __init__(self):
+        self.capacity_probes = []
+
+    def set_bounded_replay_mc_pipeline_capacity_probe(self, probe):
+        self.capacity_probes.append(probe)
+
+    def poll_analysis_inputs(self):
+        return ()
+
+
+def test_replay_window_bounds_analysis_ahead_without_enabling_live_throttle(tmp_path):
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    telemetry = _FakeTelemetryWorker()
+    window = StrategyPredictionWindow(
+        year=2026,
+        round_number=5,
+        service=OfflineAnalysisService(tmp_path),
+        persistence_mode="temporary",
+        telemetry_worker=telemetry,
+    )
+
+    assert callable(telemetry.capacity_probes[-1])
+    window.configure_session_context(
+        persistence_mode="durable",
+        state_directory=tmp_path / "live",
+        auto_save_history=True,
+    )
+    assert telemetry.capacity_probes[-1] is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_replay_strategy_prediction_queues_every_leader_lap_snapshot(tmp_path):
     write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = StrategyPredictionWindow(
@@ -491,9 +762,11 @@ def test_replay_strategy_prediction_queues_leader_laps_while_worker_is_busy(tmp_
         state_directory=tmp_path / "replay",
         persistence_mode="temporary",
     )
-    busy = Future()
-    window._future = busy
-    window._future_mode = "strategy"
+    window._analysis_worker.shutdown(wait=False)
+    window._analysis_worker = _FakeAnalysisWorker(AnalysisQueuePolicy.FIFO_ALL)
+    window.service.recalculate_from_live_snapshot = lambda **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Monte Carlo must not run on the GUI callback path")
+    )
     snapshot = LiveSessionSnapshot(
         MappingProxyType({}),
         "Started",
@@ -511,23 +784,42 @@ def test_replay_strategy_prediction_queues_leader_laps_while_worker_is_busy(tmp_
 
     window.consume_live_snapshot(snapshot)
 
-    assert len(window._live_recalculation_queue) == 3
-    assert [item[0] for item in window._live_recalculation_queue] == [1, 2, 3]
+    assert len(window._analysis_worker.requests) == 3
     assert [
-        max(lap.lap_number for lap in item[1].completed_laps)
-        for item in window._live_recalculation_queue
+        max(lap.lap_number for lap in request["snapshot"].completed_laps)
+        for request in window._analysis_worker.requests
     ] == [1, 2, 3]
-    _, _, options = window._live_recalculation_queue[0]
+    assert len({id(request["snapshot"]) for request in window._analysis_worker.requests}) == 3
+    request = window._analysis_worker.requests[0]
+    options = request["options"]
     assert options["sample_count"] == window.sample_count.value()
-    assert "pending=3" in window.calculation_log.toPlainText()
-    window._future = None
-    window._future_mode = None
-    window._live_recalculation_queue.clear()
+    assert "requested V1–V3" in window.calculation_log.toPlainText()
     window.close()
     app.processEvents()
 
 
-def test_live_strategy_prediction_does_not_queue_while_worker_is_busy(tmp_path):
+def test_strategy_can_start_while_process_analysis_is_running(tmp_path):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    window._analysis_worker.shutdown(wait=False)
+    worker = _FakeAnalysisWorker()
+    worker.analysis_running = True
+    worker.running_input_version = 2
+    window._analysis_worker = worker
+
+    window._start_search()
+
+    assert window._future is not None
+    assert worker.analysis_running
+    window.close()
+    app.processEvents()
+
+
+def test_live_strategy_prediction_keeps_only_latest_pending_request(tmp_path):
     write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = StrategyPredictionWindow(
@@ -536,8 +828,11 @@ def test_live_strategy_prediction_does_not_queue_while_worker_is_busy(tmp_path):
         service=OfflineAnalysisService(tmp_path),
         persistence_mode="durable",
     )
-    window._future = Future()
-    window._future_mode = "live-model"
+    window._analysis_worker.shutdown(wait=False)
+    worker = _FakeAnalysisWorker()
+    worker.analysis_running = True
+    worker.running_input_version = 1
+    window._analysis_worker = worker
     snapshot = LiveSessionSnapshot(
         MappingProxyType({}),
         "Started",
@@ -549,15 +844,14 @@ def test_live_strategy_prediction_does_not_queue_while_worker_is_busy(tmp_path):
 
     window.consume_live_snapshot(snapshot)
 
-    assert not window._live_recalculation_queue
-    assert "not queued" in window.calculation_log.toPlainText()
-    window._future = None
-    window._future_mode = None
+    assert len(worker.requests) == 1
+    assert worker.pending_input_version == 2
+    assert "latest pending is V2" in window.calculation_log.toPlainText()
     window.close()
     app.processEvents()
 
 
-def test_strategy_prediction_log_reports_recalculation_elapsed_time(tmp_path):
+def test_strategy_prediction_log_reports_process_recalculation_elapsed_time(tmp_path):
     write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = StrategyPredictionWindow(
@@ -565,14 +859,14 @@ def test_strategy_prediction_log_reports_recalculation_elapsed_time(tmp_path):
         round_number=5,
         service=OfflineAnalysisService(tmp_path),
     )
-    completed = Future()
-    completed.set_result(
-        LiveRecalculationResult(
-            "no-new-clean-laps", 7, 12, elapsed_seconds=1.234
-        )
+    window._analysis_worker.shutdown(wait=False)
+    worker = _FakeAnalysisWorker()
+    worker.completed = PublishedModelSnapshot(
+        2,
+        LiveRecalculationResult("no-new-clean-laps", 7, 12, elapsed_seconds=1.234),
+        None,
     )
-    window._future = completed
-    window._future_mode = "live-model"
+    window._analysis_worker = worker
 
     window._poll_future()
 
@@ -582,6 +876,7 @@ def test_strategy_prediction_log_reports_recalculation_elapsed_time(tmp_path):
 
 
 def test_replay_recalculation_stays_temporary_until_promoted(tmp_path):
+    write_test_pre_race_prior(tmp_path)
     write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
     write_weekend_model_config(
         {
@@ -617,6 +912,7 @@ def test_replay_recalculation_stays_temporary_until_promoted(tmp_path):
 def test_strategy_prediction_restores_context_local_state(tmp_path):
     data_root = tmp_path / "data"
     state_directory = tmp_path / "replay"
+    write_test_pre_race_prior(data_root)
     write_model_snapshot(
         model_snapshot(), year=2026, round_number=5, data_root=data_root
     )
@@ -633,10 +929,9 @@ def test_strategy_prediction_restores_context_local_state(tmp_path):
     first.result_count.setValue(17)
     first.sample_count.setValue(4321)
     first.enforce_compound_order.setChecked(False)
-    first._baseline_values["MEDIUM"] = 0.25
-    first._manual_baseline_compounds.add("MEDIUM")
-    first._degradation_values["MEDIUM"] = 0.11
-    first._manual_degradation_compounds.add("MEDIUM")
+    first.service.set_manual_tyre_input(2026, 5, "Perf_HARD_vs_MEDIUM", 0.25)
+    first.service.set_manual_tyre_input(2026, 5, "Deg_MEDIUM", 0.11)
+    first._refresh_tyre_inputs(apply_to_strategy=True)
     first._last_strategy_rows = [
         {
             "rank": 1,
@@ -661,7 +956,10 @@ def test_strategy_prediction_restores_context_local_state(tmp_path):
     )
     assert second.result_count.value() == 17
     assert second.sample_count.value() == 4321
-    assert second._baseline_values["MEDIUM"] == 0.25
+    assert (
+        second._resolved_tyre_inputs.by_parameter()["Perf_HARD_vs_MEDIUM"].selected_value
+        == 0.25
+    )
     assert second._degradation_values["MEDIUM"] == 0.11
     assert second.strategy_table.rowCount() == 1
     assert second.strategy_table.item(0, 1).text() == "M-H"
@@ -673,6 +971,7 @@ def test_strategy_prediction_restores_context_local_state(tmp_path):
 def test_temporary_strategy_state_keeps_settings_but_not_results(tmp_path):
     data_root = tmp_path / "data"
     state_directory = tmp_path / "replay"
+    write_test_pre_race_prior(data_root)
     write_model_snapshot(
         model_snapshot(), year=2026, round_number=5, data_root=data_root
     )
@@ -696,6 +995,7 @@ def test_temporary_strategy_state_keeps_settings_but_not_results(tmp_path):
     first.close()
     app.processEvents()
 
+
     second = StrategyPredictionWindow(
         year=2026, round_number=5,
         service=OfflineAnalysisService(data_root),
@@ -708,7 +1008,7 @@ def test_temporary_strategy_state_keeps_settings_but_not_results(tmp_path):
         second._state_path.read_text(encoding="utf-8")
     )
     assert second.strategy_input_table.horizontalHeaderItem(1).text().startswith(
-        "Initial FP baseline"
+        "Selected pre-race baseline"
     )
     assert second.history_snapshot_combo.count() == 1
     second.history_snapshot_combo.setCurrentIndex(0)
@@ -737,6 +1037,54 @@ def test_temporary_strategy_state_keeps_settings_but_not_results(tmp_path):
     assert second.history_plot.listDataItems() == []
     assert second.compound_delta_history_plot.listDataItems() == []
     second.close()
+    app.processEvents()
+
+
+def test_history_assumed_degradation_is_selectable_and_plots_share_x_range(tmp_path):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    rows = []
+    for compound, degradation, delta, source in (
+        ("HARD", .09, 0.0, "relative_degradation_assumption"),
+        ("MEDIUM", .18, -.3, "race_evidence"),
+        ("SOFT", .27, -.6, "relative_degradation_assumption"),
+    ):
+        rows.extend(window._plot_rows_from_assumptions([{
+            "compound": compound, "degradation": degradation,
+            "compound_delta": delta, "compound_delta_available": True,
+            "degradation_source": source,
+            "degradation_race_informed": source == "race_evidence",
+        }], 9))
+    for row in rows:
+        row.update({"sampler_ess": 10.0, "sample_count": 100,
+                    "ess_fraction": .1, "max_weight": .05, "top5_weight": .2})
+    # Lap zero extends every chart, while ESS deliberately remains absent there.
+    rows.extend(window._plot_rows_from_assumptions([{
+        "compound": "MEDIUM", "degradation": .2, "compound_delta": -.3,
+        "degradation_source": "relative_degradation_assumption",
+    }], 0))
+    window._estimated_strategy_inputs["SOFT"] = {
+        "compound": "SOFT", "baseline_pace": 0.0, "degradation": .27,
+        "sessions": "R", "aggregation": "test",
+    }
+    window._show_plot_rows(rows)
+
+    ranges = [plot.viewRange()[0] for plot in (
+        window.degradation_history_plot,
+        window.compound_delta_history_plot,
+        window.model_quality_plot,
+    )]
+    assert all(value == pytest.approx([0, 9]) for value in ranges)
+    assert window._apply_history_lap_to_strategy(9)
+    assert window._degradation_values["HARD"] == pytest.approx(.09)
+    assert window._degradation_values["MEDIUM"] == pytest.approx(.18)
+    assert window._degradation_values["SOFT"] == pytest.approx(.27)
+    assert window._manual_overrides[("degradation", "SOFT")] == pytest.approx(.27)
+    window.close()
     app.processEvents()
 
 

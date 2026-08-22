@@ -18,6 +18,7 @@ from woplanner.live_service import (
     REFERENCE_MODE_AVERAGED_PACE,
     LivePlannerService,
 )
+from woplanner.telemetry_worker import ReplayPipelineConfig
 
 
 FIXTURE = Path(__file__).parents[2] / "woData" / "tests" / "fixtures" / "live_phase_1.txt"
@@ -31,6 +32,19 @@ def loaded_service():
         time.sleep(0.01)
     service.poll()
     return service
+
+
+def test_live_planner_accepts_project_level_replay_pipeline_config():
+    config = ReplayPipelineConfig(
+        replay_telemetry_high_watermark=32,
+        replay_telemetry_low_watermark=12,
+        replay_mc_max_queued_requests=2,
+    )
+
+    service = LivePlannerService(replay_pipeline_config=config)
+
+    assert service.telemetry_worker.replay_pipeline_config is config
+    service.shutdown()
 
 
 def test_jsonl_archive_replay_reaches_planner_plot_pipeline(tmp_path):
@@ -139,6 +153,105 @@ def test_jsonl_archive_replay_reaches_planner_plot_pipeline(tmp_path):
     ranks = service.build_driver_ranks().iloc[0]
     assert ranks["start_tyre_compound"] == "MEDIUM"
     assert ranks["latest_tyre_compound"] == "HARD"
+
+    # Request both cuts after the zero-delay replay has already delivered its
+    # future events. Lap 1 must still be reconstructed at ingress 3, before the
+    # lap-2 HARD stint update and completion arrived.
+    first_request = service.telemetry_worker.request_analysis_input(
+        leader_lap=1,
+        use_sector_boundary_traffic=False,
+    )
+    second_request = service.telemetry_worker.request_analysis_input(
+        leader_lap=2,
+        use_sector_boundary_traffic=False,
+    )
+    prepared = []
+    deadline = time.monotonic() + 2
+    while len(prepared) < 2 and time.monotonic() < deadline:
+        prepared.extend(service.telemetry_worker.poll_analysis_inputs())
+        time.sleep(0.005)
+    by_request = {result.request_id: result for result in prepared}
+
+    assert by_request[first_request].cut.ingress_sequence == 3
+    assert by_request[second_request].cut.ingress_sequence == 5
+    assert [
+        (lap.lap_number, lap.compound)
+        for lap in by_request[first_request].analysis_input.completed_laps
+    ] == [(1, "MEDIUM")]
+    assert [
+        (lap.lap_number, lap.compound)
+        for lap in by_request[second_request].analysis_input.completed_laps
+    ] == [(1, "MEDIUM"), (2, "HARD")]
+    service.shutdown()
+
+
+def test_replay_source_waits_for_analysis_capacity_without_dropping_events(tmp_path):
+    path = tmp_path / "paced_replay.jsonl"
+    path.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "topic": "Heartbeat",
+                    "session_time_seconds": float(sequence),
+                    "sequence": sequence,
+                    "payload": {},
+                    "source": "f1_archive_replay",
+                }
+            )
+            + "\n"
+            for sequence in range(1, 4)
+        ),
+        encoding="utf-8",
+    )
+    service = LivePlannerService()
+    has_capacity = [False]
+    service.telemetry_worker.set_bounded_replay_mc_pipeline_capacity_probe(
+        lambda: has_capacity[0]
+    )
+
+    service.start_replay(ReplayConfig(path, speed=0))
+    time.sleep(0.03)
+
+    assert service.controller.is_running
+    assert service.telemetry_worker.diagnostics().latest_ingress_sequence == 1
+
+    has_capacity[0] = True
+    deadline = time.monotonic() + 2
+    while service.controller.is_running and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert not service.controller.is_running
+    service.poll()
+    assert service.telemetry_worker.diagnostics().latest_ingress_sequence == 3
+    service.shutdown()
+
+
+def test_stopping_replay_interrupts_analysis_backpressure(tmp_path):
+    path = tmp_path / "blocked_replay.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "topic": "Heartbeat",
+                "session_time_seconds": 1.0,
+                "sequence": 1,
+                "payload": {},
+                "source": "f1_archive_replay",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    service = LivePlannerService()
+    service.telemetry_worker.set_bounded_replay_mc_pipeline_capacity_probe(lambda: False)
+    service.start_replay(ReplayConfig(path, speed=0))
+    time.sleep(0.02)
+
+    service.stop()
+
+    assert not service.controller.is_running
+    service.shutdown()
 
 
 def test_reference_rebases_actual_completed_laps_only():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -19,6 +21,9 @@ from .plot_widget import RelativeDeltaPlotWidget
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[3] / "woData"
+PLANNER_VISUAL_CHANGES = frozenset(
+    {"drivers", "session", "timing", "tyres", "track_status", "lap_count"}
+)
 
 
 class LivePlannerWindow(QtWidgets.QMainWindow):
@@ -29,6 +34,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._metadata_warning_shown = False
         self._active_source_mode: str | None = None
         self.strategy_prediction_window = None
+        self._profile_redraw_count = 0
+        self._profile_redraw_seconds = 0.0
+        self._profile_last_log = time.monotonic()
         self.setWindowTitle("woPlanner Live")
         self.resize(1200, 760)
         central = QtWidgets.QWidget()
@@ -184,7 +192,10 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 self.connect_button.setEnabled(True)
                 self.replay_button.setEnabled(True)
         snapshot = update.snapshot
-        if self.strategy_prediction_window is not None:
+        if (
+            self.strategy_prediction_window is not None
+            and update.changes.intersection({"drivers", "timing", "tyres", "lap_count"})
+        ):
             try:
                 if self.strategy_prediction_window.isVisible():
                     self.strategy_prediction_window.consume_live_snapshot(snapshot)
@@ -209,8 +220,13 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 self.reference_driver.setCurrentIndex(max(index, 0))
             self.reference_driver.blockSignals(False)
             self._driver_signature = signature
-            update = type(update)(update.snapshot, update.statuses, True)
-        if update.changed:
+            update = type(update)(
+                update.snapshot,
+                update.statuses,
+                True,
+                update.changes.union({"drivers"}),
+            )
+        if update.changes.intersection(PLANNER_VISUAL_CHANGES):
             self._redraw()
 
     def _warn_for_metadata_mismatch(self, session_info) -> None:
@@ -234,6 +250,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             )
 
     def _redraw(self) -> None:
+        started = time.perf_counter()
         reference = self.reference_driver.currentText()
         if not reference:
             return
@@ -252,6 +269,22 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         )
         self.relative_plot.set_plot_data(plot_data)
         self.relative_plot.set_tyre_event_data(self.service.build_tyre_event_data())
+        self._profile_redraw_count += 1
+        self._profile_redraw_seconds += time.perf_counter() - started
+        now = time.monotonic()
+        if now - self._profile_last_log >= 5.0:
+            logging.getLogger(__name__).debug(
+                "Live plot profile: redraws=%d total=%.1fms average=%.1fms",
+                self._profile_redraw_count,
+                self._profile_redraw_seconds * 1000.0,
+                (
+                    self._profile_redraw_seconds * 1000.0
+                    / max(self._profile_redraw_count, 1)
+                ),
+            )
+            self._profile_redraw_count = 0
+            self._profile_redraw_seconds = 0.0
+            self._profile_last_log = now
 
     def _select_reference(self, driver: str) -> None:
         index = self.reference_driver.findText(driver)
@@ -284,6 +317,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 "temporary" if self._active_source_mode == "replay" else "durable"
             ),
             auto_save_history=self._active_source_mode == "live",
+            telemetry_worker=self.service.telemetry_worker,
             parent=self,
         )
         self.strategy_prediction_window.destroyed.connect(
@@ -301,7 +335,13 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         return None
 
     def closeEvent(self, event) -> None:
-        self._disconnect()
+        if self.strategy_prediction_window is not None:
+            try:
+                self.strategy_prediction_window.close()
+            except RuntimeError:
+                pass
+        self.timer.stop()
+        self.service.shutdown()
         event.accept()
 
 

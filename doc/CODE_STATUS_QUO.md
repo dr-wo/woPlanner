@@ -1,6 +1,6 @@
 # woPlanner Code Status Quo
 
-Last reviewed: 2026-07-26
+Last reviewed: 2026-08-22
 
 Live Mode Phase 1 adds a separate `LivePlannerService`, `LivePlannerWindow`, and
 `woplanner-live` CLI. Live transport, recording, replay, completed-lap state, and
@@ -11,6 +11,10 @@ shell and default to averaged reference mode.
 This document is a compact map of the current `woPlanner` package so future
 coding agents can orient quickly without rereading every module. It describes
 the repository as observed at the review date above.
+
+For the current Strategy Prediction tyre resolver, explicit FP evidence flow,
+scheduled-race-length rule, causal telemetry worker, bounded replay pipeline and
+debug checklist, read [`FP_TYRE_LIVE_INTEGRATION.md`](FP_TYRE_LIVE_INTEGRATION.md).
 
 ## Package Purpose
 

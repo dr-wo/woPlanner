@@ -15,6 +15,13 @@ from .strategy_model import (
     WoStrategyRaceModelAdapter,
 )
 from .analysis_service import ModelSummary, OfflineAnalysisService
+from .telemetry_worker import ReplayPipelineConfig
+from .tyre_inputs import (
+    FPEvidenceCacheState,
+    ResolvedTyreInput,
+    ResolvedTyreInputs,
+    TyreInputService,
+)
 
 __all__ = [
     "MissingStrategyModelError",
@@ -23,10 +30,15 @@ __all__ = [
     "PitStopScenario",
     "PlannerRaceSession",
     "RacePlannerService",
+    "ReplayPipelineConfig",
     "LivePlannerService",
     "ScenarioTrajectory",
     "StrategyEdit",
     "WoStrategyRaceModelAdapter",
     "ModelSummary",
     "OfflineAnalysisService",
+    "FPEvidenceCacheState",
+    "ResolvedTyreInput",
+    "ResolvedTyreInputs",
+    "TyreInputService",
 ]
