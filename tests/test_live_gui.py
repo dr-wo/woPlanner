@@ -29,6 +29,25 @@ def test_live_window_constructs_and_disconnects_before_connect():
     app.processEvents()
 
 
+def test_live_window_updates_round_from_received_session_info():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = LivePlannerWindow()
+
+    window._sync_session_context(
+        {
+            "Meeting": {"Name": "British Grand Prix", "Number": 12},
+            "Name": "Race",
+            "StartDate": "2026-07-05T14:00:00Z",
+        }
+    )
+
+    assert window.year_input.value() == 2026
+    assert window.round_input.value() == 12
+    assert "British Grand Prix" in window.windowTitle()
+    window.close()
+    app.processEvents()
+
+
 def test_replay_browser_accepts_jsonl(monkeypatch):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = LivePlannerWindow()

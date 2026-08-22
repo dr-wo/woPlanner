@@ -9,6 +9,13 @@ from .reference import (
     REFERENCE_MODE_LABELS,
     normalize_reference_mode,
 )
+from .session_info import (
+    SessionIdentity,
+    is_qualifying_session,
+    is_sprint_qualifying_session,
+    parse_session_identity,
+    resolve_session_identity,
+)
 from .visual_styles import COMPOUND_COLOURS
 
 __all__ = [
@@ -17,7 +24,12 @@ __all__ = [
     "REFERENCE_MODE_AVERAGED_PACE",
     "REFERENCE_MODE_LABELS",
     "RelativeDeltaPlotWidget",
+    "SessionIdentity",
     "assign_driver_styles",
+    "is_qualifying_session",
+    "is_sprint_qualifying_session",
     "normalize_reference_mode",
+    "parse_session_identity",
+    "resolve_session_identity",
     "tyre_age_label",
 ]

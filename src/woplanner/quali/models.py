@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from wodata.live import QualiPitState
+from wodata.live import QualiPitState, QualiTyreStint
 
 
 class FinishedReason(str, Enum):
@@ -34,6 +34,7 @@ class QualiDriverState:
     finished_reason: FinishedReason | None = None
     pit_state: QualiPitState = QualiPitState.UNKNOWN
     pit_lane_progress: float | None = None
+    tyre_history: tuple[QualiTyreStint, ...] = ()
     active: bool = True
     frozen_part: str | None = None
 

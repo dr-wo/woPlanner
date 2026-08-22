@@ -5,6 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+STANDARD_QUALI_PARTS = ("Q1", "Q2", "Q3")
+SPRINT_QUALI_PARTS = ("SQ1", "SQ2", "SQ3")
+DEFAULT_SESSION_DURATIONS_S = {
+    "Q1": 18 * 60.0,
+    "Q2": 15 * 60.0,
+    "Q3": 13 * 60.0,
+    "SQ1": 12 * 60.0,
+    "SQ2": 10 * 60.0,
+    "SQ3": 8 * 60.0,
+}
+
+
 @dataclass(frozen=True)
 class QualiTimingValues:
     out_lap_s: float = 100.0
@@ -59,14 +71,12 @@ class QualiPlanModel:
     analysis_timings: QualiTimingValues = field(default_factory=QualiTimingValues)
     timings: QualiTimingValues = field(default_factory=QualiTimingValues)
     session_durations_s: dict[str, float] = field(
-        default_factory=lambda: {
-            "Q1": 18 * 60.0,
-            "Q2": 15 * 60.0,
-            "Q3": 13 * 60.0,
-        }
+        default_factory=lambda: dict(DEFAULT_SESSION_DURATIONS_S)
     )
     arrangements: dict[str, list[QualiArrangement]] = field(
-        default_factory=lambda: {"Q1": [], "Q2": [], "Q3": []}
+        default_factory=lambda: {
+            part: [] for part in (*STANDARD_QUALI_PARTS, *SPRINT_QUALI_PARTS)
+        }
     )
 
     def reset_timings(self) -> None:

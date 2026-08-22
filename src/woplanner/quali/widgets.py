@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import math
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from ..common.session_info import is_sprint_qualifying_session
 from .analysis import QualiAnalysisService
 from .planning import (
+    DEFAULT_SESSION_DURATIONS_S,
+    SPRINT_QUALI_PARTS,
+    STANDARD_QUALI_PARTS,
     QualiArrangement,
     QualiPlanModel,
     QualiRunPlan,
@@ -24,13 +30,26 @@ ROLE_COLOURS = {
 }
 
 
-def format_time(value: float | None, *, gap: bool = False) -> str:
+def format_time(value: object, *, gap: bool = False) -> str:
     if value is None:
         return "—"
+    try:
+        seconds_value = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if not math.isfinite(seconds_value):
+        return "—"
     if gap:
-        return f"+{value:.3f}"
-    minutes, seconds = divmod(float(value), 60)
+        return f"+{seconds_value:.3f}"
+    minutes, seconds = divmod(seconds_value, 60)
     return f"{int(minutes)}:{seconds:06.3f}"
+
+
+def format_duration_words(value: float) -> str:
+    sign = "-" if value < 0 else ""
+    minutes, seconds = divmod(abs(float(value)), 60.0)
+    seconds_text = f"{seconds:.1f}".rstrip("0").rstrip(".")
+    return f"{sign}{int(minutes)} min {seconds_text} s"
 
 
 class CutoffTable(QtWidgets.QTableWidget):
@@ -146,7 +165,7 @@ class TimelineWidget(QtWidgets.QWidget):
         painter.drawText(
             5,
             self.height() - 12,
-            f"Latest pit exit: {self.timing.latest_start_s:.1f} s",
+            f"Latest pit exit: {format_duration_words(self.timing.latest_start_s)}",
         )
 
 
@@ -245,6 +264,12 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self.setWindowTitle("Quali Plan")
         self.resize(1200, 800)
         self.model = QualiPlanModel()
+        self.planning_parts = (
+            SPRINT_QUALI_PARTS
+            if live_service is not None
+            and is_sprint_qualifying_session(live_service.received_session_name)
+            else STANDARD_QUALI_PARTS
+        )
         layout = QtWidgets.QVBoxLayout(self)
         self.tabs = QtWidgets.QTabWidget()
         layout.addWidget(self.tabs)
@@ -286,7 +311,8 @@ class QualiPlanDialog(QtWidgets.QDialog):
         body = QtWidgets.QWidget()
         body_layout = QtWidgets.QVBoxLayout(body)
         self.part_editors = {}
-        for part, minutes in (("Q1", 18), ("Q2", 15), ("Q3", 13)):
+        for part in self.planning_parts:
+            minutes = DEFAULT_SESSION_DURATIONS_S[part] / 60.0
             box = QtWidgets.QGroupBox(part)
             box.setCheckable(True)
             box.setChecked(True)
@@ -427,13 +453,34 @@ class QualiPlanDialog(QtWidgets.QDialog):
                 editor.timeline.set_timing(timing, seconds, arrangement.margin_s)
 
     def _update_effective_track(self) -> None:
-        if self.track_override_enabled.isChecked():
-            value = self.track_override.value()
-        else:
-            value = getattr(self, "_estimated_track_rate", 0.0)
-        self.track_effective.setText(f"{value:+.4f} s / field push")
         if self.live_service is not None:
-            self.live_service.track_rate_s_per_field_push = value
+            self.live_service.set_track_override(
+                self.track_override.value()
+                if self.track_override_enabled.isChecked()
+                else None
+            )
+            self.refresh_live_track()
+            return
+        value = (
+            self.track_override.value()
+            if self.track_override_enabled.isChecked()
+            else getattr(self, "_estimated_track_rate", 0.0)
+        )
+        self.track_effective.setText(f"{value:+.4f} s / field push")
+
+    def refresh_live_track(self) -> None:
+        if self.live_service is None:
+            return
+        self.track_effective.setText(
+            f"{self.live_service.track_rate_s_per_field_push:+.4f} s / field push"
+        )
+        self.track_source.setText(self.live_service.track_source)
+        estimate = self.live_service.automatic_track_estimate
+        if estimate is not None:
+            _, samples, quality = estimate
+            self.track_quality.setText(
+                f"{samples} live push laps ({quality.replace('_', ' ')})"
+            )
 
     def _refresh_debug(self) -> None:
         if self.result is None:

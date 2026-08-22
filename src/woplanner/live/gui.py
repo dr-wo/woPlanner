@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import logging
 import time
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from .service import (
 from ..common.plot_widget import RelativeDeltaPlotWidget
 from ..common.axis_controls import AxisRangeControls
 from ..common.pit_window import PitWindowOverlay
+from ..common.session_info import resolve_session_identity
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
@@ -34,6 +36,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.service = service or LivePlannerService()
         self._driver_signature: tuple = ()
         self._metadata_warning_shown = False
+        self._session_metadata_signature: tuple[object, ...] | None = None
         self._active_source_mode: str | None = None
         self.custom_ranges = False
         self.strategy_prediction_window = None
@@ -190,6 +193,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.replay_button.setEnabled(False)
         self._driver_signature = ()
         self._metadata_warning_shown = False
+        self._session_metadata_signature = None
         self.connection_status.setText("Starting…")
         self.timer.start()
 
@@ -227,6 +231,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                     self.strategy_prediction_window.consume_live_snapshot(snapshot)
             except RuntimeError:
                 self.strategy_prediction_window = None
+        self._sync_session_context(snapshot.session_info)
         self._warn_for_metadata_mismatch(snapshot.session_info)
         self.session_status.setText(f"Session: {snapshot.session_status or '—'}")
         if snapshot.last_message_at_utc is not None:
@@ -274,6 +279,32 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             self.connection_status.setText(
                 "Warning: feed metadata differs from requested " + ", ".join(mismatches)
             )
+
+    def _sync_session_context(self, session_info) -> None:
+        if not session_info:
+            return
+        meeting = session_info.get("Meeting", {})
+        meeting = meeting if isinstance(meeting, Mapping) else {}
+        signature = (
+            session_info.get("StartDate"),
+            session_info.get("Name"),
+            session_info.get("Type"),
+            meeting.get("Name"),
+            meeting.get("Number"),
+            meeting.get("RoundNumber"),
+        )
+        if signature == self._session_metadata_signature:
+            return
+        self._session_metadata_signature = signature
+        identity = resolve_session_identity(
+            session_info, fallback_year=self.year_input.value()
+        )
+        if identity.year is not None:
+            self.year_input.setValue(identity.year)
+        if identity.round_number is not None:
+            self.round_input.setValue(identity.round_number)
+        if identity.event_name:
+            self.setWindowTitle(f"woPlanner Live — {identity.event_name}")
 
     def _redraw(self) -> None:
         started = time.perf_counter()

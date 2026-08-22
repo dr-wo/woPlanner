@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -11,12 +12,42 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from wodata.colours import get_team_colour
 from wodata.live import LiveConfig, ReplayConfig
 
+from ..common.visual_styles import COMPOUND_COLOURS
+from ..common.session_info import (
+    is_sprint_qualifying_session,
+    resolve_session_identity,
+)
 from .analysis import QualiAnalysisService
+from .models import FinishedReason
 from .service import QualiLiveService
 from .widgets import CutoffTable, QualiPlanDialog, format_time
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
+PIT_STATUS_BACKGROUNDS = {
+    "FIRED_UP": "#f0ad00",
+    "QUEUE": "#d00000",
+    "ON_TRACK": "#2e7d32",
+    "INLAP": "#1976d2",
+    "IN-PIT": "#ffffff",
+}
+CHEQUERED_FINISH_REASONS = frozenset(
+    {
+        FinishedReason.NO_TIME_FOR_NEXT_PUSH,
+        FinishedReason.FINAL_LAP_COMPLETED,
+    }
+)
+
+
+def _chequered_flag_brush() -> QtGui.QBrush:
+    """Return a repeating black-and-white chequered flag brush."""
+    tile = QtGui.QPixmap(12, 12)
+    tile.fill(QtGui.QColor("white"))
+    painter = QtGui.QPainter(tile)
+    painter.fillRect(0, 0, 6, 6, QtGui.QColor("black"))
+    painter.fillRect(6, 6, 6, 6, QtGui.QColor("black"))
+    painter.end()
+    return QtGui.QBrush(tile)
 
 
 class QualiWindow(QtWidgets.QMainWindow):
@@ -24,6 +55,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         "Pos",
         "Driver",
         "Team",
+        "Tyre age",
         "Status",
         "S1",
         "S2",
@@ -44,6 +76,8 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.analysis_service = QualiAnalysisService(data_root)
         self.service = QualiLiveService()
         self.plan_dialog = None
+        self._session_metadata_signature: tuple[object, ...] | None = None
+        self._non_quali_warning_shown = False
 
         central = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(central)
@@ -111,18 +145,19 @@ class QualiWindow(QtWidgets.QMainWindow):
             controls.addWidget(widget)
 
         self.elimination = {}
+        self.elimination_labels = {}
         for part in ("Q1", "Q2", "Q3"):
             spin = QtWidgets.QSpinBox()
             spin.setRange(0, 20)
             spin.setValue(6)
             spin.valueChanged.connect(
-                lambda value, p=part: self.service.eliminated_counts.__setitem__(
-                    p, value
-                )
+                lambda value, p=part: self._set_eliminated_count(p, value)
             )
-            controls.addWidget(QtWidgets.QLabel(f"{part} eliminated"))
+            label = QtWidgets.QLabel(f"{part} eliminated")
+            controls.addWidget(label)
             controls.addWidget(spin)
             self.elimination[part] = spin
+            self.elimination_labels[part] = label
         controls.addStretch(1)
         return controls
 
@@ -138,6 +173,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         return status
 
     def _connect(self) -> None:
+        self._prepare_session_start()
         try:
             self.service.start_live(
                 LiveConfig(
@@ -150,6 +186,7 @@ class QualiWindow(QtWidgets.QMainWindow):
             self.timer.start()
             self.connection.setText("Connecting…")
         except Exception as exc:
+            self._restore_offline_controls()
             QtWidgets.QMessageBox.critical(self, "Live timing", str(exc))
 
     def _start_replay(self) -> None:
@@ -159,6 +196,7 @@ class QualiWindow(QtWidgets.QMainWindow):
                 self, "Replay", "Choose an existing replay file."
             )
             return
+        self._prepare_session_start()
         try:
             self.service.configure_event_geometry(
                 self.year.value(), self.round.value(), WORKSPACE_DATA_ROOT
@@ -167,6 +205,7 @@ class QualiWindow(QtWidgets.QMainWindow):
             self.timer.start()
             self.connection.setText("Replaying…")
         except Exception as exc:
+            self._restore_offline_controls()
             QtWidgets.QMessageBox.critical(self, "Replay", str(exc))
 
     def _browse(self) -> None:
@@ -175,13 +214,16 @@ class QualiWindow(QtWidgets.QMainWindow):
             self.replay_path.setText(path)
 
     def _analyze(self) -> None:
+        if self.service.session_is_qualifying is False:
+            self._show_non_quali_warning()
+            return
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         try:
             result = self.analysis_service.analyze(
                 self.year.value(), self.round.value()
             )
             rate, _, _ = self.analysis_service.effective_fp_track_rate()
-            self.service.track_rate_s_per_field_push = rate
+            self.service.set_fp_track_rate(rate)
             if self.plan_dialog:
                 self.plan_dialog.load_analysis(result)
             QtWidgets.QMessageBox.information(
@@ -197,6 +239,9 @@ class QualiWindow(QtWidgets.QMainWindow):
             QtWidgets.QApplication.restoreOverrideCursor()
 
     def _show_plan(self) -> None:
+        if self.service.session_is_qualifying is False:
+            self._show_non_quali_warning()
+            return
         if self.analysis_service.result is None:
             try:
                 self.analysis_service.load(self.year.value(), self.round.value())
@@ -216,6 +261,18 @@ class QualiWindow(QtWidgets.QMainWindow):
         snapshot, statuses, _ = self.service.poll()
         for status in statuses:
             self.connection.setText(status.message)
+            if (
+                status.state in {"disconnected", "error"}
+                and self.service.session_is_qualifying is not False
+            ):
+                self._restore_offline_controls()
+        self._sync_session_context(self.service.received_session_info)
+        if self.service.session_is_qualifying is False:
+            self._reject_non_quali_session()
+            return
+        if self.service.session_is_qualifying is True:
+            self.analyze.setEnabled(True)
+            self.plan.setEnabled(True)
         remaining = snapshot.remaining_time_s
         remaining_text = format_time(remaining) if remaining is not None else "—:—"
         self.clock.setText(f"{snapshot.session_part} {remaining_text}")
@@ -228,15 +285,95 @@ class QualiWindow(QtWidgets.QMainWindow):
             )
         self._render_timing_table(snapshot)
         self._render_pit_status()
+        if self.plan_dialog is not None:
+            self.plan_dialog.refresh_live_track()
+
+    def _prepare_session_start(self) -> None:
+        self._session_metadata_signature = None
+        self._non_quali_warning_shown = False
+        self.analyze.setEnabled(False)
+        self.plan.setEnabled(False)
+
+    def _restore_offline_controls(self) -> None:
+        self.analyze.setEnabled(True)
+        self.plan.setEnabled(True)
+
+    def _sync_session_context(self, session_info) -> None:
+        if not session_info:
+            return
+        meeting = session_info.get("Meeting", {})
+        meeting = meeting if isinstance(meeting, Mapping) else {}
+        signature = (
+            session_info.get("StartDate"),
+            session_info.get("Name"),
+            session_info.get("Type"),
+            meeting.get("Name"),
+            meeting.get("Number"),
+            meeting.get("RoundNumber"),
+        )
+        if signature == self._session_metadata_signature:
+            return
+        self._session_metadata_signature = signature
+        identity = resolve_session_identity(
+            session_info, fallback_year=self.year.value()
+        )
+        if identity.year is not None:
+            self.year.setValue(identity.year)
+        if identity.round_number is not None:
+            changed = identity.round_number != self.round.value()
+            self.round.setValue(identity.round_number)
+            if changed:
+                self.service.configure_event_geometry(
+                    identity.year or self.year.value(),
+                    identity.round_number,
+                    WORKSPACE_DATA_ROOT,
+                )
+        if identity.event_name:
+            self.setWindowTitle(
+                f"woPlanner Qualifying Monitor — {identity.event_name}"
+            )
+        sprint = is_sprint_qualifying_session(identity.session_name)
+        for part, label in self.elimination_labels.items():
+            display_part = f"S{part}" if sprint else part
+            label.setText(f"{display_part} eliminated")
+
+    def _set_eliminated_count(self, part: str, value: int) -> None:
+        self.service.eliminated_counts[part] = value
+        self.service.eliminated_counts[f"S{part}"] = value
+
+    def _reject_non_quali_session(self) -> None:
+        if self._non_quali_warning_shown:
+            return
+        self._non_quali_warning_shown = True
+        self.timer.stop()
+        self.service.stop()
+        self.connection.setText("Not a qualifying session")
+        self.analyze.setEnabled(False)
+        self.plan.setEnabled(False)
+        self.table.setRowCount(0)
+        self.pit_table.clearContents()
+        self._show_non_quali_warning()
+
+    def _show_non_quali_warning(self) -> None:
+        session_name = self.service.received_session_name or "the received session"
+        QtWidgets.QMessageBox.warning(
+            self,
+            "Not a qualifying session",
+            f"{session_name} is not Qualifying. No qualifying results were loaded.",
+        )
 
     def _render_timing_table(self, snapshot) -> None:
         self.table.setRowCount(len(snapshot.drivers))
         self.table.cutoff_rank = snapshot.cutoff.cutoff_rank
+        self.table.setColumnHidden(
+            3, not any(state.tyre_history for state in snapshot.drivers)
+        )
         for row, state in enumerate(snapshot.drivers):
             values = (
                 state.rank or "—",
                 state.driver,
                 state.team,
+                None,
                 state.status,
                 *(format_time(value) for value in state.sectors_s),
                 format_time(state.last_lap_s),
@@ -248,14 +385,70 @@ class QualiWindow(QtWidgets.QMainWindow):
             )
             colour = get_team_colour(state.team)
             for column, value in enumerate(values):
+                if column == 3:
+                    self.table.setCellWidget(
+                        row, column, self._tyre_history_widget(state.tyre_history)
+                    )
+                    continue
                 item = QtWidgets.QTableWidgetItem(str(value))
+                if (
+                    column == 0
+                    and state.finished_reason in CHEQUERED_FINISH_REASONS
+                ):
+                    item.setBackground(_chequered_flag_brush())
+                    item.setForeground(QtGui.QColor("#e10600"))
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                    item.setToolTip(
+                        "Final push completed; not enough time for another "
+                        "slow/preparation lap"
+                    )
                 if column == 1 and colour:
                     item.setBackground(QtGui.QColor(colour))
                     item.setForeground(QtGui.QColor("white"))
+                if column == 4 and state.active:
+                    status_colour = PIT_STATUS_BACKGROUNDS.get(
+                        state.pit_state.value
+                    )
+                    if status_colour:
+                        item.setBackground(QtGui.QColor(status_colour))
+                        item.setForeground(
+                            QtGui.QColor(
+                                "black" if state.pit_state.value == "IN-PIT" else "white"
+                            )
+                        )
                 if not state.active:
                     item.setForeground(QtGui.QColor("#777777"))
                 self.table.setItem(row, column, item)
         self.table.viewport().update()
+
+    def _tyre_history_widget(self, tyre_history) -> QtWidgets.QWidget:
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(widget)
+        layout.setContentsMargins(2, 1, 2, 1)
+        layout.setSpacing(3)
+        if not tyre_history:
+            empty = QtWidgets.QLabel("—")
+            empty.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(empty)
+        for stint in tyre_history:
+            compound = str(stint.compound).upper()
+            background = QtGui.QColor(COMPOUND_COLOURS.get(compound, "#999999"))
+            foreground = "black" if background.lightness() > 150 else "white"
+            circle = QtWidgets.QLabel(str(stint.start_laps))
+            circle.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            circle.setFixedSize(26, 26)
+            circle.setStyleSheet(
+                f"background:{background.name()}; color:{foreground}; "
+                "border:1px solid #555555; border-radius:13px; font-weight:bold;"
+            )
+            circle.setToolTip(
+                f"{compound} tyre age at stint start: {stint.start_laps} laps"
+            )
+            layout.addWidget(circle)
+        layout.addStretch(1)
+        return widget
 
     def _render_pit_status(self) -> None:
         groups = self.service.pit_status_groups()

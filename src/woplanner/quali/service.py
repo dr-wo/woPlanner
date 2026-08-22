@@ -16,12 +16,17 @@ from wodata.live import (
     ReplayConfig,
 )
 
+from ..common.session_info import parse_session_identity
 from .models import (
     CutoffProjection,
     FinishedReason,
     QualiDriverState,
     QualiSessionSnapshot,
 )
+from .planning import SPRINT_QUALI_PARTS, STANDARD_QUALI_PARTS
+
+
+QUALI_PARTS = (*STANDARD_QUALI_PARTS, *SPRINT_QUALI_PARTS)
 
 
 class QualiLiveService:
@@ -39,11 +44,18 @@ class QualiLiveService:
         self.controller = controller or LiveTimingController(
             store=QualiSessionStore(pit_lane_geometry=pit_lane_geometry)
         )
-        self.eliminated_counts = {"Q1": 6, "Q2": 6, "Q3": 6}
+        self.eliminated_counts = {part: 6 for part in QUALI_PARTS}
         self.eliminated_counts.update(eliminated_counts or {})
         self.out_lap_s = float(out_lap_s)
         self.cool_lap_s = float(cool_lap_s)
-        self.track_rate_s_per_field_push = float(track_rate_s_per_field_push)
+        self._fp_track_rate_s_per_field_push = float(track_rate_s_per_field_push)
+        self._automatic_track_rate_s_per_field_push = (
+            self._fp_track_rate_s_per_field_push
+        )
+        self._automatic_track_source = "FP prior"
+        self._automatic_track_part: str | None = None
+        self._track_override_s_per_field_push: float | None = None
+        self.track_rate_s_per_field_push = self._automatic_track_rate_s_per_field_push
         self.push_threshold_fraction = float(push_threshold_fraction)
         self.track_source = "FP prior"
         self.raw_snapshot = QualiRawSnapshot.empty()
@@ -54,12 +66,13 @@ class QualiLiveService:
         self._reference_checkpoints: dict[tuple[str, int], float] = {}
         self._actual_cutoffs: dict[str, float | None] = {}
         self._part_push_laps: dict[str, list[float]] = {
-            "Q1": [],
-            "Q2": [],
-            "Q3": [],
+            part: [] for part in QUALI_PARTS
         }
         self._track_estimates: dict[str, tuple[float | None, int, str]] = {}
         self._latest_raw: dict[str, QualiRawDriverState] = {}
+        self.received_session_info = self.raw_snapshot.session_info
+        self.received_session_name = ""
+        self.session_is_qualifying: bool | None = None
         self.snapshot = self._build_snapshot()
 
     def start_live(self, config: LiveConfig) -> None:
@@ -71,13 +84,16 @@ class QualiLiveService:
         self.reset()
         self.controller.start_replay(config)
 
-    def _load_geometry(self, year: int, round_number: int, data_root) -> None:
+    def _load_geometry(
+        self, year: int, round_number: int, data_root, *, force: bool = False
+    ) -> None:
         store = getattr(self.controller, "store", None)
-        if (
-            not isinstance(store, QualiSessionStore)
-            or store.pit_lane_geometry is not None
-        ):
+        if not isinstance(store, QualiSessionStore):
             return
+        if store.pit_lane_geometry is not None and not force:
+            return
+        if force:
+            store.pit_lane_geometry = None
         try:
             from wodata.artifacts import read_pit_lane_geometry
 
@@ -94,7 +110,7 @@ class QualiLiveService:
     def configure_event_geometry(
         self, year: int, round_number: int, data_root: str | Path | None = None
     ) -> None:
-        self._load_geometry(year, round_number, data_root)
+        self._load_geometry(year, round_number, data_root, force=True)
 
     def reset(self) -> None:
         self.raw_snapshot = QualiRawSnapshot.empty()
@@ -104,12 +120,72 @@ class QualiLiveService:
         self._reference_total_s = None
         self._reference_checkpoints.clear()
         self._actual_cutoffs.clear()
-        self._part_push_laps = {"Q1": [], "Q2": [], "Q3": []}
+        self._part_push_laps = {part: [] for part in QUALI_PARTS}
         self._track_estimates.clear()
+        self._automatic_track_rate_s_per_field_push = (
+            self._fp_track_rate_s_per_field_push
+        )
+        self._automatic_track_source = "FP prior"
+        self._automatic_track_part = None
+        self._track_override_s_per_field_push = None
+        self.track_rate_s_per_field_push = self._automatic_track_rate_s_per_field_push
+        self.track_source = self._automatic_track_source
         self._latest_raw.clear()
+        self.received_session_info = self.raw_snapshot.session_info
+        self.received_session_name = ""
+        self.session_is_qualifying = None
+        self.snapshot = self._build_snapshot()
+
+    def set_fp_track_rate(self, value: float) -> None:
+        self._fp_track_rate_s_per_field_push = float(value)
+        if any(estimate[0] is not None for estimate in self._track_estimates.values()):
+            return
+        self._automatic_track_rate_s_per_field_push = float(value)
+        self._automatic_track_source = "FP prior"
+        self._automatic_track_part = None
+        if self._track_override_s_per_field_push is None:
+            self.track_rate_s_per_field_push = float(value)
+            self.track_source = self._automatic_track_source
+
+    def set_track_override(self, value: float | None) -> None:
+        self._track_override_s_per_field_push = (
+            None if value is None else float(value)
+        )
+        if value is None:
+            self.track_rate_s_per_field_push = (
+                self._automatic_track_rate_s_per_field_push
+            )
+            self.track_source = self._automatic_track_source
+        else:
+            self.track_rate_s_per_field_push = float(value)
+            self.track_source = "Manual override"
+
+    @property
+    def automatic_track_estimate(
+        self,
+    ) -> tuple[float | None, int, str] | None:
+        if self._automatic_track_part is None:
+            return None
+        return self._track_estimates.get(self._automatic_track_part)
 
     def poll(self):
         result = self.controller.drain()
+        self.received_session_info = result.snapshot.session_info
+        identity = parse_session_identity(self.received_session_info)
+        self.received_session_name = identity.session_name
+        session_is_qualifying = identity.is_qualifying
+        if session_is_qualifying is False:
+            if self.session_is_qualifying is not False:
+                session_info = self.received_session_info
+                session_name = self.received_session_name
+                self.reset()
+                self.received_session_info = session_info
+                self.received_session_name = session_name
+                self.session_is_qualifying = False
+            return self.snapshot, result.statuses, False
+        if session_is_qualifying is None:
+            return self.snapshot, result.statuses, False
+        self.session_is_qualifying = True
         self.consume(result.snapshot)
         return self.snapshot, result.statuses, result.changed
 
@@ -117,7 +193,10 @@ class QualiLiveService:
         previous_part = self.session_part
         self.raw_snapshot = raw
         if raw.session_part != previous_part:
-            self.transition_to(raw.session_part)
+            if not self._states:
+                self.session_part = raw.session_part
+            else:
+                self.transition_to(raw.session_part)
         for driver in raw.drivers:
             self._consume_driver(driver)
         for number, driver in self._latest_raw.items():
@@ -155,16 +234,17 @@ class QualiLiveService:
         self._latest_raw[raw.driver_number] = raw
         if completed_push:
             self._part_push_laps[self.session_part].append(float(raw.last_lap_s))
+            self._update_track_from_part(self.session_part, live=True)
         self._completed_laps[raw.driver_number] = raw.completed_laps
         projected = self._project(raw)
         finished = existing.finished if existing else False
         reason = existing.finished_reason if existing else None
         remaining = self.raw_snapshot.remaining_time_s
         if remaining is not None and not finished:
-            if raw.in_pit and remaining < self.out_lap_s:
-                finished, reason = True, FinishedReason.IN_PIT_NO_OUTLAP_TIME
-            elif completed_push and remaining <= 0:
+            if completed_lap and remaining <= 0:
                 finished, reason = True, FinishedReason.FINAL_LAP_COMPLETED
+            elif raw.in_pit and remaining < self.out_lap_s:
+                finished, reason = True, FinishedReason.IN_PIT_NO_OUTLAP_TIME
             elif completed_push and remaining < self.cool_lap_s:
                 finished, reason = True, FinishedReason.NO_TIME_FOR_NEXT_PUSH
         best = raw.best_lap_s
@@ -186,6 +266,7 @@ class QualiLiveService:
             finished_reason=reason,
             pit_state=raw.pit_state,
             pit_lane_progress=raw.pit_lane_progress,
+            tyre_history=raw.tyre_history,
         )
         self._states[raw.driver_number] = state
         if best is not None and (
@@ -272,7 +353,9 @@ class QualiLiveService:
                 state.best_lap_s or float("inf"),
             )
         )
-        eliminated_count = min(self.eliminated_counts[self.session_part], len(current))
+        eliminated_count = min(
+            self.eliminated_counts.get(self.session_part, 0), len(current)
+        )
         advancing_count = len(current) - eliminated_count
         cutoff = (
             current[advancing_count - 1].best_lap_s
@@ -297,14 +380,15 @@ class QualiLiveService:
                     state.team,
                     pit_state=state.pit_state,
                     pit_lane_progress=state.pit_lane_progress,
+                    tyre_history=state.tyre_history,
                 )
         self.session_part = new_part
-        self.track_source = f"{self._previous_part(new_part)} estimate"
         self._completed_laps.clear()
         self._reference_total_s = None
         self._reference_checkpoints.clear()
+        self.snapshot = self._build_snapshot()
 
-    def _update_track_from_part(self, part: str) -> None:
+    def _update_track_from_part(self, part: str, *, live: bool = False) -> None:
         values = self._part_push_laps.get(part, [])
         try:
             from wostrategy.analysis.pre_quali import (
@@ -315,20 +399,28 @@ class QualiLiveService:
         except ValueError:
             self._track_estimates[part] = (None, len(values), "insufficient_support")
             return
-        self.track_rate_s_per_field_push = rate
         self._track_estimates[part] = (rate, len(values), "estimated")
+        self._automatic_track_rate_s_per_field_push = rate
+        self._automatic_track_source = (
+            f"{part} live estimate" if live else f"{part} estimate"
+        )
+        self._automatic_track_part = part
+        if self._track_override_s_per_field_push is None:
+            self.track_rate_s_per_field_push = rate
+            self.track_source = self._automatic_track_source
 
     def finalise(self) -> None:
-        self._update_track_from_part("Q3")
+        final_part = "SQ3" if self.session_part.startswith("SQ") else "Q3"
+        self._update_track_from_part(final_part)
         for number, state in tuple(self._states.items()):
             if state.active:
                 self._states[number] = replace(
                     state,
                     finished=True,
                     finished_reason=FinishedReason.SESSION_FINALISED,
-                    frozen_part="Q3",
+                    frozen_part=final_part,
                 )
-        self._actual_cutoffs.setdefault("Q3", None)
+        self._actual_cutoffs.setdefault(final_part, None)
         self.snapshot = self._build_snapshot()
 
     def pit_status_groups(self) -> dict[str, tuple[str, ...]]:
@@ -376,7 +468,7 @@ class QualiLiveService:
         cutoff_rank = max(count - self.eliminated_counts.get(self.session_part, 0), 0)
         cutoff_state = active[cutoff_rank - 1] if cutoff_rank else None
         unfinished = sum(not state.finished for state in active)
-        correction = self.track_rate_s_per_field_push * unfinished
+        correction = -self.track_rate_s_per_field_push * unfinished
         current = cutoff_state.best_lap_s if cutoff_state else None
         cutoff = CutoffProjection(
             cutoff_rank,
@@ -408,7 +500,12 @@ class QualiLiveService:
 
     @staticmethod
     def _previous_part(part: str) -> str:
-        return {"Q2": "Q1", "Q3": "Q2"}.get(part, "FP")
+        return {
+            "Q2": "Q1",
+            "Q3": "Q2",
+            "SQ2": "SQ1",
+            "SQ3": "SQ2",
+        }.get(part, "FP")
 
 
 def _checkpoint_elapsed(raw: QualiRawDriverState) -> dict[tuple[str, int], float]:

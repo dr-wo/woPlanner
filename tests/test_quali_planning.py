@@ -1,6 +1,7 @@
 import pytest
 
 from woplanner.quali.planning import (
+    DEFAULT_SESSION_DURATIONS_S,
     QualiArrangement, QualiPlanModel, QualiRunPlan, QualiTimingValues,
     calculate_arrangement_timing, run_duration,
 )
@@ -47,3 +48,13 @@ def test_multiple_independent_arrangements_and_manual_reset():
 def test_invalid_run_and_empty_arrangement_rejected():
     with pytest.raises(ValueError): QualiRunPlan(number_of_push_laps=0)
     with pytest.raises(ValueError): QualiArrangement(())
+
+
+def test_sprint_qualifying_default_session_durations():
+    model = QualiPlanModel()
+
+    assert DEFAULT_SESSION_DURATIONS_S["SQ1"] == 12 * 60
+    assert DEFAULT_SESSION_DURATIONS_S["SQ2"] == 10 * 60
+    assert DEFAULT_SESSION_DURATIONS_S["SQ3"] == 8 * 60
+    assert model.session_durations_s["SQ1"] == 12 * 60
+    assert set(model.arrangements).issuperset({"SQ1", "SQ2", "SQ3"})
