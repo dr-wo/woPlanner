@@ -7,7 +7,7 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 
-from .model import (
+from .models import (
     COMPARISON_MODE_MODELLED_REAL_STRATEGY,
     COMPARISON_MODE_OBSERVED_REAL_DATA,
     COMPARISON_MODE_PURE_SIM,
@@ -22,16 +22,26 @@ from .model import (
 )
 from .normalize import normalize_race_laps
 from .strategy_model import WoStrategyRaceModelAdapter
-from .driver_styles import FALLBACK_COLOURS, TEAM_COLOURS, assign_driver_styles
+from ..common.driver_styles import (
+    FALLBACK_COLOURS,
+    TEAM_COLOURS,
+    assign_driver_styles,
+)
+from ..common.formatting import tyre_age_label as _tyre_age_label
+from ..common.reference import (
+    REFERENCE_MODE_ACTUAL_PACE,
+    REFERENCE_MODE_AVERAGED_PACE,
+    REFERENCE_MODE_LABELS,
+    normalize_reference_mode as _normalize_reference_mode,
+)
+from ..common.plot_data import (
+    build_pit_window_data,
+    build_tyre_event_data,
+    empty_tyre_event_data as _empty_tyre_event_data,
+)
 
 TRACK_STATUS_SC = "sc"
 TRACK_STATUS_VSC = "vsc"
-REFERENCE_MODE_ACTUAL_PACE = "actual_pace"
-REFERENCE_MODE_AVERAGED_PACE = "averaged_pace"
-REFERENCE_MODE_LABELS = {
-    REFERENCE_MODE_ACTUAL_PACE: "Actual pace",
-    REFERENCE_MODE_AVERAGED_PACE: "Averaged pace",
-}
 SECTOR_ORDER = ("S1", "S2", "S3")
 SECTOR_NUMBERS = {"S1": 1, "S2": 2, "S3": 3}
 DEFAULT_SECTOR_FRACTIONS = {"S1": 1.0 / 3.0, "S2": 1.0 / 3.0, "S3": 1.0 / 3.0}
@@ -2485,13 +2495,6 @@ def _normalize_comparison_mode(value: str) -> str:
     raise ValueError(f"Unknown comparison mode: {value}")
 
 
-def _normalize_reference_mode(value: str) -> str:
-    mode = str(value)
-    if mode in {REFERENCE_MODE_ACTUAL_PACE, REFERENCE_MODE_AVERAGED_PACE}:
-        return mode
-    raise ValueError(f"Unknown reference mode: {value}")
-
-
 def _empty_strategy_delta_data() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
@@ -3057,158 +3060,6 @@ def _rank_by_cumulative_time(laps: pd.DataFrame) -> pd.DataFrame:
     return ranked.loc[:, ["driver", "rank"]]
 
 
-def build_pit_window_data(
-    selected_driver_delta: pd.DataFrame,
-    *,
-    normal_pit_loss_s: float,
-    sc_vsc_pit_loss_s: float,
-) -> pd.DataFrame:
-    if selected_driver_delta.empty:
-        return pd.DataFrame(
-            columns=[
-                "lap",
-                "normal_lower_boundary_s",
-                "vsc_lower_boundary_s",
-                "vsc_upper_boundary_s",
-                "normal_upper_boundary_s",
-            ]
-        )
-
-    columns = ["lap", "delta_s"]
-    if "sector" in selected_driver_delta.columns:
-        columns.append("sector")
-    if "segment_index" in selected_driver_delta.columns:
-        columns.append("segment_index")
-    output = selected_driver_delta.loc[:, columns].copy()
-    output["normal_lower_boundary_s"] = output["delta_s"] - float(normal_pit_loss_s)
-    output["vsc_lower_boundary_s"] = output["delta_s"] - float(sc_vsc_pit_loss_s)
-    output["vsc_upper_boundary_s"] = output["delta_s"] + float(sc_vsc_pit_loss_s)
-    output["normal_upper_boundary_s"] = output["delta_s"] + float(normal_pit_loss_s)
-    return output.loc[
-        :,
-        [
-            "lap",
-            *([column for column in ("sector", "segment_index") if column in output.columns]),
-            "normal_lower_boundary_s",
-            "vsc_lower_boundary_s",
-            "vsc_upper_boundary_s",
-            "normal_upper_boundary_s",
-        ],
-    ]
-
-
-def build_tyre_event_data(plot_data: pd.DataFrame) -> pd.DataFrame:
-    required = {"driver", "lap", "delta_s", "compound", "stint", "tyre_age"}
-    missing = required.difference(plot_data.columns)
-    if missing:
-        return _empty_tyre_event_data()
-
-    events: list[pd.DataFrame] = []
-    is_simulated = (
-        plot_data["is_simulated"].fillna(False).astype(bool)
-        if "is_simulated" in plot_data.columns
-        else pd.Series(False, index=plot_data.index)
-    )
-    plot_role = (
-        plot_data["plot_role"].astype(str)
-        if "plot_role" in plot_data.columns
-        else pd.Series("actual", index=plot_data.index)
-    )
-    actual_data = plot_data.loc[~is_simulated & plot_role.ne("simulation")].copy()
-    sorted_data = actual_data.sort_values(["driver", "lap"], kind="mergesort")
-    for _, driver_laps in sorted_data.groupby("driver", sort=False):
-        driver_laps = driver_laps.dropna(subset=["lap", "delta_s"]).copy()
-        if driver_laps.empty:
-            continue
-        previous_stint = driver_laps["stint"].shift(1)
-        previous_compound = driver_laps["compound"].shift(1)
-        event_mask = (
-            driver_laps["stint"].ne(previous_stint)
-            | driver_laps["compound"].ne(previous_compound)
-        )
-        event_mask = event_mask & previous_stint.notna()
-        if "pit_out" in driver_laps.columns:
-            pit_out_mask = driver_laps["pit_out"].fillna(False).astype(bool) & previous_stint.notna()
-            if "sector" in driver_laps.columns:
-                pit_out_mask = pit_out_mask & driver_laps["sector"].astype(str).eq("S1")
-            event_mask = event_mask | pit_out_mask
-        events.append(driver_laps.loc[event_mask])
-
-    simulated_data = plot_data.loc[is_simulated].copy()
-    if not simulated_data.empty and "scenario_id" in simulated_data.columns:
-        simulated_data = simulated_data.dropna(subset=["lap", "delta_s"])
-        simulated_data = simulated_data.sort_values(
-            ["scenario_id", "driver", "lap"],
-            kind="mergesort",
-        )
-        if "pit_out" in simulated_data.columns:
-            simulated_mask = simulated_data["pit_out"].fillna(False).astype(bool)
-            if "sector" in simulated_data.columns:
-                simulated_mask = simulated_mask & simulated_data["sector"].astype(str).eq("S1")
-            simulated_events = simulated_data.loc[simulated_mask].copy()
-        else:
-            simulated_events = simulated_data.groupby(
-                "scenario_id", as_index=False, sort=False
-            ).first()
-        if not simulated_events.empty:
-            events.append(simulated_events)
-
-    if not events:
-        return _empty_tyre_event_data()
-
-    output = pd.concat(events, ignore_index=True)
-    output = output.dropna(subset=["lap", "delta_s"])
-    if output.empty:
-        return _empty_tyre_event_data()
-    output["tyre_age_label"] = output["tyre_age"].map(_tyre_age_label)
-    if "scenario_id" not in output.columns:
-        output["scenario_id"] = pd.NA
-    if "is_simulated" not in output.columns:
-        output["is_simulated"] = False
-    if "is_faded" not in output.columns:
-        output["is_faded"] = False
-    if "stop_after_lap" not in output.columns:
-        output["stop_after_lap"] = pd.NA
-    if "sector" not in output.columns:
-        output["sector"] = pd.NA
-    if "segment_index" not in output.columns:
-        output["segment_index"] = pd.NA
-    return output.loc[
-        :,
-        [
-            "driver",
-            "lap",
-            "sector",
-            "segment_index",
-            "delta_s",
-            "compound",
-            "tyre_age_label",
-            "scenario_id",
-            "is_simulated",
-            "is_faded",
-            "stop_after_lap",
-        ],
-    ]
-
-
-def _empty_tyre_event_data() -> pd.DataFrame:
-    return pd.DataFrame(
-        columns=[
-            "driver",
-            "lap",
-            "sector",
-            "segment_index",
-            "delta_s",
-            "compound",
-            "tyre_age_label",
-            "scenario_id",
-            "is_simulated",
-            "is_faded",
-            "stop_after_lap",
-        ]
-    )
-
-
 def build_lap_delta_guide_data(
     plot_data: pd.DataFrame,
     laps: pd.DataFrame,
@@ -3258,13 +3109,6 @@ def _reference_lap_time(laps: pd.DataFrame, reference_driver: str) -> float | No
     if reference_laps.empty:
         return None
     return float(reference_laps.median())
-
-
-def _tyre_age_label(value: object) -> str:
-    age = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-    if pd.isna(age):
-        return "?"
-    return str(max(int(round(float(age))) - 1, 0))
 
 
 def finite_xy(data: pd.DataFrame, *, y_column: str) -> tuple[np.ndarray, np.ndarray]:

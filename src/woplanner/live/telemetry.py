@@ -11,8 +11,8 @@ from typing import Any
 from wodata.live.models import LiveTimingMessage
 from wodata.live.reducer import LiveSessionStore
 
-from .analysis_service import _live_traffic_gaps
-from .analysis_worker import LiveAnalysisInput
+from ..analysis.service import _live_traffic_gaps
+from ..analysis.worker import LiveAnalysisInput
 
 
 @dataclass(frozen=True)

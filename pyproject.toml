@@ -22,8 +22,9 @@ dependencies = [
 ]
 
 [project.scripts]
-woplanner = "woplanner.gui:main"
-woplanner-live = "woplanner.live_gui:main"
+woplanner = "woplanner.standard.gui:main"
+woplanner-live = "woplanner.live.gui:main"
+woplanner-quali = "woplanner.quali.gui:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/woplanner"]

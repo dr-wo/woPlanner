@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from woplanner.model import (
+from woplanner.standard.models import (
     COMPARISON_MODE_MODELLED_REAL_STRATEGY,
     COMPARISON_MODE_OBSERVED_REAL_DATA,
     COMPARISON_MODE_PURE_SIM,
@@ -10,8 +10,8 @@ from woplanner.model import (
     StintSegment,
     StrategyPlan,
 )
-from woplanner.normalize import normalize_race_laps
-from woplanner.service import (
+from woplanner.standard.normalize import normalize_race_laps
+from woplanner.standard.service import (
     RacePlannerService,
     assign_driver_styles,
     default_reference_driver,
@@ -28,7 +28,7 @@ from woplanner.service import (
     estimate_actual_pit_loss_by_lap,
     track_status_type,
 )
-from woplanner.strategy_model import (
+from woplanner.standard.strategy_model import (
     MissingDriverStrategyModelError,
     MissingStrategyModelError,
     WoStrategyRaceModelAdapter,

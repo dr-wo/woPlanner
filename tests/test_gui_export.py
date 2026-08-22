@@ -1,6 +1,6 @@
 import pytest
 
-from woplanner.gui import expanded_size_for_aspect, symmetrically_expanded_ranges
+from woplanner.standard.gui import expanded_size_for_aspect, symmetrically_expanded_ranges
 
 
 def test_expanded_size_for_4k_aspect_expands_a_tall_source() -> None:

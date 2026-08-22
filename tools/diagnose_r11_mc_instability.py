@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 
 from wodata.live import LiveSessionStore, LiveTimingMessage
 from wodata.live.replay import load_replay
-from woplanner.analysis_gui import StrategyPredictionWindow
-from woplanner.analysis_service import OfflineAnalysisService, _live_analysis_laps
+from woplanner.analysis.gui import StrategyPredictionWindow
+from woplanner.analysis.service import OfflineAnalysisService, _live_analysis_laps
 from wostrategy.core.pre_race_session_data import prepare_weekend_sessions
 from wostrategy.model.pre_race_performance import (
     WeekendModelConfig,

@@ -2,11 +2,11 @@
 
 Last reviewed: 2026-08-22
 
-Live Mode Phase 1 adds a separate `LivePlannerService`, `LivePlannerWindow`, and
-`woplanner-live` CLI. Live transport, recording, replay, completed-lap state, and
-sector timing state belong to `woData.live`; the live service does not load
-`woStrategy`. Both GUIs share the presentation-only `RelativeDeltaPlotWidget`
-shell and default to averaged reference mode.
+The package is split into `standard`, `live`, `analysis`, `quali`, and `common`
+ownership areas. Live transport, recording, replay, completed-lap state, and
+sector timing state belong to `woData.live`; the live service does not load the
+standard planner service. Both race GUIs default to averaged reference mode and
+share interaction/data components through `woplanner.common`.
 
 This document is a compact map of the current `woPlanner` package so future
 coding agents can orient quickly without rereading every module. It describes
@@ -15,6 +15,9 @@ the repository as observed at the review date above.
 For the current Strategy Prediction tyre resolver, explicit FP evidence flow,
 scheduled-race-length rule, causal telemetry worker, bounded replay pipeline and
 debug checklist, read [`FP_TYRE_LIVE_INTEGRATION.md`](FP_TYRE_LIVE_INTEGRATION.md).
+For shared plot interaction ownership, coordinate contracts, live-sector/DNF
+assumptions, and the current validation baseline, read
+[`LIVE_PLOT_INTERACTIONS.md`](LIVE_PLOT_INTERACTIONS.md).
 
 ## Package Purpose
 
@@ -45,13 +48,13 @@ woPlanner/
   pyproject.toml
   doc/
     CODE_STATUS_QUO.md
+    LIVE_PLOT_INTERACTIONS.md
   src/woplanner/
-    __init__.py          # Public package exports
-    gui.py               # PySide6/pyqtgraph desktop app and interaction logic
-    model.py             # Session and strategy scenario dataclasses
-    normalize.py         # Raw lap normalization into planner schema
-    service.py           # Race loading, plot data, ranks, scenarios, guides
-    strategy_model.py    # Adapter from woStrategy cache summaries to predictions
+    common/              # Shared plot widgets, interactions, policies, styles
+    standard/            # Completed-session service, models, simulation, GUI
+    live/                # Live/replay service, telemetry worker, GUI
+    analysis/            # Shared strategy analysis and tyre-input UI
+    quali/               # Qualifying planner and monitor
   tests/
     test_service.py      # Focused service, adapter, and scenario tests
 ```
@@ -63,28 +66,32 @@ The package is configured in `pyproject.toml`:
 - Python requirement: `>=3.9`
 - Runtime dependencies: `numpy`, `pandas`, `PySide6`, `pyqtgraph`, `wodata`,
   `wostrategy`
-- CLI entry point: `woplanner = "woplanner.gui:main"`
+- CLI entry points: `woplanner`, `woplanner-live`, and `woplanner-quali`
 
 ## Dependency Direction
 
 Current intended dependency direction:
 
 ```text
-normalize/model -> strategy_model -> service -> gui
+common <- standard
+common <- live
+analysis <- standard GUI / live GUI
+woData.live -> live service -> live GUI
 ```
 
-- `normalize` converts raw loader output into the stable planner lap schema. It
+- `standard.normalize` converts raw loader output into the stable planner lap schema. It
   prefers explicit lap time, then sector-summed lap time, then positive elapsed
   `Time - LapStartTime`; cumulative time uses absolute lap-end time relative to
   the earliest race start when available, falling back to per-driver lap-time
   cumsum.
-- `model` contains simple dataclasses only.
-- `strategy_model` reads `woStrategy` cache artifacts and exposes prediction
+- `standard.models` contains simple dataclasses only.
+- `standard.strategy_model` reads `woStrategy` cache artifacts and exposes prediction
   rows. It should not import GUI code.
-- `service` owns application state and dataframe composition. It should stay
+- Mode services own application state and dataframe composition. They should stay
   testable without Qt.
-- `gui` owns PySide6 widgets, pyqtgraph rendering, mouse/keyboard interaction,
-  and dialogs.
+- Mode GUIs own their distinct source lifecycle and dialogs. Shared Qt controls,
+  overlays, and pure plot transforms belong in `common`.
+- `standard` and `live` must not import one another.
 
 ## Public API Surface
 
@@ -99,7 +106,7 @@ normalize/model -> strategy_model -> service -> gui
 - `WoStrategyRaceModelAdapter`
 - `MissingStrategyModelError`
 
-The CLI is `woplanner`, which opens the GUI from `woplanner.gui:main`.
+The race CLIs open `woplanner.standard.gui:main` and `woplanner.live.gui:main`.
 
 ## Data And Cache Discipline
 
@@ -149,7 +156,7 @@ Important discipline:
 
 ## Strategy Model Adapter
 
-`src/woplanner/strategy_model.py`
+`src/woplanner/standard/strategy_model.py`
 
 `WoStrategyRaceModelAdapter` is the bridge between `woStrategy` Monte Carlo
 summary artifacts and the planner simulation.
@@ -198,7 +205,7 @@ exists; the woStrategy split is scaled to that total.
 
 ## Service Layer
 
-`src/woplanner/service.py`
+`src/woplanner/standard/service.py`
 
 `RacePlannerService` owns loaded session state, active scenarios, and the last
 plot dataframe. The GUI should ask the service for data instead of composing
@@ -370,7 +377,7 @@ Tyre event extraction deliberately ignores simulation anchor rows. It emits:
 
 ## GUI Layer
 
-`src/woplanner/gui.py`
+`src/woplanner/standard/gui.py`
 
 The GUI is a PySide6 main window with a pyqtgraph plot. It loads races,
 switches reference driver, draws cumulative deltas, pit-window guides, tyre

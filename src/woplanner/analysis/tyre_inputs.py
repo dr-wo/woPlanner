@@ -1,3 +1,5 @@
+"""Resolve tyre inputs used by offline and live analysis."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -375,4 +377,3 @@ def _finite(value, parameter: str) -> float:
     if not math.isfinite(number):
         raise ValueError(f"{parameter} must be finite.")
     return number
-

@@ -5,6 +5,23 @@ Interactive race planner built on `woStrategy` data loaders and `woData` cache p
 Team and driver plotting colours come from `wodata.colours`, the shared palette
 derived from FastF1's live-timing `DriverList`.
 
+## Package layout
+
+The source package is organized by ownership:
+
+```text
+woplanner/
+├── common/    # presentation and policies reused by planner modes
+├── analysis/  # model analysis, workers, tyre inputs, prediction UI
+├── standard/  # completed-session race planner
+├── live/      # live race planner and telemetry pipeline
+└── quali/     # qualifying planner and live monitor
+```
+
+Planner-specific code should remain in its planner package. A component moves to
+`common` only when multiple planner modes reuse the same behavior; analysis
+functionality belongs in `analysis` even when standard and live GUIs both open it.
+
 ## Local development
 
 For local development from the sibling checkout layout:
@@ -25,17 +42,26 @@ canonical raw message before applying it. The replay picker accepts both merged
 archive `*.jsonl` files and legacy live `*.txt` recordings for max-speed, 1x, 5x,
 or 20x replay.
 
-Live mode plots sector-level deltas when the feed provides
-`TimingData.Lines[*].Sectors`. If a recording only contains completed-lap timing,
-or if the app connects late and earlier sector timing is unavailable, it falls
-back to completed-lap S3 points. Both live and post-race planners default to
-averaged reference mode; the mode selector can switch back to actual reference
-pace.
+Live mode plots sector-level deltas as soon as S1, S2, or S3 arrives in
+`TimingData.Lines[*].Sectors`; it does not wait for the whole lap to complete. If
+a recording only contains completed-lap timing, or if the app connects late and
+earlier sector timing is unavailable, it falls back to completed-lap S3 points.
+After the feed explicitly marks a running driver `Retired`, that driver's curve
+ends at the last completed lap instead of accumulating later placeholder timing.
+Both live and post-race planners default to averaged reference mode; the mode
+selector can switch back to actual reference pace.
 
 Hovering near a Live curve highlights the driver and shows driver, lap, sector,
 cumulative delta, compound, and tyre age. Incremental `TimingAppData` is retained
 by the shared reducer: compound changes are drawn as colour-coded tyre markers,
 and the start/current rank lists include compact compound and tyre-age labels.
+Live and standard mode share the same detailed hover matching. Clicking a live
+curve selects and emphasises that driver without changing the top-bar reference.
+Both modes use the common curve-click binding, hover-label overlay, pit-window
+overlay, and Lap/Y range-control component. Selecting a driver therefore draws
+the same grey normal and SC/VSC pit-loss windows in either mode; the **Pit** and
+**SC/VSC** inputs control their widths. Applied ranges remain fixed across timing
+updates and **Auto range** resumes data-driven bounds.
 
 To replay a completed archive, click **Browse**, select
 `merged_replay_v1.jsonl` from the matching

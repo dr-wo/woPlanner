@@ -9,8 +9,8 @@ import pytest
 from wodata.live import LiveTimingController, LiveTimingMessage
 from wodata.live.fastf1_source import LIVE_PHASE_1_TOPICS
 from wodata.live.reducer import LiveSessionStore
-from woplanner.analysis_service import _live_analysis_laps
-from woplanner.telemetry_worker import (
+from woplanner.analysis.service import _live_analysis_laps
+from woplanner.live.telemetry import (
     CausalAnalysisCut,
     ReplayPipelineConfig,
     TelemetryAnalysisWorker,
@@ -366,7 +366,7 @@ def test_causal_cut_excludes_late_old_packet_and_pre_cut_future_data(monkeypatch
         )
 
     monkeypatch.setattr(
-        "woplanner.telemetry_worker._live_traffic_gaps", summarize_speeds
+        "woplanner.live.telemetry._live_traffic_gaps", summarize_speeds
     )
     worker = TelemetryAnalysisWorker()
     worker.reset()
@@ -483,7 +483,7 @@ def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "woplanner.telemetry_worker._live_traffic_gaps",
+        "woplanner.live.telemetry._live_traffic_gaps",
         traffic_from_available_telemetry,
     )
     worker = TelemetryAnalysisWorker()

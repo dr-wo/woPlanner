@@ -14,13 +14,13 @@ import pyqtgraph as pg
 from wodata.contracts import StrategySearchState
 from wodata.artifacts import weekend_model_root
 
-from .analysis_service import OfflineAnalysisService
-from .analysis_worker import AnalysisQueuePolicy, LiveAnalysisProcessService
+from ..common.visual_styles import COMPOUND_COLOURS
+from .service import OfflineAnalysisService
+from .worker import AnalysisQueuePolicy, LiveAnalysisProcessService
 from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
 
 
-COMPOUND_COLOURS = {"SOFT": "#e10600", "MEDIUM": "#f2c500", "HARD": "#d5d7da"}
-WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[3] / "woData"
+WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
 LIVE_DEFAULT_SAMPLE_COUNT = 5000
 
 

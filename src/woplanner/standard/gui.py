@@ -6,7 +6,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-from .model import (
+from ..common.visual_styles import COMPOUND_COLOURS
+
+from .models import (
     COMPARISON_MODE_LABELS,
     COMPARISON_MODE_MODELLED_REAL_STRATEGY,
     COMPARISON_MODE_PURE_SIM,
@@ -19,13 +21,6 @@ from .service import (
 )
 from .strategy_model import MissingDriverStrategyModelError, MissingStrategyModelError
 
-COMPOUND_COLOURS = {
-    "SOFT": "#e10600",
-    "MEDIUM": "#c99a00",
-    "HARD": "#6f7377",
-    "INTERMEDIATE": "#43b02a",
-    "WET": "#0067ad",
-}
 CONTROL_FONT_POINT_SIZE = 12
 RANK_FONT_POINT_SIZE = 18
 TYRE_MARKER_SIZE = 22
@@ -101,7 +96,14 @@ def main() -> int:
     from PySide6 import QtCore, QtGui, QtSvg, QtWidgets
     import pyqtgraph as pg
     from pyqtgraph.graphicsItems.ScatterPlotItem import Symbols
-    from .plot_widget import RelativeDeltaPlotWidget
+    from ..common.plot_widget import (
+        RelativeDeltaPlotWidget,
+        format_relative_delta_hover_text,
+        nearest_relative_delta_row,
+    )
+    from ..common.axis_controls import AxisRangeControls
+    from ..common.pit_window import PitWindowOverlay
+    from ..common.plot_interactions import HoverLabelOverlay, bind_driver_curve_click
 
     pg.setConfigOption("background", "w")
     pg.setConfigOption("foreground", "k")
@@ -224,24 +226,13 @@ def main() -> int:
             controls.addWidget(self.clear_sims_button)
             controls.addStretch(1)
 
-            range_controls = QtWidgets.QHBoxLayout()
-            self.x_min_input = self._range_spinbox()
-            self.x_max_input = self._range_spinbox()
-            self.y_min_input = self._range_spinbox()
-            self.y_max_input = self._range_spinbox()
-            self.apply_range_button = QtWidgets.QPushButton("Apply range")
-            self.auto_range_button = QtWidgets.QPushButton("Auto range")
-            for label, widget in (
-                ("Lap min", self.x_min_input),
-                ("Lap max", self.x_max_input),
-                ("Y min", self.y_min_input),
-                ("Y max", self.y_max_input),
-            ):
-                range_controls.addWidget(QtWidgets.QLabel(label))
-                range_controls.addWidget(widget)
-            range_controls.addWidget(self.apply_range_button)
-            range_controls.addWidget(self.auto_range_button)
-            range_controls.addStretch(1)
+            self.axis_controls = AxisRangeControls()
+            self.x_min_input = self.axis_controls.x_min_input
+            self.x_max_input = self.axis_controls.x_max_input
+            self.y_min_input = self.axis_controls.y_min_input
+            self.y_max_input = self.axis_controls.y_max_input
+            self.apply_range_button = self.axis_controls.apply_button
+            self.auto_range_button = self.axis_controls.auto_button
 
             self.plot_row_widget = RelativeDeltaPlotWidget()
             self.start_rank_list = self.plot_row_widget.start_rank_list
@@ -253,13 +244,15 @@ def main() -> int:
             self.latest_rank_label = self.plot_row_widget.latest_rank_label
             self.latest_rank_label.setFont(self._font(RANK_FONT_POINT_SIZE))
             self.plot = self.plot_row_widget.plot
+            self.pit_window = PitWindowOverlay(self.plot)
+            self.hover_overlay = HoverLabelOverlay(self.plot)
             self.plot.getAxis("bottom").setTickFont(self._font(14))
             self.plot.getAxis("left").setTickFont(self._font(14))
             self.plot.scene().sigMouseClicked.connect(self._plot_clicked)
             self.plot.scene().sigMouseMoved.connect(self._plot_mouse_moved)
 
             layout.addLayout(controls)
-            layout.addLayout(range_controls)
+            layout.addWidget(self.axis_controls)
             layout.addWidget(self.plot_row_widget, stretch=1)
             self.setCentralWidget(central)
 
@@ -291,14 +284,6 @@ def main() -> int:
             self.clear_sims_button.clicked.connect(self._clear_all_simulations)
             self.apply_range_button.clicked.connect(self._apply_custom_ranges)
             self.auto_range_button.clicked.connect(self._reset_auto_ranges)
-
-        def _range_spinbox(self):
-            spinbox = QtWidgets.QDoubleSpinBox()
-            spinbox.setRange(-10000.0, 10000.0)
-            spinbox.setDecimals(1)
-            spinbox.setSingleStep(1.0)
-            spinbox.setMinimumWidth(86)
-            return spinbox
 
         def keyReleaseEvent(self, event) -> None:
             super().keyReleaseEvent(event)
@@ -372,9 +357,7 @@ def main() -> int:
                     is_faded=bool(is_faded),
                 )
                 curve = self.plot.plot(x, y, pen=pen, name=str(driver), clickable=True)
-                curve.sigClicked.connect(
-                    lambda _, event, drv=driver: self._curve_clicked(drv, event)
-                )
+                bind_driver_curve_click(curve, driver, self._curve_clicked)
                 curve_key = (driver, str(role), str(scenario_id), bool(is_faded))
                 self.curves[curve_key] = curve
                 if driver in self.curve_data:
@@ -682,38 +665,34 @@ def main() -> int:
             if pit_driver:
                 text = self._pit_target_label(pit_driver, int(selection["stop_after_lap"]))
             else:
-                text = f"Lap {selection['lap']} {selection['sector']}"
+                view_range = self.plot.getPlotItem().vb.viewRange()
+                row = nearest_relative_delta_row(
+                    self.service._last_plot_data,
+                    float(point.x()),
+                    float(point.y()),
+                    x_span=float(view_range[0][1] - view_range[0][0]),
+                    y_span=float(view_range[1][1] - view_range[1][0]),
+                    driver=target_driver,
+                )
+                if row is None:
+                    self._clear_hover_label()
+                    return
+                text = format_relative_delta_hover_text(row)
             self._draw_hover_label(text, float(point.x()), float(point.y()))
 
         def _draw_hover_label(self, text: str, x_position: float, y_position: float) -> None:
-            self._clear_hover_label()
-            label = pg.TextItem(
-                text=text,
-                color="#111111",
-                anchor=(0.0, 1.0),
-                fill=QtGui.QBrush(QtGui.QColor(255, 255, 255, 225)),
-                border=pg.mkPen("#111111", width=1.0),
-            )
-            label.setFont(self._bold_font(12))
-            label.setPos(x_position, y_position)
-            label.setZValue(50)
-            self.plot.addItem(label)
-            self.hover_label = label
+            self.hover_overlay.show(text, x_position, y_position)
+            self.hover_label = self.hover_overlay.item
 
         def _clear_hover_label(self) -> None:
-            if self.hover_label is None:
-                return
-            try:
-                self.plot.removeItem(self.hover_label)
-            except Exception:
-                pass
+            self.hover_overlay.clear()
             self.hover_label = None
 
         def _draw_pit_target(self, driver: str, stop_after_lap: int) -> None:
             self._clear_pit_target()
             self.pit_target = (driver, stop_after_lap)
             x_position = stop_after_lap * 3.0
-            y_min, y_max = self._ordered_range(self.y_min_input, self.y_max_input)
+            y_min, y_max = self.axis_controls.y_range()
             x_min, x_max = self._plot_x_range_from_lap_inputs()
             top_y = max(y_min, y_max)
             label_x = min(max(x_position, x_min), x_max)
@@ -824,16 +803,7 @@ def main() -> int:
             self._update_rank_lists()
 
         def _update_range_controls_from_data(self, plot_data) -> None:
-            x = plot_data["lap"].dropna()
-            y = plot_data["delta_s"].dropna()
-            if x.empty or y.empty:
-                return
-            x_padding = max((float(x.max()) - float(x.min())) * 0.02, 1.0)
-            y_padding = max((float(y.max()) - float(y.min())) * 0.08, 5.0)
-            self.x_min_input.setValue(float(x.min()) - x_padding)
-            self.x_max_input.setValue(float(x.max()) + x_padding)
-            self.y_min_input.setValue(float(y.min()) - y_padding)
-            self.y_max_input.setValue(float(y.max()) + y_padding)
+            self.axis_controls.update_from_data(plot_data)
 
         def _update_lap_axis_ticks(self, plot_data) -> None:
             if "segment_index" not in plot_data.columns or "lap" not in plot_data.columns:
@@ -856,11 +826,13 @@ def main() -> int:
 
         def _apply_custom_ranges(self) -> None:
             self.custom_ranges = True
+            self.axis_controls.custom_ranges = True
             self._apply_plot_ranges()
             self._draw_lap_delta_guides()
 
         def _reset_auto_ranges(self) -> None:
             self.custom_ranges = False
+            self.axis_controls.custom_ranges = False
             if self.service._last_plot_data is not None:
                 self._update_range_controls_from_data(self.service._last_plot_data)
             self._apply_plot_ranges()
@@ -868,25 +840,18 @@ def main() -> int:
 
         def _apply_plot_ranges(self) -> None:
             x_min, x_max = self._plot_x_range_from_lap_inputs()
-            y_min, y_max = self._ordered_range(self.y_min_input, self.y_max_input)
+            y_min, y_max = self.axis_controls.y_range()
             self.plot.setXRange(x_min, x_max, padding=0)
             self.plot.setYRange(y_min, y_max, padding=0)
 
         def _plot_x_range_from_lap_inputs(self) -> tuple[float, float]:
-            lap_min, lap_max = self._ordered_range(self.x_min_input, self.x_max_input)
+            lap_min, lap_max = self.axis_controls.lap_range()
             return self._lap_range_to_plot_x(lap_min, lap_max)
 
         def _lap_range_to_plot_x(self, lap_min: float, lap_max: float) -> tuple[float, float]:
             first_sector_x = (float(lap_min) - 1.0) * 3.0 + 1.0
             last_sector_x = float(lap_max) * 3.0
             return (first_sector_x, last_sector_x)
-
-        def _ordered_range(self, min_input, max_input) -> tuple[float, float]:
-            first = float(min_input.value())
-            second = float(max_input.value())
-            if first == second:
-                second = first + 1.0
-            return (min(first, second), max(first, second))
 
         def _draw_track_status_bands(self) -> None:
             for item in self.track_status_items:
@@ -945,7 +910,7 @@ def main() -> int:
                 if x_range is None
                 else x_range
             )
-            y_min, y_max = self._ordered_range(self.y_min_input, self.y_max_input)
+            y_min, y_max = self.axis_controls.y_range()
             guides = self.service.build_lap_delta_guide_data(
                 self.reference_driver.currentText(),
                 y_min=y_min,
@@ -984,85 +949,14 @@ def main() -> int:
                 )
 
         def _update_pit_window(self) -> None:
-            for item in self.pit_items:
-                try:
-                    self.plot.removeItem(item)
-                except Exception:
-                    pass
-            self.pit_items = []
-            if not self.selected_driver:
-                return
-            pit_data = self.service.build_pit_window_data(
+            self.pit_window.update(
+                self.service._last_plot_data,
                 self.selected_driver,
                 normal_pit_loss_s=self.normal_pit_loss.value(),
                 sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+                x_column="segment_index",
             )
-            if pit_data.empty:
-                return
-            x, normal_lower = finite_xy(
-                pit_data.rename(columns={"normal_lower_boundary_s": "boundary"}),
-                y_column="boundary",
-            )
-            _, vsc_lower = finite_xy(
-                pit_data.rename(columns={"vsc_lower_boundary_s": "boundary"}),
-                y_column="boundary",
-            )
-            _, vsc_upper = finite_xy(
-                pit_data.rename(columns={"vsc_upper_boundary_s": "boundary"}),
-                y_column="boundary",
-            )
-            _, normal_upper = finite_xy(
-                pit_data.rename(columns={"normal_upper_boundary_s": "boundary"}),
-                y_column="boundary",
-            )
-            if not len(x) or not (
-                len(normal_lower) == len(vsc_lower) == len(vsc_upper) == len(normal_upper)
-            ):
-                return
-            pen = pg.mkPen("#666666", width=1.2, style=QtCore.Qt.PenStyle.DashDotLine)
-            normal_lower_curve = self.plot.plot(x, normal_lower, pen=pen)
-            vsc_lower_curve = self.plot.plot(x, vsc_lower, pen=pen)
-            vsc_upper_curve = self.plot.plot(x, vsc_upper, pen=pen)
-            normal_upper_curve = self.plot.plot(x, normal_upper, pen=pen)
-            for curve in (
-                normal_lower_curve,
-                vsc_lower_curve,
-                vsc_upper_curve,
-                normal_upper_curve,
-            ):
-                curve.setZValue(5)
-            lower_normal_fill = pg.FillBetweenItem(
-                normal_lower_curve,
-                vsc_lower_curve,
-                brush=QtGui.QBrush(QtGui.QColor(95, 95, 95, 55)),
-            )
-            upper_normal_fill = pg.FillBetweenItem(
-                vsc_upper_curve,
-                normal_upper_curve,
-                brush=QtGui.QBrush(QtGui.QColor(95, 95, 95, 55)),
-            )
-            vsc_fill = pg.FillBetweenItem(
-                vsc_lower_curve,
-                vsc_upper_curve,
-                brush=QtGui.QBrush(QtGui.QColor(185, 185, 185, 60)),
-            )
-            lower_normal_fill.setZValue(-20)
-            upper_normal_fill.setZValue(-20)
-            vsc_fill.setZValue(-19)
-            self.plot.addItem(lower_normal_fill)
-            self.plot.addItem(upper_normal_fill)
-            self.plot.addItem(vsc_fill)
-            self.pit_items.extend(
-                [
-                    normal_lower_curve,
-                    vsc_lower_curve,
-                    vsc_upper_curve,
-                    normal_upper_curve,
-                    lower_normal_fill,
-                    upper_normal_fill,
-                    vsc_fill,
-                ]
-            )
+            self.pit_items = self.pit_window.items
 
         def _draw_tyre_markers(self) -> None:
             for item in self.tyre_items:
@@ -1382,7 +1276,7 @@ def main() -> int:
             self._redraw()
 
         def _show_strategy_prediction_window(self) -> None:
-            from .analysis_gui import StrategyPredictionWindow
+            from ..analysis.gui import StrategyPredictionWindow
 
             self.strategy_prediction_window = StrategyPredictionWindow(
                 year=self.year_input.value(),

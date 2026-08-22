@@ -7,16 +7,17 @@ import pandas as pd
 
 from wodata.live import LiveConfig, LiveSessionSnapshot, LiveTimingController, ReplayConfig
 
-from .driver_styles import assign_driver_styles
-from .service import build_tyre_event_data as tyre_event_data_from_plot
-from .telemetry_worker import ReplayPipelineConfig, TelemetryAnalysisWorker
+from ..common.driver_styles import assign_driver_styles
+from ..common.formatting import tyre_age_label as _tyre_age_label
+from ..common.reference import (
+    REFERENCE_MODE_ACTUAL_PACE,
+    REFERENCE_MODE_AVERAGED_PACE,
+    REFERENCE_MODE_LABELS,
+    normalize_reference_mode as _normalize_reference_mode,
+)
+from ..common.plot_data import build_pit_window_data, build_tyre_event_data
+from .telemetry import ReplayPipelineConfig, TelemetryAnalysisWorker
 
-REFERENCE_MODE_ACTUAL_PACE = "actual_pace"
-REFERENCE_MODE_AVERAGED_PACE = "averaged_pace"
-REFERENCE_MODE_LABELS = {
-    REFERENCE_MODE_ACTUAL_PACE: "Actual pace",
-    REFERENCE_MODE_AVERAGED_PACE: "Averaged pace",
-}
 
 
 @dataclass(frozen=True)
@@ -237,21 +238,24 @@ class LivePlannerService:
     def build_tyre_event_data(self) -> pd.DataFrame:
         if self._last_plot_data is None:
             return pd.DataFrame()
-        return tyre_event_data_from_plot(self._last_plot_data)
+        return build_tyre_event_data(self._last_plot_data)
 
-
-def _normalize_reference_mode(value: str) -> str:
-    mode = str(value)
-    if mode in {REFERENCE_MODE_ACTUAL_PACE, REFERENCE_MODE_AVERAGED_PACE}:
-        return mode
-    raise ValueError(f"Unknown reference mode: {value}")
-
-
-def _tyre_age_label(value: object) -> str:
-    age = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-    if pd.isna(age):
-        return "?"
-    return str(max(int(round(float(age))) - 1, 0))
+    def build_pit_window_data(
+        self,
+        selected_driver: str,
+        normal_pit_loss_s: float,
+        sc_vsc_pit_loss_s: float,
+    ) -> pd.DataFrame:
+        if self._last_plot_data is None:
+            return pd.DataFrame()
+        selected = self._last_plot_data.loc[
+            self._last_plot_data["driver"].astype(str).eq(str(selected_driver))
+        ]
+        return build_pit_window_data(
+            selected,
+            normal_pit_loss_s=normal_pit_loss_s,
+            sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
+        )
 
 
 def _reference_cumulative_time(

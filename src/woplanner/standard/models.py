@@ -1,3 +1,5 @@
+"""State contracts for the standard race planner."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

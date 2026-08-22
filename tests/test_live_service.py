@@ -13,12 +13,12 @@ from wodata.live import (
     LiveTimingController,
     ReplayConfig,
 )
-from woplanner.live_service import (
+from woplanner.live.service import (
     REFERENCE_MODE_ACTUAL_PACE,
     REFERENCE_MODE_AVERAGED_PACE,
     LivePlannerService,
 )
-from woplanner.telemetry_worker import ReplayPipelineConfig
+from woplanner.live.telemetry import ReplayPipelineConfig
 
 
 FIXTURE = Path(__file__).parents[2] / "woData" / "tests" / "fixtures" / "live_phase_1.txt"

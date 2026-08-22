@@ -11,7 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
 
-from .analysis_service import LiveRecalculationResult, ModelSummary, OfflineAnalysisService
+from .service import LiveRecalculationResult, ModelSummary, OfflineAnalysisService
 
 
 @dataclass(frozen=True)

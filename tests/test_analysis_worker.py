@@ -4,8 +4,8 @@ from concurrent.futures import Future
 from types import MappingProxyType
 
 from wodata.live import LivePositionSample, LiveSessionSnapshot, LiveTelemetrySample
-from woplanner.analysis_service import LiveRecalculationResult
-from woplanner.analysis_worker import (
+from woplanner.analysis.service import LiveRecalculationResult
+from woplanner.analysis.worker import (
     AnalysisQueuePolicy,
     LiveAnalysisProcessService,
     ModelSnapshot,

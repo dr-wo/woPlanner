@@ -12,7 +12,7 @@ import pandas as pd
 from scipy.stats import norm
 
 import diagnose_r11_mc_instability as replay
-from woplanner.analysis_service import OfflineAnalysisService
+from woplanner.analysis.service import OfflineAnalysisService
 from wostrategy.model.pre_race_performance import WeekendModelConfig, _prepare_analysis_laps
 from wostrategy.model.race_specific_performance import (
     COMPOUNDS,

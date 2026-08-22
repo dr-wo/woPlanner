@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from wodata import get_cache_path, get_race_performance_review_event_dir
-from .model import StrategyPlan, StintSegment
+from .models import StrategyPlan, StintSegment
 
 MODEL_VERSION = "strategy_sim_mvp_v3"
 SCHEMA = "schema_v3"
@@ -444,7 +444,7 @@ def _source_paths(
 def _source_cache_dir_candidates(
     *, data_root: Path | None, year: int, round_number: int, session_name: str
 ) -> list[Path]:
-    workspace_root = Path(__file__).resolve().parents[3]
+    workspace_root = Path(__file__).resolve().parents[4]
     return [
         get_race_performance_review_event_dir(
             year=year,

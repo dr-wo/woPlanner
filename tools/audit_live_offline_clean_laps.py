@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 import diagnose_r11_mc_instability as replay
-from woplanner.analysis_service import _live_traffic_gaps
+from woplanner.analysis.service import _live_traffic_gaps
 
 OUTPUT = Path("temp/r11_retro_convergence")
 

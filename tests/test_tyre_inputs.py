@@ -8,8 +8,8 @@ import pytest
 
 from wodata.artifacts import strategy_search_root, weekend_model_root, write_model_snapshot
 from wodata.contracts import ModelSnapshot, ParameterEstimate, StrategySearchState
-from woplanner.analysis_service import OfflineAnalysisService
-from woplanner.tyre_inputs import (
+from woplanner.analysis.service import OfflineAnalysisService
+from woplanner.analysis.tyre_inputs import (
     TYRE_PARAMETERS,
     TyreInputService,
     tyre_snapshot_from_overrides,

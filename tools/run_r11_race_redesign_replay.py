@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 import diagnose_r11_mc_instability as base
-from woplanner.analysis_service import OfflineAnalysisService
+from woplanner.analysis.service import OfflineAnalysisService
 from wostrategy.model.pre_race_performance import WeekendModelConfig
 from wostrategy.model.race_specific_performance import run_race_specific_model
 

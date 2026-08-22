@@ -6,6 +6,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .visual_styles import COMPOUND_COLOURS
+from .plot_interactions import HoverLabelOverlay, bind_driver_curve_click
 
 
 TYRE_MARKER_SIZE = 20
@@ -18,7 +19,7 @@ def tyre_age_label(value: object) -> str | None:
     return str(max(int(round(float(age))) - 1, 0))
 
 
-def format_live_hover_text(row: pd.Series) -> str:
+def format_relative_delta_hover_text(row: pd.Series) -> str:
     driver_value = row.get("driver")
     driver = "" if pd.isna(driver_value) else str(driver_value)
     lap_value = pd.to_numeric(pd.Series([row.get("lap")]), errors="coerce").iloc[0]
@@ -26,7 +27,13 @@ def format_live_hover_text(row: pd.Series) -> str:
     sector = str(row.get("sector") or "")
     delta_value = pd.to_numeric(pd.Series([row.get("delta_s")]), errors="coerce").iloc[0]
     delta = "—" if pd.isna(delta_value) else f"{float(delta_value):+.3f} s"
-    lines = [f"{driver}  Lap {lap}{f' {sector}' if sector else ''}", f"Delta {delta}"]
+    role_value = row.get("plot_role")
+    role = "" if pd.isna(role_value) else str(role_value).strip().lower()
+    role_label = "  Simulation" if role == "simulation" else ""
+    lines = [
+        f"{driver}{role_label}  Lap {lap}{f' {sector}' if sector else ''}",
+        f"Delta {delta}",
+    ]
     compound = row.get("compound")
     age = tyre_age_label(row.get("tyre_age"))
     if compound is not None and str(compound) not in {"", "nan", "<NA>"}:
@@ -37,8 +44,55 @@ def format_live_hover_text(row: pd.Series) -> str:
     return "\n".join(lines)
 
 
+# Backwards-compatible public name retained for callers and tests.
+format_live_hover_text = format_relative_delta_hover_text
+
+
+def nearest_relative_delta_row(
+    rows: pd.DataFrame,
+    x_position: float,
+    y_position: float,
+    *,
+    x_span: float,
+    y_span: float,
+    driver: str | None = None,
+    max_distance: float | None = None,
+) -> pd.Series | None:
+    """Return the visually nearest plotted row using view-normalized distance."""
+    if rows is None or rows.empty:
+        return None
+    candidates = rows
+    if driver is not None:
+        candidates = candidates.loc[candidates["driver"].astype(str).eq(str(driver))]
+    if candidates.empty:
+        return None
+    if "_plot_x" in candidates.columns:
+        x = pd.to_numeric(candidates["_plot_x"], errors="coerce")
+    elif "segment_index" in candidates.columns:
+        x = pd.to_numeric(candidates["segment_index"], errors="coerce")
+    elif "x_lap" in candidates.columns:
+        x = pd.to_numeric(candidates["x_lap"], errors="coerce")
+    else:
+        x = pd.to_numeric(candidates["lap"], errors="coerce")
+    y_column = "_plot_y" if "_plot_y" in candidates.columns else "delta_s"
+    y = pd.to_numeric(candidates[y_column], errors="coerce")
+    valid = x.notna() & y.notna() & np.isfinite(x) & np.isfinite(y)
+    if not valid.any():
+        return None
+    candidates = candidates.loc[valid]
+    distances = (
+        ((x.loc[valid] - float(x_position)) / max(abs(float(x_span)), 1.0)) ** 2
+        + ((y.loc[valid] - float(y_position)) / max(abs(float(y_span)), 1.0)) ** 2
+    )
+    index = distances.idxmin()
+    if max_distance is not None and float(distances.loc[index]) > float(max_distance):
+        return None
+    return candidates.loc[index]
+
+
 class RelativeDeltaPlotWidget(QtWidgets.QWidget):
     driver_selected = QtCore.Signal(str)
+    selection_cleared = QtCore.Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -46,6 +100,7 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
         self._line_width = 3.0
         self._hover_enabled = False
         self._hover_driver: str | None = None
+        self._selected_driver: str | None = None
         self._hover_label = None
         self._curve_points: dict[str, pd.DataFrame] = {}
         self._styles: dict[str, dict] = {}
@@ -74,6 +129,8 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
         self.plot.setBackground("w")
         self.plot.getPlotItem().invertY(True)
         self.plot.scene().sigMouseMoved.connect(self._mouse_moved)
+        self.plot.scene().sigMouseClicked.connect(self._plot_clicked)
+        self._hover_overlay = HoverLabelOverlay(self.plot)
         layout.addLayout(start_panel)
         layout.addWidget(self.plot, stretch=1)
         layout.addLayout(latest_panel)
@@ -109,11 +166,20 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
                 pen=self._curve_pen(driver),
                 clickable=True,
             )
-            curve.sigClicked.connect(
-                lambda _curve, _event, drv=driver: self.driver_selected.emit(drv)
-            )
+            bind_driver_curve_click(curve, driver, self._curve_clicked)
             self.curves[driver] = curve
-        self.plot.enableAutoRange()
+
+    def set_selected_driver(self, driver: str | None) -> None:
+        normalized = None if driver is None else str(driver)
+        if normalized == self._selected_driver:
+            return
+        self._selected_driver = normalized
+        for curve_driver, curve in self.curves.items():
+            curve.setPen(self._curve_pen(curve_driver))
+
+    @property
+    def selected_driver(self) -> str | None:
+        return self._selected_driver
 
     def set_hover_enabled(self, enabled: bool) -> None:
         self._hover_enabled = bool(enabled)
@@ -231,8 +297,26 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
             if style.get("line_style") == "dash"
             else QtCore.Qt.PenStyle.SolidLine
         )
-        width = self._line_width * (1.7 if driver == self._hover_driver else 1.0)
+        width = self._line_width
+        if driver == self._hover_driver:
+            width = max(width * 1.7, width + 1.2)
+        if driver == self._selected_driver:
+            width = max(width * 2.2, width + 2.0)
         return pg.mkPen(style.get("colour", "#555555"), width=width, style=pen_style)
+
+    def _curve_clicked(self, driver: str, event) -> None:
+        self.set_selected_driver(driver)
+        self.driver_selected.emit(driver)
+        if hasattr(event, "accept"):
+            event.accept()
+
+    def _plot_clicked(self, event) -> None:
+        if (
+            event.button() == QtCore.Qt.MouseButton.LeftButton
+            and not event.isAccepted()
+        ):
+            self.set_selected_driver(None)
+            self.selection_cleared.emit()
 
     def _mouse_moved(self, scene_position) -> None:
         if not self._hover_enabled or not self._curve_points:
@@ -255,21 +339,16 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
         view_range = self.plot.getPlotItem().vb.viewRange()
         x_span = max(view_range[0][1] - view_range[0][0], 1.0)
         y_span = max(abs(view_range[1][1] - view_range[1][0]), 1.0)
-        best = None
-        best_distance = float("inf")
-        for driver, points in self._curve_points.items():
-            if points.empty:
-                continue
-            distances = (
-                ((points["_plot_x"] - x_position) / x_span) ** 2
-                + ((points["_plot_y"] - y_position) / y_span) ** 2
-            )
-            index = distances.idxmin()
-            distance = float(distances.loc[index])
-            if distance < best_distance:
-                best_distance = distance
-                best = (driver, points.loc[index])
-        return best if best_distance <= 0.0015 else None
+        points = pd.concat(self._curve_points.values(), ignore_index=False)
+        row = nearest_relative_delta_row(
+            points,
+            x_position,
+            y_position,
+            x_span=x_span,
+            y_span=y_span,
+            max_distance=0.0015,
+        )
+        return None if row is None else (str(row["driver"]), row)
 
     def _set_hover_driver(self, driver: str | None) -> None:
         if driver == self._hover_driver:
@@ -279,30 +358,15 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
             curve.setPen(self._curve_pen(curve_driver))
 
     def _draw_hover_label(self, row: pd.Series) -> None:
-        self._clear_hover_label()
-        label = pg.TextItem(
-            text=format_live_hover_text(row),
-            color="#111111",
-            anchor=(0.0, 1.0),
-            fill=QtGui.QBrush(QtGui.QColor(255, 255, 255, 225)),
-            border=pg.mkPen("#111111", width=1.0),
+        self._hover_overlay.show(
+            format_relative_delta_hover_text(row),
+            float(row["_plot_x"]),
+            float(row["_plot_y"]),
         )
-        font = QtGui.QFont()
-        font.setPointSize(12)
-        font.setBold(True)
-        label.setFont(font)
-        label.setPos(float(row["_plot_x"]), float(row["_plot_y"]))
-        label.setZValue(50)
-        self.plot.addItem(label)
-        self._hover_label = label
+        self._hover_label = self._hover_overlay.item
 
     def _clear_hover_label(self) -> None:
-        if self._hover_label is None:
-            return
-        try:
-            self.plot.removeItem(self._hover_label)
-        except Exception:
-            pass
+        self._hover_overlay.clear()
         self._hover_label = None
 
 

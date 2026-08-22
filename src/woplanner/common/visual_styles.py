@@ -1,3 +1,5 @@
+"""Shared visual constants."""
+
 COMPOUND_COLOURS = {
     "SOFT": "#e10600",
     "MEDIUM": "#c99a00",

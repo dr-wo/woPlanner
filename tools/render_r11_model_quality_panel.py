@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pandas as pd
 from PySide6 import QtCore, QtWidgets
 
-from woplanner.analysis_gui import StrategyPredictionWindow
+from woplanner.analysis.gui import StrategyPredictionWindow
 
 
 def main():

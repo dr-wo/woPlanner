@@ -12,15 +12,17 @@ from PySide6 import QtCore, QtWidgets
 
 from wodata.live import LiveConfig, ReplayConfig
 
-from .live_service import (
+from .service import (
     REFERENCE_MODE_AVERAGED_PACE,
     REFERENCE_MODE_LABELS,
     LivePlannerService,
 )
-from .plot_widget import RelativeDeltaPlotWidget
+from ..common.plot_widget import RelativeDeltaPlotWidget
+from ..common.axis_controls import AxisRangeControls
+from ..common.pit_window import PitWindowOverlay
 
 
-WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[3] / "woData"
+WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
 PLANNER_VISUAL_CHANGES = frozenset(
     {"drivers", "session", "timing", "tyres", "track_status", "lap_count"}
 )
@@ -33,6 +35,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._driver_signature: tuple = ()
         self._metadata_warning_shown = False
         self._active_source_mode: str | None = None
+        self.custom_ranges = False
         self.strategy_prediction_window = None
         self._profile_redraw_count = 0
         self._profile_redraw_seconds = 0.0
@@ -70,11 +73,20 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.line_width.setRange(0.5, 8.0)
         self.line_width.setSingleStep(0.5)
         self.line_width.setValue(3.0)
+        self.normal_pit_loss = QtWidgets.QDoubleSpinBox()
+        self.normal_pit_loss.setRange(0.0, 120.0)
+        self.normal_pit_loss.setValue(20.0)
+        self.normal_pit_loss.setSuffix(" s")
+        self.sc_pit_loss = QtWidgets.QDoubleSpinBox()
+        self.sc_pit_loss.setRange(0.0, 120.0)
+        self.sc_pit_loss.setValue(10.0)
+        self.sc_pit_loss.setSuffix(" s")
         for label, widget in (
             ("Year", self.year_input), ("Round", self.round_input),
             ("Session", self.session_input), ("Replay", self.replay_path),
             ("Speed", self.replay_speed), ("Reference", self.reference_driver),
             ("Mode", self.reference_mode), ("Width", self.line_width),
+            ("Pit", self.normal_pit_loss), ("SC/VSC", self.sc_pit_loss),
         ):
             controls.addWidget(QtWidgets.QLabel(label))
             controls.addWidget(widget)
@@ -83,6 +95,13 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         controls.addWidget(self.replay_button)
         controls.addWidget(self.disconnect_button)
         controls.addWidget(self.strategy_prediction_button)
+        self.axis_controls = AxisRangeControls()
+        self.x_min_input = self.axis_controls.x_min_input
+        self.x_max_input = self.axis_controls.x_max_input
+        self.y_min_input = self.axis_controls.y_min_input
+        self.y_max_input = self.axis_controls.y_max_input
+        self.apply_range_button = self.axis_controls.apply_button
+        self.auto_range_button = self.axis_controls.auto_button
         status_row = QtWidgets.QHBoxLayout()
         self.connection_status = QtWidgets.QLabel("Idle")
         self.last_message_status = QtWidgets.QLabel("Last message: —")
@@ -93,7 +112,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         status_row.addWidget(self.last_message_status)
         self.relative_plot = RelativeDeltaPlotWidget()
         self.relative_plot.set_hover_enabled(True)
+        self.pit_window = PitWindowOverlay(self.relative_plot.plot)
         layout.addLayout(controls)
+        layout.addWidget(self.axis_controls)
         layout.addLayout(status_row)
         layout.addWidget(self.relative_plot, stretch=1)
         self.setCentralWidget(central)
@@ -107,7 +128,12 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.reference_driver.currentTextChanged.connect(self._redraw)
         self.reference_mode.currentTextChanged.connect(self._redraw)
         self.line_width.valueChanged.connect(self._redraw)
-        self.relative_plot.driver_selected.connect(self._select_reference)
+        self.relative_plot.driver_selected.connect(self._select_driver)
+        self.relative_plot.selection_cleared.connect(self._clear_selection)
+        self.normal_pit_loss.valueChanged.connect(self._update_pit_window)
+        self.sc_pit_loss.valueChanged.connect(self._update_pit_window)
+        self.apply_range_button.clicked.connect(self._apply_custom_ranges)
+        self.auto_range_button.clicked.connect(self._reset_auto_ranges)
         self.strategy_prediction_button.clicked.connect(
             self._show_strategy_prediction_window
         )
@@ -267,7 +293,12 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 self.reference_mode.currentData() or REFERENCE_MODE_AVERAGED_PACE
             ),
         )
+        if not self.custom_ranges:
+            self._update_range_controls_from_data(plot_data)
         self.relative_plot.set_plot_data(plot_data)
+        if not plot_data.empty:
+            self._apply_plot_ranges()
+        self._update_pit_window()
         self.relative_plot.set_tyre_event_data(self.service.build_tyre_event_data())
         self._profile_redraw_count += 1
         self._profile_redraw_seconds += time.perf_counter() - started
@@ -286,10 +317,43 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             self._profile_redraw_seconds = 0.0
             self._profile_last_log = now
 
-    def _select_reference(self, driver: str) -> None:
-        index = self.reference_driver.findText(driver)
-        if index >= 0:
-            self.reference_driver.setCurrentIndex(index)
+    def _select_driver(self, driver: str) -> None:
+        self.relative_plot.set_selected_driver(driver)
+        self._update_pit_window()
+
+    def _clear_selection(self) -> None:
+        self.relative_plot.set_selected_driver(None)
+        self._update_pit_window()
+
+    def _update_pit_window(self) -> None:
+        self.pit_window.update(
+            self.service._last_plot_data,
+            self.relative_plot.selected_driver,
+            normal_pit_loss_s=self.normal_pit_loss.value(),
+            sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+            x_column="x_lap",
+        )
+
+    def _update_range_controls_from_data(self, plot_data: pd.DataFrame) -> None:
+        self.axis_controls.update_from_data(plot_data)
+
+    def _apply_custom_ranges(self) -> None:
+        self.custom_ranges = True
+        self.axis_controls.custom_ranges = True
+        self._apply_plot_ranges()
+
+    def _reset_auto_ranges(self) -> None:
+        self.custom_ranges = False
+        self.axis_controls.custom_ranges = False
+        if self.service._last_plot_data is not None:
+            self._update_range_controls_from_data(self.service._last_plot_data)
+        self._apply_plot_ranges()
+
+    def _apply_plot_ranges(self) -> None:
+        lap_min, lap_max = self.axis_controls.lap_range()
+        y_min, y_max = self.axis_controls.y_range()
+        self.relative_plot.plot.setXRange(lap_min - 1.0 / 3.0, lap_max + 1.0 / 3.0, padding=0)
+        self.relative_plot.plot.setYRange(y_min, y_max, padding=0)
 
     def _disconnect(self) -> None:
         self.timer.stop()
@@ -299,7 +363,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.connection_status.setText("Disconnected by user")
 
     def _show_strategy_prediction_window(self) -> None:
-        from .analysis_gui import StrategyPredictionWindow
+        from ..analysis.gui import StrategyPredictionWindow
 
         if self.strategy_prediction_window is not None:
             try:

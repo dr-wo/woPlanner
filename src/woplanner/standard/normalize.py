@@ -4,7 +4,7 @@ import math
 
 import pandas as pd
 
-from .model import PlannerRaceSession
+from .models import PlannerRaceSession
 
 NORMALIZED_LAP_COLUMNS = [
     "driver",

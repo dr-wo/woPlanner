@@ -11,10 +11,10 @@ import pytest
 
 from wodata.artifacts import weekend_model_root, write_model_snapshot
 from wodata.contracts import ModelSnapshot, ParameterEstimate
-from woplanner.analysis_gui import StrategyPredictionWindow
-from woplanner.analysis_service import OfflineAnalysisService
-from woplanner.live_gui import LivePlannerWindow
-from woplanner.tyre_inputs import TyreInputService
+from woplanner.analysis.gui import StrategyPredictionWindow
+from woplanner.analysis.service import OfflineAnalysisService
+from woplanner.live.gui import LivePlannerWindow
+from woplanner.analysis.tyre_inputs import TyreInputService
 from wostrategy.analysis.fp_tyre_evidence import write_fp_tyre_evidence
 
 

@@ -21,7 +21,7 @@ from wodata.live import (
     LiveSessionSnapshot,
     LiveTelemetrySample,
 )
-from woplanner.analysis_service import (
+from woplanner.analysis.service import (
     LiveRecalculationResult,
     ModelSummary,
     OfflineAnalysisService,
@@ -29,8 +29,8 @@ from woplanner.analysis_service import (
     _live_traffic_gaps,
     _resolve_scheduled_total_laps,
 )
-from woplanner.analysis_gui import StrategyPredictionWindow, format_history_hover_text
-from woplanner.analysis_worker import (
+from woplanner.analysis.gui import StrategyPredictionWindow, format_history_hover_text
+from woplanner.analysis.worker import (
     AnalysisQueuePolicy,
     ModelSnapshot as PublishedModelSnapshot,
 )
