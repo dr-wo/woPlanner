@@ -69,11 +69,14 @@ To replay a completed archive, click **Browse**, select
 choose Max/1x/5x/20x, and click **Replay**. The same reducers and rendering path are
 used for JSONL archive replay and live SignalR messages.
 
-The live timing plot performs no correction or interpolation. The shared
-**Strategy Prediction** window can, however, consume the same canonical live
-snapshot: when the leader lap advances it checks for newly eligible sector-filtered
-clean laps. Replay expands batched leader-lap jumps into point-in-time snapshots
-and processes them through a FIFO recalculation queue. Live mode does not queue an
+The live timing plot does not correct measured lap or sector durations. Before
+calculating cumulative deltas, it does remove inactive suspension gaps that may
+be present in source cumulative timing, so a red-flag delay is not plotted as
+race time. The shared **Strategy Prediction** window can consume the same
+canonical live snapshot: when the leader lap advances it checks for newly
+eligible sector-filtered clean laps. Replay expands batched leader-lap jumps
+into point-in-time snapshots and processes them through a FIFO recalculation
+queue. Live mode does not queue an
 update received while calculation is active; the newest accumulated data is picked
 up by the next leader-lap trigger. Unchanged clean-lap fingerprints are skipped
 quickly. Updated models record their version and refresh sequence-level strategy
@@ -282,7 +285,10 @@ sim_real_domain_lap_time_A
 ```
 
 The simulated cumulative time connects to the observed cumulative time at the
-last pre-edit lap. The plotted y-axis is always:
+last pre-edit lap. Observed cumulative time excludes inactive red-flag delays in
+both standard and live mode, so applying or editing a pit simulation cannot
+switch the plot between elapsed session time and racing time. The plotted y-axis
+is always:
 
 ```text
 display_cumulative_time(driver) - display_cumulative_time(selected_reference)

@@ -9,6 +9,7 @@ from wodata.live import LiveConfig, LiveSessionSnapshot, LiveTimingController, R
 
 from ..common.driver_styles import assign_driver_styles
 from ..common.formatting import tyre_age_label as _tyre_age_label
+from ..common.timing import collapse_cumulative_time_gaps
 from ..common.reference import (
     REFERENCE_MODE_ACTUAL_PACE,
     REFERENCE_MODE_AVERAGED_PACE,
@@ -127,6 +128,14 @@ class LivePlannerService:
         plot_rows = pd.DataFrame(rows, columns=columns)
         if plot_rows.empty:
             return plot_rows.assign(delta_s=pd.Series(dtype="float64"))
+        plot_rows["cumulative_time_s"] = collapse_cumulative_time_gaps(
+            plot_rows,
+            driver_column="driver",
+            order_column="segment_index",
+            cumulative_column="cumulative_time_s",
+            duration_column="segment_time_s",
+            order_step=1 if self.snapshot.completed_sectors else 3,
+        )
         reference = _reference_cumulative_time(
             plot_rows,
             reference_driver=reference_driver,

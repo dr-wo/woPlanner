@@ -27,6 +27,7 @@ from woplanner.standard.service import (
     starting_driver_order,
     estimate_actual_pit_loss_by_lap,
     track_status_type,
+    _simulated_display_laps,
 )
 from woplanner.standard.strategy_model import (
     MissingDriverStrategyModelError,
@@ -79,6 +80,43 @@ def test_normalize_race_laps_prefers_absolute_lap_end_time_for_cumulative_order(
         "AAA": 168.0,
         "BBB": 176.0,
     }
+
+
+def test_normalize_race_laps_removes_red_flag_suspension_from_cumulative_time():
+    raw = pd.DataFrame(
+        {
+            "Driver": ["AAA", "AAA", "AAA", "BBB", "BBB", "BBB"],
+            "LapNumber": [1, 2, 3, 1, 2, 3],
+            "LapTime": [90.0, 120.0, 95.0, 91.0, 122.0, 97.0],
+            "LapStartTime": [0.0, 90.0, 2010.0, 0.0, 91.0, 2010.0],
+            "Time": [90.0, 210.0, 2105.0, 91.0, 213.0, 2107.0],
+            "TrackStatus": ["1", "25", "1", "1", "25", "1"],
+        }
+    )
+
+    session = normalize_race_laps(raw, year=2026, round_number=12, session_name="R")
+
+    assert session.laps.loc[session.laps.driver.eq("AAA"), "cumulative_time_s"].tolist() == [
+        90.0,
+        210.0,
+        305.0,
+    ]
+    assert session.laps.loc[session.laps.driver.eq("BBB"), "cumulative_time_s"].tolist() == [
+        91.0,
+        213.0,
+        310.0,
+    ]
+
+    simulated = _simulated_display_laps(
+        session.laps.loc[session.laps.driver.eq("AAA")],
+        pd.DataFrame(
+            {
+                "lap": [3, 4],
+                "sim_display_lap_time_s": [95.0, 96.0],
+            }
+        ),
+    )
+    assert simulated["cumulative_time_s"].tolist() == [305.0, 401.0]
 
 
 def test_default_reference_driver_uses_result_winner():

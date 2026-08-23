@@ -303,6 +303,29 @@ def test_sector_rows_are_used_when_available():
     assert bbb["delta_s"].tolist() == [1.0, 1.5, 3.0]
 
 
+def test_live_plot_removes_suspension_gap_from_source_cumulative_time():
+    service = LivePlannerService()
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        None,
+        (),
+        (
+            CompletedLap("1", "AAA", "Mercedes", 1, 90.0, 90.0, 1, None),
+            CompletedLap("2", "BBB", "Ferrari", 1, 91.0, 91.0, 2, None),
+            CompletedLap("1", "AAA", "Mercedes", 2, 95.0, 1985.0, 1, None),
+            CompletedLap("2", "BBB", "Ferrari", 2, 97.0, 1988.0, 2, None),
+        ),
+        MappingProxyType({}),
+        None,
+    )
+
+    plot_data = service.build_plot_data("AAA", reference_mode=REFERENCE_MODE_ACTUAL_PACE)
+
+    assert plot_data.loc[plot_data.driver.eq("AAA"), "cumulative_time_s"].tolist() == [90.0, 185.0]
+    assert plot_data.loc[plot_data.driver.eq("BBB"), "cumulative_time_s"].tolist() == [91.0, 188.0]
+    assert plot_data.loc[plot_data.driver.eq("BBB"), "delta_s"].tolist() == [1.0, 3.0]
+
+
 def test_driver_styles_and_ranks_are_stable():
     service = loaded_service()
     first = service.available_drivers()

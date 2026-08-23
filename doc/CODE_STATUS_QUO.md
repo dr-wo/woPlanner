@@ -83,7 +83,9 @@ woData.live -> live service -> live GUI
   prefers explicit lap time, then sector-summed lap time, then positive elapsed
   `Time - LapStartTime`; cumulative time uses absolute lap-end time relative to
   the earliest race start when available, falling back to per-driver lap-time
-  cumsum.
+  cumsum. For consecutive laps after a FastF1 track-status `5` red flag, it
+  removes the inactive interval that is present in absolute session timing but
+  absent from the measured restart-lap duration.
 - `standard.models` contains simple dataclasses only.
 - `standard.strategy_model` reads `woStrategy` cache artifacts and exposes prediction
   rows. It should not import GUI code.
@@ -283,7 +285,10 @@ Then cumulative time is rebuilt from the observed cumulative time at the edit
 anchor. For a driver with no simulation, display cumulative time is just
 observed cumulative time. For a simulated driver, display cumulative time uses
 observed time before and including the anchor lap, then the rebuilt simulated
-future.
+future. Standard normalization and live plot preparation both collapse inactive
+suspension gaps before this calculation. Consequently observed and simulated
+trajectories use one racing-time coordinate, including when a pit edit is
+applied after a red-flag restart.
 
 Finally, every plotted row is recalculated against the selected reference:
 

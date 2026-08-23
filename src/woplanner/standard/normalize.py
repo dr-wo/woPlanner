@@ -4,6 +4,7 @@ import math
 
 import pandas as pd
 
+from ..common.timing import collapse_cumulative_time_gaps
 from .models import PlannerRaceSession
 
 NORMALIZED_LAP_COLUMNS = [
@@ -100,6 +101,20 @@ def normalize_race_laps(
         )
         laps["cumulative_time_s"] = cumulative_from_absolute_time.combine_first(
             cumulative_from_lap_times
+        )
+        previous_lap_had_red_flag = (
+            laps.groupby("driver", sort=False)["track_status"]
+            .shift()
+            .astype("string")
+            .str.contains("5", regex=False, na=False)
+        )
+        laps["cumulative_time_s"] = collapse_cumulative_time_gaps(
+            laps,
+            driver_column="driver",
+            order_column="lap",
+            cumulative_column="cumulative_time_s",
+            duration_column="lap_time_s",
+            eligible_gap=previous_lap_had_red_flag,
         )
     else:
         laps["cumulative_time_s"] = cumulative_from_lap_times
