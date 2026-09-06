@@ -726,12 +726,27 @@ class RacePlannerService:
             actual_pit_loss_by_lap=actual_pit_loss_by_lap,
             driver=scenario.driver,
         )
+        observed_stop_after_laps = {
+            int(lap) - 1
+            for lap in pd.to_numeric(
+                driver_laps.loc[
+                    driver_laps["pit_out"].fillna(False).astype(bool),
+                    "lap",
+                ],
+                errors="coerce",
+            ).dropna()
+        }
         comparison_laps = build_strategy_comparison_laps(
             what_if_laps,
             baseline_laps,
             observed_laps,
             comparison_mode=scenario.comparison_mode,
             stop_after_lap=first_stop_after_lap,
+            suppress_observed_pit_residual_stop_laps={
+                int(edit.stop_after_lap)
+                for edit in scenario.edits
+                if edit.edit_type == "add_pit"
+            }.intersection(observed_stop_after_laps),
         )
         return StrategyComparison(
             scenario_id=scenario.scenario_id,
@@ -1286,14 +1301,23 @@ def _actual_pit_loss_with_remove_edit_overrides(
         first_lap = int(edit.stop_after_lap) + 1
         driver_mask = output["driver"].astype(str) == str(scenario.driver)
         lap_values = pd.to_numeric(output["lap"], errors="coerce")
+        pit_in_loss_s = float(
+            edit.pit_in_loss_s if edit.pit_in_loss_s is not None else (edit.pit_loss_s or 0.0) / 2.0
+        )
+        pit_out_loss_s = float(
+            edit.pit_out_loss_s
+            if edit.pit_out_loss_s is not None
+            else (edit.pit_loss_s or 0.0) - pit_in_loss_s
+        )
         output.loc[
             driver_mask & (lap_values == int(edit.stop_after_lap)),
-            ["actual_pit_loss_s", "actual_pit_in_loss_s", "actual_pit_out_loss_s"],
-        ] = [0.0, 0.0, 0.0]
-        pit_in_loss_s = float(edit.pit_in_loss_s if edit.pit_in_loss_s is not None else 0.0)
-        pit_out_loss_s = float(
-            edit.pit_out_loss_s if edit.pit_out_loss_s is not None else edit.pit_loss_s or 0.0
-        )
+            [
+                "actual_pit_loss_s",
+                "actual_pit_in_loss_s",
+                "actual_pit_out_loss_s",
+                "actual_pit_loss_source",
+            ],
+        ] = [pit_in_loss_s, pit_in_loss_s, 0.0, str(edit.pit_loss_source or "manual")]
         output.loc[
             driver_mask & (lap_values == first_lap),
             [
@@ -1303,8 +1327,8 @@ def _actual_pit_loss_with_remove_edit_overrides(
                 "actual_pit_loss_source",
             ],
         ] = [
-            pit_in_loss_s + pit_out_loss_s,
-            pit_in_loss_s,
+            pit_out_loss_s,
+            0.0,
             pit_out_loss_s,
             str(edit.pit_loss_source or "manual"),
         ]
@@ -1822,6 +1846,7 @@ def build_strategy_comparison_laps(
     *,
     comparison_mode: str,
     stop_after_lap: int,
+    suppress_observed_pit_residual_stop_laps: set[int] | None = None,
 ) -> pd.DataFrame:
     if "sector" not in what_if_laps.columns:
         return build_sector_strategy_comparison(
@@ -1829,6 +1854,9 @@ def build_strategy_comparison_laps(
             baseline_model_laps,
             observed_laps,
             comparison_mode=comparison_mode,
+            suppress_observed_pit_residual_stop_laps=(
+                suppress_observed_pit_residual_stop_laps
+            ),
         )
 
     what_if = what_if_laps.rename(
@@ -2072,6 +2100,7 @@ def build_sector_strategy_comparison(
     observed_laps: pd.DataFrame,
     *,
     comparison_mode: str,
+    suppress_observed_pit_residual_stop_laps: set[int] | None = None,
 ) -> pd.DataFrame:
     sector_fractions = clean_sector_fractions(observed_laps)
     what_if = expand_model_laps_to_sector_timeline(
@@ -2110,7 +2139,7 @@ def build_sector_strategy_comparison(
         pd.to_numeric(merged["observed_sector_time_s"], errors="coerce")
         - pd.to_numeric(merged["baseline_model_sector_time_s"], errors="coerce")
     )
-    skipped_stop_laps = _skipped_observed_stop_laps(merged)
+    skipped_stop_laps = set(suppress_observed_pit_residual_stop_laps or set())
     if skipped_stop_laps:
         lap_values = pd.to_numeric(merged["lap"], errors="coerce")
         skipped_residual_mask = pd.Series(False, index=merged.index)
@@ -2224,24 +2253,6 @@ def build_sector_strategy_comparison(
             "baseline_pit_out_loss_s",
         ],
     ].reset_index(drop=True)
-
-
-def _skipped_observed_stop_laps(merged: pd.DataFrame) -> set[int]:
-    stop_laps: set[int] = set()
-    lap_values = pd.to_numeric(merged["lap"], errors="coerce")
-    baseline_in = pd.to_numeric(merged.get("baseline_pit_in_loss_s"), errors="coerce").fillna(0.0)
-    baseline_out = pd.to_numeric(merged.get("baseline_pit_out_loss_s"), errors="coerce").fillna(0.0)
-    sim_in = pd.to_numeric(merged.get("sim_pit_in_loss_s"), errors="coerce").fillna(0.0)
-    sim_out = pd.to_numeric(merged.get("sim_pit_out_loss_s"), errors="coerce").fillna(0.0)
-    for value in lap_values.loc[
-        (baseline_in > 0.0) & ~np.isclose(baseline_in, sim_in)
-    ].dropna():
-        stop_laps.add(int(value))
-    for value in lap_values.loc[
-        (baseline_out > 0.0) & ~np.isclose(baseline_out, sim_out)
-    ].dropna():
-        stop_laps.add(int(value) - 1)
-    return stop_laps
 
 
 def expand_observed_laps_to_sector_timeline(laps: pd.DataFrame) -> pd.DataFrame:

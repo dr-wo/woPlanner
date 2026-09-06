@@ -105,9 +105,21 @@ strategy search. Downstream code does not resolve manual-versus-legacy again.
 At lap zero the resolved package is the pre-race model. During a Race, existing
 `strategy_assumptions` logic remains authoritative:
 
-- a Race-informed compound uses the Race result;
-- an uninformed compound uses the resolved pre-race/relative baseline behaviour;
+- `live_direct` means the compound has a valid direct Race MC result;
+- `live_derived` means the compound is inferred from a direct compound using
+  the fixed initial degradation ratios;
+- `base` means no live degradation information is available yet;
+- directly informed MEDIUM is the preferred scale anchor; before that, the
+  best-supported directly informed compound is converted to an equivalent
+  MEDIUM scale using its fixed initial ratio;
+- direct always overrides derived, and Manual Override ignores both live states;
 - FP evidence itself is never passed into Race inference.
+
+The initial ratios are captured when the Strategy Prediction session resolves
+its starting tyre package and are not recalculated from later derived/direct
+values or subsequent artifact refreshes. This applies only to degradation.
+Compound delta retains independent base-to-direct resolution and a missing delta
+is never synthesized as zero.
 
 Every persisted search has an immutable
 `tyre_input_snapshots/<search_id>.json` sidecar containing the five actual values,
@@ -115,10 +127,14 @@ sources and content hashes. Named snapshots also embed this payload. Later manua
 edits cannot rewrite old snapshots, so replay/debug consumers must use the stored
 snapshot rather than today's event artifact.
 
-Update History keeps the existing informed/uninformed calculations. Its stored
-degradation and compound-delta rows now retain source provenance. Clicking a
-history lap remains an explicit temporary Strategy override; it does not mutate
-the event manual artifact.
+Update History stores the exact effective values handed to Strategy Prediction.
+Degradation source metadata is `base`, `live_derived`, or `live_direct`; derived
+rows also record their direct anchor and initial ratio to MEDIUM. Base and
+derived segments are dashed, derived markers are hollow, and direct segments
+are solid with filled markers. The previous flat base line ends at the first
+derived/direct transition. Compound delta keeps the simpler dashed-base then
+solid-direct presentation. Clicking a history lap remains an explicit temporary
+Strategy override; it does not mutate the event manual artifact.
 
 ## Live/replay pipeline
 
@@ -225,3 +241,49 @@ directory rather than the repository root.
 
 Production code must not depend on `temp/`, `tools/`, prototype modules, or
 diagnostic CSV output.
+
+## R13 live closure validation
+
+The completed 2026 R13 live session was used as the final production smoke test
+on 2026-09-06. Its raw recording contains 69,695 contiguous messages and ends at
+leader lap 53 with `SessionStatus=Ends`, `Started=Finished`, a finalised session,
+and a complete archive. The reconstructed Cumulative Delta plot also reaches lap
+53.
+
+Live model history contains 31 successful update laps (persisted as 62 matching
+root/aggregate history rows) and no failed/stale publication. Effective
+degradation progressed as follows:
+
+- MEDIUM: `base` at lap 0, then `live_direct` from lap 17;
+- HARD: `base`, `live_derived` at lap 17, then `live_direct` from lap 18;
+- SOFT: `base`, then `live_derived` from lap 17 because no direct SOFT Race
+  evidence became available.
+
+History continued through lap 53. The final values were HARD 0.03310,
+MEDIUM 0.07895 and derived SOFT 0.08428 s/lap. Strategy Prediction's last
+actionable calculation was at lap 52 of 53; it had auto-recalculation enabled,
+Manual Override disabled, and consumed all three effective degradation values
+exactly from Update History lap 52. A final-lap strategy recalculation is not
+useful once the race has finished, while model history still records lap 53.
+
+The R13 marker smoke reconstructed the overlay through leader laps
+10/20/30/40/50/53. At lap 53 the authoritative history produced 32 tyre-change
+events, 32 scatter points and 33 managed plot items (one scatter layer plus 32
+labels). All 33 items remained attached after an unchanged second redraw. This
+confirms that normal Live and Replay use the same authoritative marker path and
+that marker lifetime is independent of MC publication.
+
+The marker correctness compromise is deliberate: `set_plot_data()` clears the
+managed pyqtgraph lifecycle, so `_redraw()` rebuilds the complete, currently
+authoritative marker overlay instead of keeping a second incremental marker
+cache. This repeats work proportional to the small number of stint events, but
+ensures corrections, recovery, range changes and curve replacement cannot leave
+stale or missing overlays. Preventing plot clears or creating unmanaged permanent
+items was rejected because either would weaken the existing redraw/range
+lifecycle.
+
+The live/replay queue compromise remains unchanged: Live is latest-wins for
+unstarted analysis, while Replay is causal FIFO with high/low-watermark
+backpressure. Historical max-speed Replay can therefore take longer to catch up;
+intermediate causal results are not dropped and the GUI remains decoupled from
+the CPU-heavy worker.

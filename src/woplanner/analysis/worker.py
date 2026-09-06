@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import logging
 import time
 import traceback
 from collections import deque
@@ -24,6 +25,8 @@ class AnalysisRequest:
     snapshot: Any
     options: tuple[tuple[str, Any], ...]
     ipc_started_at: float = 0.0
+    prepared_leader_lap: int | None = None
+    prepared_cut: Any = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,8 @@ class ModelSnapshot:
     parameter_rows: tuple[dict[str, object], ...] = ()
     run_rows: tuple[dict[str, object], ...] = ()
     ipc_elapsed_seconds: float = 0.0
+    prepared_leader_lap: int | None = None
+    prepared_cut: Any = None
 
 
 _PROCESS_SERVICE: OfflineAnalysisService | None = None
@@ -67,6 +72,11 @@ def _run_request(request: AnalysisRequest) -> ModelSnapshot:
     if _PROCESS_SERVICE is None:  # pragma: no cover - protects direct misuse
         raise RuntimeError("Analysis worker was not initialized")
     request_options = dict(request.options)
+    started = time.perf_counter()
+    logging.getLogger(__name__).info(
+        "MC worker start: V%d leader=%s cut=%s",
+        request.input_version, request.prepared_leader_lap, request.prepared_cut,
+    )
     result = _PROCESS_SERVICE.recalculate_from_live_snapshot(
         year=request.year,
         round_number=request.round_number,
@@ -83,7 +93,7 @@ def _run_request(request: AnalysisRequest) -> ModelSnapshot:
             ephemeral_result = _PROCESS_SERVICE._ephemeral_result
             parameter_rows = tuple(_PROCESS_SERVICE._ephemeral_parameter_rows)
             run_rows = tuple(_PROCESS_SERVICE._ephemeral_run_rows)
-    return ModelSnapshot(
+    snapshot = ModelSnapshot(
         request.input_version,
         result,
         summary,
@@ -91,7 +101,16 @@ def _run_request(request: AnalysisRequest) -> ModelSnapshot:
         parameter_rows,
         run_rows,
         max(time.perf_counter() - request.ipc_started_at, 0.0),
+        request.prepared_leader_lap,
+        request.prepared_cut,
     )
+    logging.getLogger(__name__).info(
+        "MC worker end: V%d leader=%s status=%s worker=%.3fs ipc=%.3fs runtime=%s",
+        request.input_version, request.prepared_leader_lap, result.status,
+        time.perf_counter() - started, snapshot.ipc_elapsed_seconds,
+        dict(result.runtime_breakdown),
+    )
+    return snapshot
 
 
 class LiveAnalysisProcessService:
@@ -152,6 +171,8 @@ class LiveAnalysisProcessService:
         round_number: int,
         snapshot: Any,
         options: Mapping[str, Any],
+        prepared_leader_lap: int | None = None,
+        prepared_cut: Any = None,
     ) -> int:
         if self._closed:
             raise RuntimeError("Analysis process service is closed")
@@ -166,6 +187,8 @@ class LiveAnalysisProcessService:
                 include_telemetry=not bool(options.get("use_sector_boundary_traffic", False)),
             ),
             tuple(dict(options).items()),
+            prepared_leader_lap=prepared_leader_lap,
+            prepared_cut=prepared_cut,
         )
         if self.analysis_running:
             if self.policy is AnalysisQueuePolicy.LATEST_WINS:
@@ -203,6 +226,7 @@ class LiveAnalysisProcessService:
             self.last_error = "".join(
                 traceback.format_exception_only(type(exc), exc)
             ).strip()
+            self._pending_requests.clear()
         else:
             # A delayed older result can never replace a newer publication.
             if (
@@ -218,9 +242,12 @@ class LiveAnalysisProcessService:
             self.last_error = None
             completed = candidate
         self.completed_version = finished_version
-        if self._pending_requests and not self._closed:
+        if self._pending_requests and not self._closed and self.last_error is None:
             self._start(self._pending_requests.popleft())
         return completed
+
+    def cancel_pending(self) -> None:
+        self._pending_requests.clear()
 
     def shutdown(self, *, wait: bool = True) -> None:
         if self._closed:

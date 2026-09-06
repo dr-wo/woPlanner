@@ -16,10 +16,23 @@ from woplanner.live.telemetry import (
     TelemetryAnalysisWorker,
     _CausalSnapshotBuilder,
     _ReplayTelemetryWatermarks,
+    _partition_ready_builds,
 )
 
 
 NOW = datetime(2026, 8, 9, tzinfo=timezone.utc)
+
+
+def test_ready_cut_partition_can_bound_large_snapshot_preparation():
+    cut = CausalAnalysisCut(1, 10.0, 10, 1)
+    commands = [("build", 1, request_id, 1, True) for request_id in range(3)]
+
+    ready, waiting = _partition_ready_builds(
+        commands, {1: cut}, processed_ingress=10, max_ready=1
+    )
+
+    assert ready == [(commands[0], cut)]
+    assert waiting == commands[1:]
 
 
 def message(

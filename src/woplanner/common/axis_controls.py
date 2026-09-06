@@ -37,7 +37,9 @@ class AxisRangeControls(QtWidgets.QWidget):
     def _spinbox() -> QtWidgets.QDoubleSpinBox:
         spinbox = QtWidgets.QDoubleSpinBox()
         spinbox.setRange(-10000.0, 10000.0)
-        spinbox.setDecimals(1)
+        # Direct pyqtgraph ranges can land on fractional-sector coordinates;
+        # retain enough precision for a redraw to reproduce the visible range.
+        spinbox.setDecimals(6)
         spinbox.setSingleStep(1.0)
         spinbox.setMinimumWidth(86)
         return spinbox

@@ -227,6 +227,7 @@ def main() -> int:
             controls.addStretch(1)
 
             self.axis_controls = AxisRangeControls()
+            self._applying_plot_ranges = False
             self.x_min_input = self.axis_controls.x_min_input
             self.x_max_input = self.axis_controls.x_max_input
             self.y_min_input = self.axis_controls.y_min_input
@@ -244,6 +245,7 @@ def main() -> int:
             self.latest_rank_label = self.plot_row_widget.latest_rank_label
             self.latest_rank_label.setFont(self._font(RANK_FONT_POINT_SIZE))
             self.plot = self.plot_row_widget.plot
+            self.plot.getViewBox().sigRangeChanged.connect(self._plot_range_changed)
             self.pit_window = PitWindowOverlay(self.plot)
             self.hover_overlay = HoverLabelOverlay(self.plot)
             self.plot.getAxis("bottom").setTickFont(self._font(14))
@@ -841,8 +843,26 @@ def main() -> int:
         def _apply_plot_ranges(self) -> None:
             x_min, x_max = self._plot_x_range_from_lap_inputs()
             y_min, y_max = self.axis_controls.y_range()
-            self.plot.setXRange(x_min, x_max, padding=0)
-            self.plot.setYRange(y_min, y_max, padding=0)
+            self._applying_plot_ranges = True
+            try:
+                self.plot.setXRange(x_min, x_max, padding=0)
+                self.plot.setYRange(y_min, y_max, padding=0)
+            finally:
+                self._applying_plot_ranges = False
+
+        def _plot_range_changed(self, _view_box, ranges, _changed=None) -> None:
+            if self._applying_plot_ranges:
+                return
+            x_range, y_range = ranges
+            changed = _changed if _changed is not None else (True, True)
+            if changed[0]:
+                self.x_min_input.setValue((float(x_range[0]) + 2.0) / 3.0)
+                self.x_max_input.setValue(float(x_range[1]) / 3.0)
+            if changed[1]:
+                self.y_min_input.setValue(float(y_range[0]))
+                self.y_max_input.setValue(float(y_range[1]))
+            self.axis_controls.custom_ranges = True
+            self.custom_ranges = True
 
         def _plot_x_range_from_lap_inputs(self) -> tuple[float, float]:
             lap_min, lap_max = self.axis_controls.lap_range()

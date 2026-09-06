@@ -11,7 +11,7 @@ import pandas as pd
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
-from wodata.live import LiveConfig, ReplayConfig
+from wodata.live import LiveConfig, ReplayConfig, recover_replay_directory
 
 from .service import (
     REFERENCE_MODE_AVERAGED_PACE,
@@ -22,6 +22,7 @@ from ..common.plot_widget import RelativeDeltaPlotWidget
 from ..common.axis_controls import AxisRangeControls
 from ..common.pit_window import PitWindowOverlay
 from ..common.session_info import resolve_session_identity
+from ..analysis.service import OfflineAnalysisService
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
@@ -39,10 +40,12 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._session_metadata_signature: tuple[object, ...] | None = None
         self._active_source_mode: str | None = None
         self.custom_ranges = False
+        self._applying_plot_ranges = False
         self.strategy_prediction_window = None
         self._profile_redraw_count = 0
         self._profile_redraw_seconds = 0.0
         self._profile_last_log = time.monotonic()
+        self._tyre_event_signature: tuple = ()
         self.setWindowTitle("woPlanner Live")
         self.resize(1200, 760)
         central = QtWidgets.QWidget()
@@ -61,6 +64,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.replay_path = QtWidgets.QLineEdit()
         self.replay_path.setPlaceholderText("Replay file")
         self.replay_browse_button = QtWidgets.QPushButton("Browse")
+        self.replay_directory_button = QtWidgets.QPushButton("Directory")
         self.replay_button = QtWidgets.QPushButton("Replay")
         self.replay_speed = QtWidgets.QComboBox()
         for label, speed in (("Max", 0.0), ("1x", 1.0), ("5x", 5.0), ("20x", 20.0)):
@@ -94,6 +98,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             controls.addWidget(QtWidgets.QLabel(label))
             controls.addWidget(widget)
         controls.addWidget(self.replay_browse_button)
+        controls.addWidget(self.replay_directory_button)
         controls.addWidget(self.connect_button)
         controls.addWidget(self.replay_button)
         controls.addWidget(self.disconnect_button)
@@ -109,12 +114,17 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.connection_status = QtWidgets.QLabel("Idle")
         self.last_message_status = QtWidgets.QLabel("Last message: —")
         self.session_status = QtWidgets.QLabel("Session: —")
+        self.plot_progress_status = QtWidgets.QLabel("Plot: —")
         status_row.addWidget(self.connection_status)
         status_row.addStretch(1)
         status_row.addWidget(self.session_status)
+        status_row.addWidget(self.plot_progress_status)
         status_row.addWidget(self.last_message_status)
         self.relative_plot = RelativeDeltaPlotWidget()
         self.relative_plot.set_hover_enabled(True)
+        self.relative_plot.plot.getViewBox().sigRangeChanged.connect(
+            self._plot_range_changed
+        )
         self.pit_window = PitWindowOverlay(self.relative_plot.plot)
         layout.addLayout(controls)
         layout.addWidget(self.axis_controls)
@@ -128,6 +138,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.disconnect_button.clicked.connect(self._disconnect)
         self.replay_button.clicked.connect(self._replay)
         self.replay_browse_button.clicked.connect(self._browse_replay)
+        self.replay_directory_button.clicked.connect(self._browse_replay_directory)
         self.reference_driver.currentTextChanged.connect(self._redraw)
         self.reference_mode.currentTextChanged.connect(self._redraw)
         self.line_width.valueChanged.connect(self._redraw)
@@ -166,11 +177,28 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
 
     def _replay(self) -> None:
         path = Path(self.replay_path.text().strip()).expanduser()
-        if not path.is_file():
-            QtWidgets.QMessageBox.warning(self, "Replay", "Choose an existing replay file.")
+        if not path.exists() or not (path.is_file() or path.is_dir()):
+            QtWidgets.QMessageBox.warning(self, "Replay", "Choose an existing replay file or directory.")
             return
-        self._prepare_start()
         try:
+            if path.is_dir():
+                recovered = recover_replay_directory(
+                    path, year=self.year_input.value(),
+                    round_number=self.round_input.value(), session=self.session_input.text(),
+                )
+                path = recovered.path
+                self.replay_path.setText(str(path))
+            config_service = OfflineAnalysisService(
+                WORKSPACE_DATA_ROOT if WORKSPACE_DATA_ROOT.is_dir() else None
+            )
+            _config, config_source = config_service.resolve_live_model_config(
+                self.year_input.value(), self.round_input.value(),
+                replay_directory=path.parent,
+            )
+            logging.getLogger(__name__).info(
+                "Replay model configuration resolved from %s", config_source
+            )
+            self._prepare_start()
             self.service.start_replay(
                 ReplayConfig(path, float(self.replay_speed.currentData()))
             )
@@ -192,6 +220,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.connect_button.setEnabled(False)
         self.replay_button.setEnabled(False)
         self._driver_signature = ()
+        self._tyre_event_signature = ()
         self._metadata_warning_shown = False
         self._session_metadata_signature = None
         self.connection_status.setText("Starting…")
@@ -210,6 +239,13 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             "",
             "Replay files (*.jsonl *.txt);;JSONL replay (*.jsonl);;"
             "Legacy replay (*.txt);;All files (*)",
+        )
+        if path:
+            self.replay_path.setText(path)
+
+    def _browse_replay_directory(self) -> None:
+        path = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Open live timing replay directory", ""
         )
         if path:
             self.replay_path.setText(path)
@@ -318,31 +354,76 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.relative_plot.set_line_width(self.line_width.value())
         self.relative_plot.set_session_drivers(drivers)
         self.relative_plot.set_rank_data(start, current)
+        calculation_started = time.perf_counter()
         plot_data = self.service.build_plot_data(
             reference,
             reference_mode=str(
                 self.reference_mode.currentData() or REFERENCE_MODE_AVERAGED_PACE
             ),
         )
+        calculation_seconds = time.perf_counter() - calculation_started
         if not self.custom_ranges:
             self._update_range_controls_from_data(plot_data)
+        widget_started = time.perf_counter()
         self.relative_plot.set_plot_data(plot_data)
+        widget_seconds = time.perf_counter() - widget_started
+        leader_laps = [lap.lap_number for lap in self.service.snapshot.completed_laps if lap.position == 1]
+        all_laps = [lap.lap_number for lap in self.service.snapshot.completed_laps]
+        replay_lap = max(leader_laps or all_laps or [0])
+        data_lap = int(plot_data["lap"].max()) if not plot_data.empty else 0
+        displayed_lap = data_lap
+        self.plot_progress_status.setText(
+            f"Plot: replay {replay_lap} / data {data_lap} / displayed {displayed_lap}"
+        )
+        signature = (replay_lap, data_lap, displayed_lap)
+        if signature != getattr(self, "_plot_progress_signature", None):
+            logger = logging.getLogger(__name__)
+            log = logger.warning if replay_lap != data_lap else logger.debug
+            log(
+                "Cumulative Delta progress: replay leader lap=%d, data lap=%d, displayed lap=%d",
+                replay_lap, data_lap, displayed_lap,
+            )
+            self._plot_progress_signature = signature
         if not plot_data.empty:
             self._apply_plot_ranges()
         self._update_pit_window()
-        self.relative_plot.set_tyre_event_data(self.service.build_tyre_event_data())
+        tyre_started = time.perf_counter()
+        tyre_events = self.service.build_tyre_event_data()
+        signature_columns = [
+            column
+            for column in (
+                "driver", "lap", "compound", "tyre_age_label",
+                "scenario_id", "is_simulated",
+            )
+            if column in tyre_events.columns
+        ]
+        signature = tuple(
+            tyre_events[signature_columns]
+            .fillna("").itertuples(index=False, name=None)
+        ) if not tyre_events.empty else ()
+        # set_plot_data() rebuilds the managed plot lifecycle and therefore
+        # clears every overlay item. Reconcile tyre annotations from the same
+        # authoritative historical plot data on every redraw, even when their
+        # data signature is unchanged.
+        self.relative_plot.set_tyre_event_data(tyre_events)
+        self._tyre_event_signature = signature
+        tyre_seconds = time.perf_counter() - tyre_started
         self._profile_redraw_count += 1
         self._profile_redraw_seconds += time.perf_counter() - started
         now = time.monotonic()
         if now - self._profile_last_log >= 5.0:
             logging.getLogger(__name__).debug(
-                "Live plot profile: redraws=%d total=%.1fms average=%.1fms",
+                "Live plot profile: redraws=%d total=%.1fms average=%.1fms "
+                "latest_calculation=%.1fms latest_widget=%.1fms latest_tyre=%.1fms",
                 self._profile_redraw_count,
                 self._profile_redraw_seconds * 1000.0,
                 (
                     self._profile_redraw_seconds * 1000.0
                     / max(self._profile_redraw_count, 1)
                 ),
+                calculation_seconds * 1000.0,
+                widget_seconds * 1000.0,
+                tyre_seconds * 1000.0,
             )
             self._profile_redraw_count = 0
             self._profile_redraw_seconds = 0.0
@@ -383,8 +464,30 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
     def _apply_plot_ranges(self) -> None:
         lap_min, lap_max = self.axis_controls.lap_range()
         y_min, y_max = self.axis_controls.y_range()
-        self.relative_plot.plot.setXRange(lap_min - 1.0 / 3.0, lap_max + 1.0 / 3.0, padding=0)
-        self.relative_plot.plot.setYRange(y_min, y_max, padding=0)
+        self._applying_plot_ranges = True
+        try:
+            self.relative_plot.plot.setXRange(
+                lap_min - 1.0 / 3.0, lap_max + 1.0 / 3.0, padding=0
+            )
+            self.relative_plot.plot.setYRange(y_min, y_max, padding=0)
+        finally:
+            self._applying_plot_ranges = False
+
+    def _plot_range_changed(self, _view_box, ranges, _changed=None) -> None:
+        if self._applying_plot_ranges:
+            return
+        x_range, y_range = ranges
+        # The live plot deliberately renders one third of a lap beyond the
+        # entered lap limits, so invert that transform before storing it.
+        changed = _changed if _changed is not None else (True, True)
+        if changed[0]:
+            self.x_min_input.setValue(float(x_range[0]) + 1.0 / 3.0)
+            self.x_max_input.setValue(float(x_range[1]) - 1.0 / 3.0)
+        if changed[1]:
+            self.y_min_input.setValue(float(y_range[0]))
+            self.y_max_input.setValue(float(y_range[1]))
+        self.axis_controls.custom_ranges = True
+        self.custom_ranges = True
 
     def _disconnect(self) -> None:
         self.timer.stop()

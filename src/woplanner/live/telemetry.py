@@ -200,10 +200,14 @@ class TelemetryAnalysisWorker:
         )
         return request_id
 
-    def poll_analysis_inputs(self) -> tuple[PreparedAnalysisResult, ...]:
+    def poll_analysis_inputs(
+        self, *, max_results: int | None = None
+    ) -> tuple[PreparedAnalysisResult, ...]:
         results = []
         generation = self.generation
         while True:
+            if max_results is not None and len(results) >= int(max_results):
+                break
             try:
                 result = self._results.get_nowait()
             except queue.Empty:
@@ -211,6 +215,10 @@ class TelemetryAnalysisWorker:
             if result.generation == generation:
                 results.append(result)
         return tuple(results)
+
+    def cancel_analysis_inputs(self) -> None:
+        """Cancel pending preparation without disturbing replay state reduction."""
+        self._controls.put(("cancel_builds", self.generation))
 
     def track_map_snapshot(self) -> TrackMapSnapshot:
         with self._state_lock:
@@ -300,19 +308,39 @@ class TelemetryAnalysisWorker:
                     pending_builds.clear()
                     self._set_pending_build_count(0)
                     continue
+                if kind == "cancel_builds" and int(command[1]) == active_generation:
+                    pending_builds.clear()
+                    self._set_pending_build_count(0)
+                    continue
                 if int(command[1]) == active_generation and kind == "build":
                     pending_builds.append(command)
                     self._set_pending_build_count(len(pending_builds))
             if stop:
                 return
 
-            ready, pending_builds = _partition_ready_builds(
-                pending_builds,
-                cuts,
-                processed_ingress,
-            )
+            # A prepared input can be substantially larger than its lightweight
+            # historical cut request.  Keep this hand-off bounded too: otherwise
+            # a fast replay can accumulate an entire race of prepared snapshots
+            # while the single MC process consumes them sequentially.
+            ready = []
+            if self._results.qsize() < int(
+                self.replay_pipeline_config.replay_mc_max_queued_requests
+            ):
+                ready, pending_builds = _partition_ready_builds(
+                    pending_builds,
+                    cuts,
+                    processed_ingress,
+                    max_ready=1,
+                )
             self._set_pending_build_count(len(pending_builds))
             for command, cut in ready:
+                if cut is None:
+                    self._results.put(PreparedAnalysisResult(
+                        int(command[1]), int(command[2]), int(command[3]), None, 0.0,
+                        "The requested leader-lap boundary was not observed in the recording.",
+                        None,
+                    ))
+                    continue
                 cut_snapshot = snapshot_builder.build(message_history, cut)
                 self._prepare_analysis_input(cut_snapshot, command, cut)
 
@@ -420,7 +448,9 @@ class TelemetryAnalysisWorker:
         started = time.perf_counter()
         try:
             snapshot = _snapshot_at_cut(snapshot, cut)
+            traffic_started = time.perf_counter()
             traffic = _live_traffic_gaps(snapshot, force_sector=bool(force_sector))
+            traffic_seconds = time.perf_counter() - traffic_started
             analysis_input = LiveAnalysisInput(
                 tuple(snapshot.drivers),
                 tuple(snapshot.completed_laps),
@@ -434,13 +464,19 @@ class TelemetryAnalysisWorker:
             error = f"{type(exc).__name__}: {exc}"
             with self._state_lock:
                 self._last_error = error
+            traffic_seconds = 0.0
+        elapsed = time.perf_counter() - started
+        self.logger.info(
+            "Prepared MC input: leader=%d cut=i%d total=%.3fs traffic=%.3fs",
+            int(leader_lap), cut.ingress_sequence, elapsed, traffic_seconds,
+        )
         self._results.put(
             PreparedAnalysisResult(
                 int(generation),
                 int(request_id),
                 int(leader_lap),
                 analysis_input,
-                time.perf_counter() - started,
+                elapsed,
                 error,
                 cut,
             )
@@ -484,14 +520,22 @@ def _partition_ready_builds(
     pending_builds: list[tuple],
     cuts: dict[int, CausalAnalysisCut],
     processed_ingress: int,
-) -> tuple[list[tuple[tuple, CausalAnalysisCut]], list[tuple]]:
+    *,
+    max_ready: int | None = None,
+) -> tuple[list[tuple[tuple, CausalAnalysisCut | None]], list[tuple]]:
     ready = []
     waiting = []
     for command in pending_builds:
+        if max_ready is not None and len(ready) >= int(max_ready):
+            waiting.append(command)
+            continue
         leader_lap = int(command[3])
         cut = cuts.get(leader_lap)
         if cut is not None and processed_ingress >= cut.ingress_sequence:
             ready.append((command, cut))
+        elif cuts and leader_lap < max(cuts):
+            # Never substitute a later observation for an unobserved boundary.
+            ready.append((command, None))
         else:
             waiting.append(command)
     return ready, waiting
@@ -522,27 +566,24 @@ def _capture_new_leader_cuts(
     if not leader_laps:
         return
     latest_leader_lap = max(leader_laps)
-    for leader_lap in range(max(cuts, default=0) + 1, latest_leader_lap + 1):
-        # A jump means this is the first ingress at which the omitted boundary
-        # became observable, so all newly observed laps share this causal cut.
-        if leader_lap in cuts:
-            continue
-        session_time = message.session_time_seconds
-        source_timestamp = message.source_timestamp_utc
-        if session_time is None and source_timestamp is None:
-            continue
+    if latest_leader_lap <= max(cuts, default=0):
+        # Late corrections must not manufacture a historical cut after a later
+        # leader boundary has already been observed.
+        return
+    session_time = message.session_time_seconds
+    source_timestamp = message.source_timestamp_utc
+    if session_time is None and source_timestamp is None:
+        # Legacy replay is still causally ordered by ingress.
+        end_time = float(ingress_sequence)
+    else:
         end_time = (
             float(session_time)
             if session_time is not None
             else float(source_timestamp.timestamp())
         )
-        cuts[leader_lap] = CausalAnalysisCut(
-            leader_lap,
-            end_time,
-            int(ingress_sequence),
-            int(generation),
-            source_timestamp,
-        )
+    cuts[latest_leader_lap] = CausalAnalysisCut(
+        latest_leader_lap, end_time, int(ingress_sequence), int(generation), source_timestamp,
+    )
 
 
 def _positive_lap_number(value: object) -> int | None:
@@ -563,7 +604,6 @@ class _CausalSnapshotBuilder:
         self._store = _analysis_store()
         self._history_index = 0
         self._ingress_sequence = 0
-        self._deferred: list[tuple[int, LiveTimingMessage]] = []
 
     def build(
         self,
@@ -572,39 +612,14 @@ class _CausalSnapshotBuilder:
     ):
         if cut.ingress_sequence < self._ingress_sequence:
             return _rebuild_snapshot_at_cut(message_history, cut)
-        if any(_message_is_within_cut(message, cut) for _, message in self._deferred):
-            self._rebuild_state(message_history, cut)
-            return self._store.snapshot()
         while self._history_index < len(message_history):
             ingress_sequence, message = message_history[self._history_index]
             if ingress_sequence > cut.ingress_sequence:
                 break
             self._history_index += 1
-            if not _message_is_within_cut(message, cut):
-                self._deferred.append((ingress_sequence, message))
-                continue
             _apply_replay_message(self._store, message)
         self._ingress_sequence = cut.ingress_sequence
         return self._store.snapshot()
-
-    def _rebuild_state(
-        self,
-        message_history: list[tuple[int, LiveTimingMessage]],
-        cut: CausalAnalysisCut,
-    ) -> None:
-        self._store = _analysis_store()
-        self._history_index = 0
-        self._deferred = []
-        while self._history_index < len(message_history):
-            ingress_sequence, message = message_history[self._history_index]
-            if ingress_sequence > cut.ingress_sequence:
-                break
-            self._history_index += 1
-            if not _message_is_within_cut(message, cut):
-                self._deferred.append((ingress_sequence, message))
-                continue
-            _apply_replay_message(self._store, message)
-        self._ingress_sequence = cut.ingress_sequence
 
 
 def _rebuild_snapshot_at_cut(
@@ -615,18 +630,8 @@ def _rebuild_snapshot_at_cut(
     for ingress_sequence, message in message_history:
         if ingress_sequence > cut.ingress_sequence:
             break
-        if _message_is_within_cut(message, cut):
-            _apply_replay_message(store, message)
+        _apply_replay_message(store, message)
     return store.snapshot()
-
-
-def _message_is_within_cut(
-    message: LiveTimingMessage,
-    cut: CausalAnalysisCut,
-) -> bool:
-    return message.topic in {"CarData.z", "Position.z"} or _value_is_within_cut(
-        message, cut
-    )
 
 
 def _apply_replay_message(store: LiveSessionStore, message: LiveTimingMessage) -> None:
@@ -678,4 +683,6 @@ def _value_is_within_cut(value: Any, cut: CausalAnalysisCut) -> bool:
         and cut.leader_lap_end_source_timestamp is not None
     ):
         return source_timestamp <= cut.leader_lap_end_source_timestamp
-    return False
+    # The legacy live recorder did not carry timestamps. Its snapshot builder
+    # has already stopped at the cut's immutable ingress sequence.
+    return session_time is None and source_timestamp is None

@@ -115,6 +115,7 @@ def normalize_race_laps(
             cumulative_column="cumulative_time_s",
             duration_column="lap_time_s",
             eligible_gap=previous_lap_had_red_flag,
+            priority_column="position",
         )
     else:
         laps["cumulative_time_s"] = cumulative_from_lap_times

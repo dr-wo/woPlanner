@@ -17,6 +17,7 @@ from woplanner.live.service import (
     REFERENCE_MODE_ACTUAL_PACE,
     REFERENCE_MODE_AVERAGED_PACE,
     LivePlannerService,
+    _sector_progress_fractions,
 )
 from woplanner.live.telemetry import ReplayPipelineConfig
 
@@ -299,8 +300,51 @@ def test_sector_rows_are_used_when_available():
     plot_data = service.build_plot_data("AAA", reference_mode=REFERENCE_MODE_ACTUAL_PACE)
     bbb = plot_data.loc[plot_data.driver.eq("BBB")]
     assert bbb["sector"].tolist() == ["S1", "S2", "S3"]
-    assert bbb["x_lap"].round(6).tolist() == [0.666667, 1.0, 1.333333]
+    assert bbb["x_lap"].round(6).tolist() == [0.333333, 0.677778, 1.0]
     assert bbb["delta_s"].tolist() == [1.0, 1.5, 3.0]
+
+
+def test_sector_geometry_uses_one_reference_lap_time_fraction_for_all_drivers():
+    sectors = (
+        CompletedSector("1", "AAA", "A", 1, "S1", 1, 20, 20, 1, None),
+        CompletedSector("1", "AAA", "A", 1, "S2", 2, 30, 50, 1, None),
+        CompletedSector("1", "AAA", "A", 1, "S3", 3, 50, 100, 1, None),
+        CompletedSector("2", "BBB", "B", 1, "S1", 1, 40, 40, 2, None),
+        CompletedSector("2", "BBB", "B", 1, "S2", 2, 20, 60, 2, None),
+        CompletedSector("2", "BBB", "B", 1, "S3", 3, 40, 100, 2, None),
+    )
+    fractions, source = _sector_progress_fractions(sectors, "AAA")
+    assert source == "reference_time_fraction"
+    assert fractions == pytest.approx({"S1": .2, "S2": .5, "S3": 1.0})
+
+
+def test_sector_geometry_equal_thirds_fallback_without_complete_reference_lap():
+    fractions, source = _sector_progress_fractions((), "AAA")
+    assert source == "legacy_equal_thirds"
+    assert fractions == pytest.approx({"S1": 1 / 3, "S2": 2 / 3, "S3": 1.0})
+
+
+def test_averaged_reference_continues_same_definition_after_reference_retires():
+    service = LivePlannerService()
+    sectors = []
+    cumulative = {"AAA": 0.0, "BBB": 0.0}
+    times = {"AAA": (20.0, 30.0, 50.0), "BBB": (21.0, 31.0, 51.0)}
+    for driver, last_lap in (("AAA", 1), ("BBB", 3)):
+        for lap in range(1, last_lap + 1):
+            for index, value in enumerate(times[driver], 1):
+                cumulative[driver] += value
+                sectors.append(CompletedSector(
+                    str(index), driver, driver, lap, f"S{index}", (lap - 1) * 3 + index,
+                    value, cumulative[driver], 1 if driver == "AAA" else 2, None,
+                ))
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}), None, (), (), MappingProxyType({}), None, tuple(sectors)
+    )
+    plot = service.build_plot_data("AAA", reference_mode=REFERENCE_MODE_AVERAGED_PACE)
+    bbb = plot.loc[plot.driver.eq("BBB")]
+    reference = bbb["cumulative_time_s"].to_numpy() - bbb["delta_s"].to_numpy()
+    assert reference.tolist() == pytest.approx([20, 50, 100, 120, 150, 200, 220, 250, 300])
+    service.shutdown()
 
 
 def test_live_plot_removes_suspension_gap_from_source_cumulative_time():
@@ -313,7 +357,7 @@ def test_live_plot_removes_suspension_gap_from_source_cumulative_time():
             CompletedLap("1", "AAA", "Mercedes", 1, 90.0, 90.0, 1, None),
             CompletedLap("2", "BBB", "Ferrari", 1, 91.0, 91.0, 2, None),
             CompletedLap("1", "AAA", "Mercedes", 2, 95.0, 1985.0, 1, None),
-            CompletedLap("2", "BBB", "Ferrari", 2, 97.0, 1988.0, 2, None),
+            CompletedLap("2", "BBB", "Ferrari", 2, 97.0, 1998.0, 2, None),
         ),
         MappingProxyType({}),
         None,
@@ -322,8 +366,8 @@ def test_live_plot_removes_suspension_gap_from_source_cumulative_time():
     plot_data = service.build_plot_data("AAA", reference_mode=REFERENCE_MODE_ACTUAL_PACE)
 
     assert plot_data.loc[plot_data.driver.eq("AAA"), "cumulative_time_s"].tolist() == [90.0, 185.0]
-    assert plot_data.loc[plot_data.driver.eq("BBB"), "cumulative_time_s"].tolist() == [91.0, 188.0]
-    assert plot_data.loc[plot_data.driver.eq("BBB"), "delta_s"].tolist() == [1.0, 3.0]
+    assert plot_data.loc[plot_data.driver.eq("BBB"), "cumulative_time_s"].tolist() == [91.0, 198.0]
+    assert plot_data.loc[plot_data.driver.eq("BBB"), "delta_s"].tolist() == [1.0, 13.0]
 
 
 def test_driver_styles_and_ranks_are_stable():

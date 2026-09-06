@@ -6,8 +6,10 @@ from woplanner.standard.models import (
     COMPARISON_MODE_MODELLED_REAL_STRATEGY,
     COMPARISON_MODE_OBSERVED_REAL_DATA,
     COMPARISON_MODE_PURE_SIM,
+    DriverStrategyScenario,
     PlannedPitStop,
     StintSegment,
+    StrategyEdit,
     StrategyPlan,
 )
 from woplanner.standard.normalize import normalize_race_laps
@@ -27,6 +29,7 @@ from woplanner.standard.service import (
     starting_driver_order,
     estimate_actual_pit_loss_by_lap,
     track_status_type,
+    _actual_pit_loss_with_remove_edit_overrides,
     _simulated_display_laps,
 )
 from woplanner.standard.strategy_model import (
@@ -91,6 +94,7 @@ def test_normalize_race_laps_removes_red_flag_suspension_from_cumulative_time():
             "LapStartTime": [0.0, 90.0, 2010.0, 0.0, 91.0, 2010.0],
             "Time": [90.0, 210.0, 2105.0, 91.0, 213.0, 2107.0],
             "TrackStatus": ["1", "25", "1", "1", "25", "1"],
+            "Position": [1, 1, 1, 2, 2, 2],
         }
     )
 
@@ -104,7 +108,7 @@ def test_normalize_race_laps_removes_red_flag_suspension_from_cumulative_time():
     assert session.laps.loc[session.laps.driver.eq("BBB"), "cumulative_time_s"].tolist() == [
         91.0,
         213.0,
-        310.0,
+        307.0,
     ]
 
     simulated = _simulated_display_laps(
@@ -304,6 +308,139 @@ def test_real_race_adjusted_keeps_physical_vsc_residual_before_leader_aligned_ba
     assert sector_2["race_domain_residual_s"] == 6.0
     assert sector_2["display_residual_s"] == 6.0
     assert sector_2["sim_display_sector_time_s"] == 36.0
+
+
+def test_skipped_future_observed_pit_preserves_residual_beyond_configured_loss():
+    what_if = pd.DataFrame(
+        {
+            "lap": [56, 57],
+            "driver": ["HAM", "HAM"],
+            "team": ["Ferrari", "Ferrari"],
+            "compound": ["HARD", "HARD"],
+            "tyre_age": [30, 31],
+            "predicted_clean_lap_time_s": [100.0, 100.0],
+            "pit_loss_s": [0.0, 0.0],
+            "pit_in_loss_s": [0.0, 0.0],
+            "pit_out_loss_s": [0.0, 0.0],
+            "predicted_total_lap_time_s": [100.0, 100.0],
+        }
+    )
+    baseline = what_if.copy()
+    baseline["compound"] = "SOFT"
+    baseline["pit_loss_s"] = [4.5, 4.5]
+    baseline["pit_in_loss_s"] = [4.5, 0.0]
+    baseline["pit_out_loss_s"] = [0.0, 4.5]
+    baseline["predicted_total_lap_time_s"] = [104.5, 104.5]
+    observed = pd.DataFrame(
+        {
+            "lap": [56, 57],
+            "observed_real_lap_time_s": [117.35, 117.35],
+            "compound": ["SOFT", "SOFT"],
+            "tyre_age": [20, 1],
+            "track_status": ["6", "6"],
+        }
+    )
+
+    comparison = build_sector_strategy_comparison(
+        what_if,
+        baseline,
+        observed,
+        comparison_mode=COMPARISON_MODE_MODELLED_REAL_STRATEGY,
+    )
+
+    observed_total = float(comparison["observed_sector_time_s"].sum())
+    simulated_total = float(comparison["sim_display_sector_time_s"].sum())
+    assert round(observed_total - simulated_total, 6) == 9.0
+    assert round(float(comparison["race_domain_residual_s"].sum()), 6) == 25.7
+
+
+def test_same_lap_replacement_suppresses_observed_pit_sector_residuals():
+    model = pd.DataFrame(
+        {
+            "lap": [56, 57],
+            "driver": ["HAM", "HAM"],
+            "team": ["Ferrari", "Ferrari"],
+            "compound": ["HARD", "HARD"],
+            "tyre_age": [1, 2],
+            "predicted_clean_lap_time_s": [100.0, 100.0],
+            "pit_loss_s": [4.5, 4.5],
+            "pit_in_loss_s": [4.5, 0.0],
+            "pit_out_loss_s": [0.0, 4.5],
+            "predicted_total_lap_time_s": [104.5, 104.5],
+        }
+    )
+    observed = pd.DataFrame(
+        {
+            "lap": [56, 57],
+            "observed_real_lap_time_s": [117.35, 117.35],
+            "compound": ["SOFT", "SOFT"],
+            "tyre_age": [20, 1],
+            "track_status": ["6", "6"],
+        }
+    )
+
+    comparison = build_sector_strategy_comparison(
+        model,
+        model,
+        observed,
+        comparison_mode=COMPARISON_MODE_MODELLED_REAL_STRATEGY,
+        suppress_observed_pit_residual_stop_laps={56},
+    )
+
+    suppressed = comparison.loc[
+        ((comparison["lap"] == 56) & comparison["sector"].eq("S3"))
+        | ((comparison["lap"] == 57) & comparison["sector"].eq("S1"))
+    ]
+    assert suppressed["race_domain_residual_s"].tolist() == [0.0, 0.0]
+
+
+def test_remove_observed_pit_override_keeps_pit_in_and_out_on_physical_laps():
+    actual = pd.DataFrame(
+        {
+            "driver": ["HAM", "HAM"],
+            "lap": [55, 56],
+            "actual_pit_loss_s": [17.35, 17.35],
+            "actual_pit_in_loss_s": [17.35, 0.0],
+            "actual_pit_out_loss_s": [0.0, 17.35],
+            "actual_pit_loss_source": ["VSC default", "VSC default"],
+        }
+    )
+    scenario = DriverStrategyScenario(
+        scenario_id="HAM-remove",
+        driver="HAM",
+        edits=[
+            StrategyEdit(
+                edit_id="HAM-remove-55",
+                edit_type="remove_observed_pit",
+                stop_after_lap=55,
+                compound="HARD",
+                initial_tyre_age=31,
+                pit_loss_s=9.0,
+                pit_in_loss_s=4.5,
+                pit_out_loss_s=4.5,
+                pit_loss_source="manual",
+            )
+        ],
+    )
+
+    overridden = _actual_pit_loss_with_remove_edit_overrides(actual, scenario)
+
+    assert overridden[
+        ["lap", "actual_pit_loss_s", "actual_pit_in_loss_s", "actual_pit_out_loss_s"]
+    ].to_dict("records") == [
+        {
+            "lap": 55,
+            "actual_pit_loss_s": 4.5,
+            "actual_pit_in_loss_s": 4.5,
+            "actual_pit_out_loss_s": 0.0,
+        },
+        {
+            "lap": 56,
+            "actual_pit_loss_s": 4.5,
+            "actual_pit_in_loss_s": 0.0,
+            "actual_pit_out_loss_s": 4.5,
+        },
+    ]
 
 
 def test_service_defaults_pit_loss_from_first_lap_after_stop_status():

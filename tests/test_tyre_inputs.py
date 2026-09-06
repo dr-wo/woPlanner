@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from wodata.artifacts import strategy_search_root, weekend_model_root, write_model_snapshot
 from wodata.contracts import ModelSnapshot, ParameterEstimate, StrategySearchState
 from woplanner.analysis.service import OfflineAnalysisService
+from woplanner.analysis.service import ModelSummary
 from woplanner.analysis.tyre_inputs import (
     TYRE_PARAMETERS,
     TyreInputService,
@@ -261,3 +263,158 @@ def test_failed_explicit_recalculation_preserves_cached_evidence(tmp_path):
         service.calculate_fp_tyre_evidence(2026, 11, force_refresh=True)
 
     assert service.get_cached_fp_tyre_evidence(2026, 11).evidence == original
+
+
+def test_provider_only_prediction_maps_to_five_planner_coordinates(tmp_path, monkeypatch):
+    compounds = {
+        "HARD": SimpleNamespace(
+            degradation_seconds_per_lap=.08, performance_delta_to_medium=.42
+        ),
+        "MEDIUM": SimpleNamespace(
+            degradation_seconds_per_lap=.13, performance_delta_to_medium=0.0
+        ),
+        "SOFT": SimpleNamespace(
+            degradation_seconds_per_lap=.21, performance_delta_to_medium=-.36
+        ),
+    }
+    prediction = SimpleNamespace(
+        compounds=compounds,
+        artifact_id="provider-artifact",
+        provenance=(("path", "prediction.json"),),
+    )
+    monkeypatch.setattr(
+        "woplanner.analysis.tyre_inputs.get_pre_race_tyre_prediction",
+        lambda **_kwargs: prediction,
+    )
+
+    resolved = TyreInputService(tmp_path).resolve(2026, 12)
+
+    assert {row.selected_source for row in resolved.parameters} == {
+        "pre_race_prediction"
+    }
+    assert resolved.strategy_overrides() == pytest.approx({
+        ("degradation", "HARD"): .08,
+        ("degradation", "MEDIUM"): .13,
+        ("degradation", "SOFT"): .21,
+        ("compound_delta", "MEDIUM"): 0.0,
+        ("compound_delta", "HARD"): .42,
+        ("compound_delta", "SOFT"): -.36,
+    })
+
+
+def test_no_pre_race_artifact_supports_manual_only_and_reports_partial_missing(tmp_path):
+    service = TyreInputService(tmp_path)
+    empty = service.resolve(2099, 29)
+    assert [row.selected_value for row in empty.parameters] == [None] * 5
+
+    values = {name: (index + 1) / 100 for index, name in enumerate(TYRE_PARAMETERS)}
+    service.save_manual_inputs(2099, 29, values)
+    assert service.resolve(2099, 29).strategy_overrides() == pytest.approx({
+        ("degradation", "HARD"): .01,
+        ("degradation", "MEDIUM"): .02,
+        ("degradation", "SOFT"): .03,
+        ("compound_delta", "MEDIUM"): 0.0,
+        ("compound_delta", "HARD"): .04,
+        ("compound_delta", "SOFT"): .05,
+    })
+
+    service.clear_manual_value(2099, 29, "Perf_SOFT_vs_MEDIUM")
+    with pytest.raises(ValueError, match="Perf_SOFT_vs_MEDIUM"):
+        service.resolve(2099, 29).strategy_overrides()
+
+
+def test_effective_resolver_derives_from_observed_medium_and_override_uses_base(tmp_path):
+    write_prior(tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    resolved = service.resolve_tyre_inputs(2026, 11)
+    rows = []
+    for compound, degradation, delta in (
+        ("HARD", .9, .9), ("MEDIUM", .17, 0.0), ("SOFT", .8, -.8)
+    ):
+        rows.extend((
+            {"parameter": "degradation", "compound": compound, "median": degradation,
+             "usable_lap_count": 12, "support_status": "measured", "session": "R"},
+            {"parameter": "compound_delta", "compound": compound, "median": delta,
+             "usable_lap_count": 12, "support_status": "measured", "session": "R"},
+        ))
+    summary = ModelSummary(
+        {"analysis_id": "live", "as_of_leader_lap": 20,
+         "sampler_quality": {"architecture": "live-retro-v1",
+                             "observed_compounds": ["MEDIUM"]}},
+        tuple(rows),
+    )
+    base = resolved.strategy_overrides()
+
+    normal, _ = service.effective_tyre_inputs(summary, resolved, manual_override=False)
+    overridden, _ = service.effective_tyre_inputs(summary, resolved, manual_override=True)
+
+    assert normal[("degradation", "MEDIUM")] == pytest.approx(.17)
+    assert normal[("degradation", "HARD")] == pytest.approx(
+        .17 * base[("degradation", "HARD")] / base[("degradation", "MEDIUM")]
+    )
+    assert normal[("degradation", "SOFT")] == pytest.approx(
+        .17 * base[("degradation", "SOFT")] / base[("degradation", "MEDIUM")]
+    )
+    assert normal[("compound_delta", "HARD")] == base[("compound_delta", "HARD")]
+    assert normal[("compound_delta", "SOFT")] == base[("compound_delta", "SOFT")]
+    assert overridden == base
+
+
+def test_manual_only_base_supports_live_derivation_without_pre_race_artifact(tmp_path):
+    service = OfflineAnalysisService(tmp_path)
+    manual = {
+        "Deg_HARD": .08,
+        "Deg_MEDIUM": .10,
+        "Deg_SOFT": .18,
+        "Perf_HARD_vs_MEDIUM": .4,
+        "Perf_SOFT_vs_MEDIUM": -.5,
+    }
+    service.tyre_inputs.save_manual_inputs(2026, 11, manual)
+    resolved = service.resolve_tyre_inputs(2026, 11)
+    assert resolved.legacy_artifact is None
+    rows = []
+    for compound, degradation, delta in (
+        ("HARD", .20, .4), ("MEDIUM", .90, 0.0), ("SOFT", .90, -.5)
+    ):
+        rows.extend((
+            {"parameter": "degradation", "compound": compound,
+             "median": degradation, "usable_lap_count": 12,
+             "support_status": "measured", "session": "R"},
+            {"parameter": "compound_delta", "compound": compound,
+             "median": delta, "usable_lap_count": 12,
+             "support_status": "measured", "session": "R"},
+        ))
+    summary = ModelSummary(
+        {"analysis_id": "live", "as_of_leader_lap": 31,
+         "sampler_quality": {"architecture": "live-retro-v1",
+                             "observed_compounds": ["HARD"]}},
+        tuple(rows),
+    )
+    effective, assumptions = service.effective_tyre_inputs(
+        summary, resolved, manual_override=False
+    )
+    sources = {row["compound"]: row["degradation_source"] for row in assumptions}
+    assert effective[("degradation", "HARD")] == pytest.approx(.20)
+    assert effective[("degradation", "MEDIUM")] == pytest.approx(.25)
+    assert effective[("degradation", "SOFT")] == pytest.approx(.45)
+    assert sources == {
+        "SOFT": "live_derived", "MEDIUM": "live_derived", "HARD": "live_direct"
+    }
+    overridden, override_rows = service.effective_tyre_inputs(
+        summary, resolved, manual_override=True
+    )
+    assert overridden == resolved.strategy_overrides()
+    assert {row["degradation_source"] for row in override_rows} == {"base"}
+
+
+def test_strategy_model_does_not_invent_missing_compound_delta():
+    summary = ModelSummary(
+        {"analysis_id": "partial"},
+        (
+            {"parameter": "degradation", "compound": "SOFT", "median": .2},
+            {"parameter": "degradation", "compound": "MEDIUM", "median": .1},
+            {"parameter": "compound_delta", "compound": "MEDIUM", "median": 0.0},
+        ),
+    )
+    with pytest.raises(ValueError, match="both a delta and degradation"):
+        OfflineAnalysisService().build_strategy_model(summary)

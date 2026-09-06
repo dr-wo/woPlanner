@@ -84,8 +84,9 @@ woData.live -> live service -> live GUI
   `Time - LapStartTime`; cumulative time uses absolute lap-end time relative to
   the earliest race start when available, falling back to per-driver lap-time
   cumsum. For consecutive laps after a FastF1 track-status `5` red flag, it
-  removes the inactive interval that is present in absolute session timing but
-  absent from the measured restart-lap duration.
+  derives the inactive interval from the leading classified car and removes
+  that same race-wide offset from every driver. This preserves the raw restart
+  order while excluding suspension time from the plotted coordinate.
 - `standard.models` contains simple dataclasses only.
 - `standard.strategy_model` reads `woStrategy` cache artifacts and exposes prediction
   rows. It should not import GUI code.
@@ -306,10 +307,15 @@ the simulated line. In real-race adjusted mode, observed race-domain residuals
 are preserved, including physical SC/VSC-affected sectors that fall outside the
 leader-aligned shaded race status. Actual future pit stops do not leak into a
 no-pit simulation because their modelled pit-loss effect is included in
-the observed-strategy baseline and removed by the model delta. If a what-if pit
-is added on the same stop lap as an observed pit, that observed stop is treated
-as replaced: residual carry-over for the old observed pit-in and pit-out sectors
-is suppressed and the simulated pit uses the edit's designated pit loss.
+the observed-strategy baseline and removed by the model delta; residual beyond
+the configured normal or SC/VSC loss remains in the adjusted display. If a
+what-if pit is added on the same stop lap as an observed pit, that observed stop
+is treated as replaced: residual carry-over for the old observed pit-in and
+pit-out sectors is suppressed and the simulated pit uses the edit's designated
+pit loss.
+An explicit remove-observed-pit edit is different: its configured loss is split
+between the physical pit-in lap/S3 and pit-out lap/S1, and residual beyond that
+configured loss remains part of the real-race-adjusted display.
 
 The Strategy deltas dialog plots simulated cumulative time minus the selected
 reference cumulative time. Same-driver model delta is retained in separate

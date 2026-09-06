@@ -116,7 +116,7 @@ def test_fifo_policy_executes_every_request_in_submission_order():
     assert service.queue_depth == 0
 
 
-def test_fifo_failure_continues_with_later_requests():
+def test_fifo_failure_cancels_later_requests():
     service, executor = process_service(AnalysisQueuePolicy.FIFO_ALL)
     submit(service, 1)
     submit(service, 2)
@@ -126,14 +126,12 @@ def test_fifo_failure_continues_with_later_requests():
     executor.futures[1].set_exception(ValueError("V2 failed"))
     service.poll()
 
-    assert service.running_input_version == 3
+    assert service.running_input_version is None
     assert service.current_result_version == 1
     assert service.completed_version == 2
     assert "V2 failed" in service.last_error
 
-    executor.futures[2].set_result(completed(3))
-    service.poll()
-    assert service.current_result_version == 3
+    assert service.queue_depth == 0
 
 
 def test_stale_result_cannot_overwrite_newer_authoritative_model():

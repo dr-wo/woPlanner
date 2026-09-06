@@ -119,7 +119,7 @@ class LivePlannerService:
         reference_mode: str = REFERENCE_MODE_AVERAGED_PACE,
     ) -> pd.DataFrame:
         reference_mode = _normalize_reference_mode(reference_mode)
-        rows = self._plot_rows()
+        rows, sector_fractions, fraction_source = self._plot_rows(reference_driver)
         columns = [
             "driver", "team", "lap", "sector", "segment_index", "x_lap",
             "lap_time_s", "segment_time_s", "cumulative_time_s", "position", "plot_role",
@@ -135,6 +135,7 @@ class LivePlannerService:
             cumulative_column="cumulative_time_s",
             duration_column="segment_time_s",
             order_step=1 if self.snapshot.completed_sectors else 3,
+            priority_column="position",
         )
         reference = _reference_cumulative_time(
             plot_rows,
@@ -148,18 +149,27 @@ class LivePlannerService:
         self._last_plot_data = output.sort_values(
             ["driver", "segment_index"], kind="mergesort"
         ).reset_index(drop=True)
+        self._last_plot_data.attrs["sector_fraction_source"] = fraction_source
+        self._last_plot_data.attrs["sector_fractions"] = sector_fractions
         return self._last_plot_data
 
-    def _plot_rows(self) -> list[dict]:
+    def _plot_rows(
+        self, reference_driver: str
+    ) -> tuple[list[dict], dict[str, float], str]:
+        fractions, fraction_source = _sector_progress_fractions(
+            self.snapshot.completed_sectors, reference_driver
+        )
         if self.snapshot.completed_sectors:
-            return [
+            rows = [
                 {
                     "driver": sector.driver_code,
                     "team": sector.team,
                     "lap": sector.lap_number,
                     "sector": sector.sector,
                     "segment_index": sector.segment_index,
-                    "x_lap": _sector_x_for_lap(sector.lap_number, sector.sector),
+                    "x_lap": _sector_x_for_lap(
+                        sector.lap_number, sector.sector, fractions
+                    ),
                     "lap_time_s": pd.NA,
                     "segment_time_s": sector.sector_time_s,
                     "cumulative_time_s": sector.cumulative_time_s,
@@ -174,6 +184,26 @@ class LivePlannerService:
                 }
                 for sector in self.snapshot.completed_sectors
             ]
+            latest_sector_lap: dict[str, int] = {}
+            for sector in self.snapshot.completed_sectors:
+                latest_sector_lap[sector.driver_code] = max(
+                    latest_sector_lap.get(sector.driver_code, 0), sector.lap_number
+                )
+            rows.extend(
+                {
+                    "driver": lap.driver_code, "team": lap.team,
+                    "lap": lap.lap_number, "sector": "S3",
+                    "segment_index": lap.lap_number * 3, "x_lap": lap.lap_number,
+                    "lap_time_s": lap.lap_time_s, "segment_time_s": lap.lap_time_s,
+                    "cumulative_time_s": lap.cumulative_time_s, "position": lap.position,
+                    "compound": lap.compound, "tyre_age": lap.tyre_life, "stint": lap.stint,
+                    "plot_role": "actual", "scenario_id": pd.NA,
+                    "is_simulated": False, "is_faded": False,
+                }
+                for lap in self.snapshot.completed_laps
+                if lap.lap_number > latest_sector_lap.get(lap.driver_code, 0)
+            )
+            return rows, fractions, fraction_source
         return [
             {
                 "driver": lap.driver_code,
@@ -195,7 +225,7 @@ class LivePlannerService:
                 "is_faded": False,
             }
             for lap in self.snapshot.completed_laps
-        ]
+        ], fractions, fraction_source
 
     def build_driver_ranks(self) -> pd.DataFrame:
         drivers = self.available_drivers()
@@ -287,15 +317,52 @@ def _reference_cumulative_time(
         return pd.DataFrame(columns=["segment_index", "reference_cumulative_time_s"])
     if reference_mode == REFERENCE_MODE_AVERAGED_PACE:
         sector_averages = reference_rows.groupby("sector")["segment_time_s"].mean()
-        reference_rows["reference_segment_time_s"] = reference_rows["sector"].map(sector_averages)
-        reference_rows["reference_cumulative_time_s"] = pd.to_numeric(
-            reference_rows["reference_segment_time_s"], errors="coerce"
-        ).cumsum()
+        segment_indexes = sorted(plot_rows["segment_index"].dropna().astype(int).unique())
+        reference_rows = pd.DataFrame({"segment_index": segment_indexes})
+        reference_rows["sector"] = reference_rows["segment_index"].map(
+            lambda value: {1: "S1", 2: "S2", 0: "S3"}[int(value) % 3]
+        )
+        reference_rows["reference_cumulative_time_s"] = (
+            reference_rows["sector"].map(sector_averages).astype(float).cumsum()
+        )
     else:
         reference_rows["reference_cumulative_time_s"] = reference_rows["cumulative_time_s"]
     return reference_rows.loc[:, ["segment_index", "reference_cumulative_time_s"]]
 
 
-def _sector_x_for_lap(lap: int, sector: str) -> float:
-    sector_number = {"S1": 1, "S2": 2, "S3": 3}[str(sector)]
-    return int(lap) + (sector_number - 2) / 3.0
+def _sector_progress_fractions(
+    sectors, reference_driver: str
+) -> tuple[dict[str, float], str]:
+    """Use one fixed representative-lap geometry for the whole plot."""
+    complete: dict[tuple[str, int], dict[str, float]] = {}
+    for sector in sectors:
+        if float(sector.sector_time_s) <= 0:
+            continue
+        complete.setdefault((sector.driver_code, int(sector.lap_number)), {})[
+            str(sector.sector)
+        ] = float(sector.sector_time_s)
+    candidates = sorted(
+        (
+            (driver != str(reference_driver), lap, driver, values)
+            for (driver, lap), values in complete.items()
+            if all(name in values for name in ("S1", "S2", "S3"))
+        ),
+        key=lambda value: value[:3],
+    )
+    if candidates:
+        _other, _lap, _driver, values = candidates[0]
+        total = sum(values[name] for name in ("S1", "S2", "S3"))
+        if total > 0:
+            return {
+                "S1": values["S1"] / total,
+                "S2": (values["S1"] + values["S2"]) / total,
+                "S3": 1.0,
+            }, "reference_time_fraction"
+    return {"S1": 1.0 / 3.0, "S2": 2.0 / 3.0, "S3": 1.0}, "legacy_equal_thirds"
+
+
+def _sector_x_for_lap(
+    lap: int, sector: str, fractions: dict[str, float] | None = None
+) -> float:
+    boundaries = fractions or {"S1": 1.0 / 3.0, "S2": 2.0 / 3.0, "S3": 1.0}
+    return int(lap) - 1.0 + float(boundaries[str(sector)])

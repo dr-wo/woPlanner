@@ -29,7 +29,10 @@ from woplanner.analysis.service import (
     _live_traffic_gaps,
     _resolve_scheduled_total_laps,
 )
-from woplanner.analysis.gui import StrategyPredictionWindow, format_history_hover_text
+from woplanner.analysis.gui import (
+    StrategyPredictionWindow, format_history_hover_text,
+    tyre_history_source_segments,
+)
 from woplanner.analysis.worker import (
     AnalysisQueuePolicy,
     ModelSnapshot as PublishedModelSnapshot,
@@ -197,7 +200,7 @@ def test_history_hover_readings_use_hovered_compound_as_pace_reference():
     assert "HARD: degradation 0.060 s/lap | pace Δ +0.350 s" in text
 
 
-def test_strategy_assumptions_scale_only_uninformed_degradation():
+def test_strategy_assumptions_derive_uninformed_degradation_from_fixed_ratios():
     service = OfflineAnalysisService()
 
     def summary(statuses, degradation):
@@ -222,13 +225,15 @@ def test_strategy_assumptions_scale_only_uninformed_degradation():
             {"HARD": .50, "MEDIUM": .18, "SOFT": .60},
         ),
         baseline_degradation=baseline,
+        baseline_compound_delta={"HARD": .4, "MEDIUM": 0.0, "SOFT": -.4},
     )
     one = {row["compound"]: row for row in one}
     assert one["MEDIUM"]["degradation"] == .18
     assert one["HARD"]["degradation"] == pytest.approx(.09)
     assert one["SOFT"]["degradation"] == pytest.approx(.27)
-    assert one["MEDIUM"]["degradation_source"] == "race_evidence"
-    assert one["HARD"]["degradation_source"] == "relative_degradation_assumption"
+    assert one["MEDIUM"]["degradation_source"] == "live_direct"
+    assert one["HARD"]["degradation_source"] == "live_derived"
+    assert one["SOFT"]["degradation_anchor_compound"] == "MEDIUM"
 
     two = service.strategy_assumptions(
         summary(
@@ -236,11 +241,147 @@ def test_strategy_assumptions_scale_only_uninformed_degradation():
             {"HARD": .11, "MEDIUM": .19, "SOFT": .60},
         ),
         baseline_degradation=baseline,
+        baseline_compound_delta={"HARD": .4, "MEDIUM": 0.0, "SOFT": -.4},
     )
     two = {row["compound"]: row for row in two}
     assert two["HARD"]["degradation"] == pytest.approx(.11)
     assert two["MEDIUM"]["degradation"] == pytest.approx(.19)
-    assert two["SOFT"]["degradation"] == pytest.approx(.3075)
+    assert two["SOFT"]["degradation"] == pytest.approx(.285)
+    assert two["SOFT"]["degradation_source"] == "live_derived"
+    assert two["SOFT"]["degradation_anchor_compound"] == "MEDIUM"
+
+
+def test_hard_direct_scales_uninformed_compounds_from_initial_relationship():
+    rows = []
+    for compound, value in (("HARD", .20), ("MEDIUM", .90), ("SOFT", .90)):
+        rows.extend((
+            {"parameter": "degradation", "compound": compound, "median": value,
+             "usable_lap_count": 10, "session": "R",
+             "support_status": "race_informed" if compound == "HARD" else "prior_only"},
+            {"parameter": "compound_delta", "compound": compound, "median": 0.0,
+             "usable_lap_count": 10, "session": "R", "support_status": "prior_only"},
+        ))
+    assumptions = OfflineAnalysisService().strategy_assumptions(
+        ModelSummary({"analysis_id": "race"}, tuple(rows)),
+        baseline_degradation={"HARD": .08, "MEDIUM": .10, "SOFT": .18},
+        baseline_compound_delta={"HARD": .4, "MEDIUM": 0.0, "SOFT": -.4},
+    )
+    by_compound = {row["compound"]: row for row in assumptions}
+    assert by_compound["HARD"]["degradation"] == pytest.approx(.20)
+    assert by_compound["MEDIUM"]["degradation"] == pytest.approx(.25)
+    assert by_compound["SOFT"]["degradation"] == pytest.approx(.45)
+    assert by_compound["HARD"]["degradation_source"] == "live_direct"
+    assert by_compound["MEDIUM"]["degradation_source"] == "live_derived"
+    assert by_compound["SOFT"]["degradation_source"] == "live_derived"
+
+
+def test_live_window_updates_strategy_and_history_with_fixed_degradation_ratios(tmp_path):
+    service = OfflineAnalysisService(tmp_path)
+    service.tyre_inputs.save_manual_inputs(
+        2026, 5,
+        {
+            "Deg_HARD": .08, "Deg_MEDIUM": .10, "Deg_SOFT": .18,
+            "Perf_HARD_vs_MEDIUM": .4, "Perf_SOFT_vs_MEDIUM": -.5,
+        },
+    )
+    write_model_snapshot(
+        model_snapshot(), year=2026, round_number=5, data_root=tmp_path
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=service, auto_save_history=False
+    )
+
+    def live_summary(lap, observed, degradation):
+        rows = []
+        for compound in ("HARD", "MEDIUM", "SOFT"):
+            rows.extend((
+                {"parameter": "degradation", "compound": compound,
+                 "median": degradation[compound], "usable_lap_count": 12,
+                 "p10": degradation[compound] - .01,
+                 "p90": degradation[compound] + .01,
+                 "support_status": "measured", "session": "R"},
+                {"parameter": "compound_delta", "compound": compound,
+                 "median": {"HARD": .4, "MEDIUM": 0.0, "SOFT": -.5}[compound],
+                 "p10": {"HARD": .39, "MEDIUM": -.01, "SOFT": -.51}[compound],
+                 "p90": {"HARD": .41, "MEDIUM": .01, "SOFT": -.49}[compound],
+                 "usable_lap_count": 12, "support_status": "measured", "session": "R"},
+            ))
+        return ModelSummary(
+            {"analysis_id": f"live-{lap}", "as_of_leader_lap": lap,
+             "sampler_quality": {"architecture": "live-retro-v1",
+                                 "observed_compounds": list(observed), "ess": 100}},
+            tuple(rows),
+        )
+
+    window._load_model(
+        summary=live_summary(30, (), {"HARD": .9, "MEDIUM": .9, "SOFT": .9}),
+        record_history=True,
+    )
+    assert window._manual_overrides[("degradation", "HARD")] == pytest.approx(.08)
+    assert window._manual_overrides[("degradation", "MEDIUM")] == pytest.approx(.10)
+    assert window._manual_overrides[("degradation", "SOFT")] == pytest.approx(.18)
+
+    window._load_model(
+        summary=live_summary(31, ("HARD",),
+                             {"HARD": .20, "MEDIUM": .9, "SOFT": .9}),
+        record_history=True,
+    )
+    assert window._manual_overrides[("degradation", "HARD")] == pytest.approx(.20)
+    assert window._manual_overrides[("degradation", "MEDIUM")] == pytest.approx(.25)
+    assert window._manual_overrides[("degradation", "SOFT")] == pytest.approx(.45)
+
+    # Changing the resolved base later must not redefine the session's ratios.
+    service.tyre_inputs.save_manual_inputs(
+        2026, 5,
+        {
+            "Deg_HARD": .10, "Deg_MEDIUM": .20, "Deg_SOFT": .30,
+            "Perf_HARD_vs_MEDIUM": .4, "Perf_SOFT_vs_MEDIUM": -.5,
+        },
+    )
+    window._load_model(
+        summary=live_summary(64, ("HARD", "MEDIUM"),
+                             {"HARD": .21, "MEDIUM": .24, "SOFT": .9}),
+        record_history=True,
+    )
+    assert window._manual_overrides[("degradation", "HARD")] == pytest.approx(.21)
+    assert window._manual_overrides[("degradation", "MEDIUM")] == pytest.approx(.24)
+    assert window._manual_overrides[("degradation", "SOFT")] == pytest.approx(.432)
+
+    window._load_model(
+        summary=live_summary(65, ("HARD", "MEDIUM", "SOFT"),
+                             {"HARD": .22, "MEDIUM": .23, "SOFT": .39}),
+        record_history=True,
+    )
+    assert window._manual_overrides[("degradation", "SOFT")] == pytest.approx(.39)
+    sources = {
+        (int(row["as_of_leader_lap"]), str(row["compound"])):
+        row["degradation_source"]
+        for row in window._working_plot_rows
+        if row["parameter"] == "degradation"
+    }
+    assert {sources[(30, compound)] for compound in ("HARD", "MEDIUM", "SOFT")} == {"base"}
+    assert sources[(31, "HARD")] == "live_direct"
+    assert sources[(31, "MEDIUM")] == "live_derived"
+    assert sources[(31, "SOFT")] == "live_derived"
+    assert sources[(64, "MEDIUM")] == "live_direct"
+    assert sources[(64, "SOFT")] == "live_derived"
+    assert {sources[(65, compound)] for compound in ("HARD", "MEDIUM", "SOFT")} == {"live_direct"}
+    plotted = {
+        item.name(): item for item in window.degradation_history_plot.listDataItems()
+    }
+    assert plotted["SOFT — base"].opts["pen"].style() == QtCore.Qt.PenStyle.DashLine
+    assert plotted["SOFT — base"].opts["symbol"] is None
+    derived = plotted["SOFT — live-derived"]
+    assert derived.opts["pen"].style() == QtCore.Qt.PenStyle.DashLine
+    assert derived.opts["symbol"] == "o"
+    assert derived.opts["symbolBrush"] is None
+    direct = plotted["SOFT — live-direct"]
+    assert direct.opts["pen"].style() == QtCore.Qt.PenStyle.SolidLine
+    assert direct.opts["symbol"] == "o"
+    assert direct.opts["symbolBrush"] is not None
+    window.close()
+    app.processEvents()
 
 
 def test_history_hover_clear_hides_label_cursor_and_selection(tmp_path):
@@ -341,6 +482,20 @@ def test_service_loads_canonical_model_generates_and_persists_top_ten(tmp_path):
     assert len(saved) == 7
     assert len({result.plan.compounds for result in results}) == len(results)
     assert saved[0]["model_analysis_id"] == "a1"
+
+
+def test_service_rules_compliant_option_requires_two_dry_compounds(tmp_path):
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    state = StrategySearchState(0, 12, "MEDIUM", 0, selected_driver=None, max_future_stops=2)
+
+    results = service.generate_continuations(
+        year=2026, round_number=5, state=state, pit_loss=2.0, k=10,
+        rules_compliant=True, persist=False,
+    )
+
+    assert results
+    assert all(len(set(result.plan.compounds)) >= 2 for result in results)
 
 
 def test_service_enforces_three_pinned_comparisons():
@@ -724,11 +879,11 @@ class _FakeTelemetryWorker:
     def set_bounded_replay_mc_pipeline_capacity_probe(self, probe):
         self.capacity_probes.append(probe)
 
-    def poll_analysis_inputs(self):
+    def poll_analysis_inputs(self, *, max_results=None):
         return ()
 
 
-def test_replay_window_bounds_analysis_ahead_without_enabling_live_throttle(tmp_path):
+def test_replay_window_does_not_throttle_race_state_on_mc_backlog(tmp_path):
     write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     telemetry = _FakeTelemetryWorker()
@@ -740,7 +895,7 @@ def test_replay_window_bounds_analysis_ahead_without_enabling_live_throttle(tmp_
         telemetry_worker=telemetry,
     )
 
-    assert callable(telemetry.capacity_probes[-1])
+    assert telemetry.capacity_probes[-1] is None
     window.configure_session_context(
         persistence_mode="durable",
         state_directory=tmp_path / "live",
@@ -1120,3 +1275,144 @@ def test_named_snapshot_writes_durable_bundle(tmp_path):
     assert service.load_history_plot(plots[0]["path"])["parameter_history"][0][
         "as_of_leader_lap"
     ] == 5
+
+
+def test_strategy_search_captures_latest_live_race_state(tmp_path, monkeypatch):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    snapshot = LiveSessionSnapshot(
+        MappingProxyType({}), "Started",
+        (LiveDriver("1", "AAA", "Team", "A Driver", 1, None),),
+        (CompletedLap(
+            "1", "AAA", "Team", 12, 88.0, 1056.0, 1, None,
+            "SOFT", 5.0, 2, False,
+        ),),
+        MappingProxyType({"1": 1}), None, scheduled_total_laps=72,
+    )
+    window._last_seen_leader_lap = 12
+    window.consume_live_snapshot(snapshot)
+    captured = {}
+    pending = Future()
+
+    def submit(_function, **kwargs):
+        captured.update(kwargs)
+        return pending
+
+    monkeypatch.setattr(window._executor, "submit", submit)
+    window._start_search()
+
+    state = captured["state"]
+    assert state.current_completed_lap == 12
+    assert state.current_compound == "SOFT"
+    assert state.current_tyre_age == 4
+    assert state.total_laps == 72
+    assert window._strategy_request_context == window._current_strategy_context()
+    pending.cancel()
+    window._future = None
+    window.close()
+    app.processEvents()
+
+
+def test_replay_model_config_is_generated_from_existing_resolved_settings(tmp_path, monkeypatch):
+    from wostrategy.core.race_performance_settings import ResolvedRacePerformanceSettings
+    settings = {
+        "sample_count": 5000, "fuel_rate_bounds": [0, .1],
+        "track_rate_bounds": [-.05, .05],
+        "default_compound_degradation_bounds": [0, .5],
+        "default_compound_delta_bounds": [-1, 1],
+        "compound_delta_reference": "HARD",
+    }
+    monkeypatch.setattr(
+        "woplanner.analysis.service.resolve_race_performance_settings",
+        lambda **_kwargs: ResolvedRacePerformanceSettings(settings, "test", tmp_path / "settings.json"),
+    )
+    service = OfflineAnalysisService(tmp_path)
+    config, source = service.resolve_live_model_config(
+        2026, 12, replay_directory=tmp_path / "replay"
+    )
+    assert config["sample_count"] == 5000
+    assert config["random_seed"]
+    assert "settings builder" in source
+    assert (tmp_path / "replay/replay_model_config.json").is_file()
+
+
+def test_replay_model_config_fails_before_analysis_when_unresolvable(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "woplanner.analysis.service.resolve_race_performance_settings",
+        lambda **_kwargs: None,
+    )
+    service = OfflineAnalysisService(tmp_path)
+    with pytest.raises(ValueError, match="Run pre_race_analysis"):
+        service.resolve_live_model_config(2026, 12, replay_directory=tmp_path / "replay")
+
+
+def test_tyre_history_segments_transition_each_coordinate_once():
+    rows = []
+    def add(lap, parameter, compound, value, source):
+        row = {"source_scope": "aggregate", "as_of_leader_lap": lap,
+               "parameter": parameter, "compound": compound, "median": value}
+        row["degradation_source" if parameter == "degradation" else "compound_delta_source"] = source
+        rows.append(row)
+    add(0, "degradation", "SOFT", .30, "pre_race_baseline")
+    add(6, "degradation", "SOFT", .24, "pre_race_estimate")
+    add(12, "degradation", "SOFT", .28, "race_evidence")
+    add(20, "degradation", "SOFT", .27, "race_evidence")
+    add(0, "degradation", "HARD", .10, "pre_race_baseline")
+    add(20, "degradation", "HARD", .09, "race_evidence")
+    add(0, "compound_delta", "SOFT", -.5, "resolved_pre_race_baseline")
+    add(12, "compound_delta", "SOFT", -.4, "race_evidence")
+    add(20, "compound_delta", "SOFT", -.35, "race_evidence")
+    add(0, "compound_delta", "MEDIUM", -.2, "resolved_pre_race_baseline")
+    segments = tyre_history_source_segments(rows)
+
+    assert segments[("degradation", "SOFT")] == (
+        {
+            "source": "base",
+            "points": ((0, .30), (6, .24), (12, .28)),
+        },
+        {"source": "live_direct", "points": ((12, .28), (20, .27))},
+    )
+    assert segments[("degradation", "HARD")][0]["points"][-1] == (20, .09)
+    assert segments[("compound_delta", "MEDIUM")] == (
+        {"source": "base", "points": ((0, -.2), (20, -.2))},
+    )
+
+
+def test_degradation_history_has_base_derived_direct_segments_without_stale_tail():
+    rows = [
+        {"source_scope": "aggregate", "as_of_leader_lap": 0,
+         "parameter": "degradation", "compound": "SOFT", "median": .18,
+         "degradation_source": "base"},
+        {"source_scope": "aggregate", "as_of_leader_lap": 31,
+         "parameter": "degradation", "compound": "SOFT", "median": .45,
+         "degradation_source": "live_derived"},
+        {"source_scope": "aggregate", "as_of_leader_lap": 40,
+         "parameter": "degradation", "compound": "SOFT", "median": .42,
+         "degradation_source": "live_derived"},
+        {"source_scope": "aggregate", "as_of_leader_lap": 65,
+         "parameter": "degradation", "compound": "SOFT", "median": .39,
+         "degradation_source": "live_direct", "degradation_race_informed": True},
+        {"source_scope": "aggregate", "as_of_leader_lap": 66,
+         "parameter": "degradation", "compound": "SOFT", "median": .38,
+         "degradation_source": "live_direct", "degradation_race_informed": True},
+    ]
+    assert tyre_history_source_segments(rows)[("degradation", "SOFT")] == (
+        {"source": "base", "points": ((0, .18), (31, .45))},
+        {"source": "live_derived", "points": ((31, .45), (40, .42), (65, .39))},
+        {"source": "live_direct", "points": ((65, .39), (66, .38))},
+    )
+    assert "SOFT: degradation 0.450 s/lap [live_derived]" in format_history_hover_text(
+        rows, leader_lap=31, reference_compound="MEDIUM"
+    )
+
+
+def test_tyre_history_does_not_fabricate_missing_compound_delta():
+    rows = [{"source_scope": "aggregate", "as_of_leader_lap": 10,
+             "parameter": "degradation", "compound": "HARD", "median": .1,
+             "degradation_source": "race_evidence"}]
+    segments = tyre_history_source_segments(rows)
+    assert ("compound_delta", "HARD") not in segments

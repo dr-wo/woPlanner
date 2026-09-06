@@ -391,11 +391,12 @@ class QualiLiveService:
     def _update_track_from_part(self, part: str, *, live: bool = False) -> None:
         values = self._part_push_laps.get(part, [])
         try:
-            from wostrategy.analysis.pre_quali import (
-                estimate_push_sequence_track_progression,
+            from wostrategy.analysis.live_qualifying import (
+                calculate_live_qualifying_track_evolution,
             )
 
-            rate = estimate_push_sequence_track_progression(values)
+            estimate = calculate_live_qualifying_track_evolution(values)
+            rate = estimate.rate_s_per_field_push
         except ValueError:
             self._track_estimates[part] = (None, len(values), "insufficient_support")
             return

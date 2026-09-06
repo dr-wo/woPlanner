@@ -55,6 +55,10 @@ Hovering near a Live curve highlights the driver and shows driver, lap, sector,
 cumulative delta, compound, and tyre age. Incremental `TimingAppData` is retained
 by the shared reducer: compound changes are drawn as colour-coded tyre markers,
 and the start/current rank lists include compact compound and tyre-age labels.
+Tyre markers are reconstructed from the current authoritative lap history after
+every Cumulative Delta redraw. Consequently, a known stint change remains on the
+plot as later laps arrive, after pan/zoom or Auto range, and after live-session
+recovery; a corrected compound assignment replaces the corresponding marker.
 Live and standard mode share the same detailed hover matching. Clicking a live
 curve selects and emphasises that driver without changing the top-bar reference.
 Both modes use the common curve-click binding, hover-label overlay, pit-window
@@ -146,6 +150,15 @@ Hovering never changes the stored model values. Left-clicking opens **Use lap N 
 calculation**, which copies that lap's degradation and compound-delta values into
 the editable **Used** inputs and opens the Strategy predictions tab.
 
+Degradation keeps the session's initial HARD/MEDIUM/SOFT ratios fixed. Before
+any compound is directly informed it uses its resolved base value. Once a live
+MC result directly informs a compound, uninformed compounds are derived from
+that live scale and the fixed initial ratios; directly informed MEDIUM is the
+preferred scale anchor. History renders base as dashed, live-derived as
+dashed with hollow markers, and live-direct as solid with filled markers. This
+resolver supplies Strategy Prediction as well as the chart. Compound delta is
+not ratio-derived and retains its independent base-to-direct behaviour.
+
 The Live recalculation page's **Clean-lap details** dialog exposes required
 tyre/stint metadata, allowed compounds, driver-relative quick-lap threshold,
 consecutive-run minimum, run-start/end exclusions, and configurable clear-ahead
@@ -175,6 +188,8 @@ not automatically update Strategy values.
 The **Strategy predictions** tab shows the exact tyre inputs used by the search.
 The Tyre Inputs tab is the authoritative editor for the persisted pre-race
 baseline; current Race-informed values continue to follow live/replay inference.
+With **Manual Override** enabled, both direct and derived live degradation are
+ignored and the resolved manual/pre-race/default values are used unchanged.
 Physical-order checks are advisory only and never reorder or clamp manual values.
 Baseline is displayed as seconds relative to the quickest compound, where
 `0.0000` is quickest.
@@ -298,8 +313,12 @@ If the selected reference driver has an active simulation, all plotted deltas
 are recalculated against that simulated reference trajectory.
 
 The observed strategy baseline includes future real pit losses. When a real pit
-is removed, its pit-loss estimate remains in the modelled observed-strategy
-baseline, but is not added to the simulated no-pit strategy.
+is removed, the dialog's pit-loss estimate replaces the default loss in the
+modelled observed-strategy baseline, but is not added to the simulated no-pit
+strategy. In real-race-adjusted mode, any observed residual beyond that entered
+loss is retained rather than treating the full observed pit sequence as pit loss.
+The same residual retention applies when an earlier what-if stop causes a later
+real stop to be skipped; SC/VSC pit loss is removed through the model delta.
 
 Adding a what-if pit on the same lap as an observed stop is treated as replacing
 that observed stop: the old observed pit residual is removed from the pit-in and

@@ -16,6 +16,10 @@ from wostrategy import (
     load_fp_tyre_evidence,
     local_fp_tyre_evidence_status,
 )
+from wostrategy.analysis.pre_race_tyre_prediction import (
+    MissingPreRaceTyrePrediction,
+    get_pre_race_tyre_prediction,
+)
 
 
 MANUAL_TYRE_INPUT_SCHEMA_VERSION = 1
@@ -39,10 +43,10 @@ PARAMETER_UNITS = {
 @dataclass(frozen=True)
 class ResolvedTyreInput:
     parameter: str
-    selected_value: float
+    selected_value: float | None
     selected_source: str
     manual_value: float | None
-    legacy_value: float
+    legacy_value: float | None
     fp_direct_value: float | None
     fp_direct_support: str | None
     relevant_fp_contrast: str | None
@@ -58,8 +62,8 @@ class ResolvedTyreInputs:
     year: int
     round_number: int
     resolved_at: str
-    legacy_source_analysis_id: str
-    legacy_artifact: str
+    legacy_source_analysis_id: str | None
+    legacy_artifact: str | None
     fp_evidence_analysis_id: str | None
     parameters: tuple[ResolvedTyreInput, ...]
     content_hash: str
@@ -69,13 +73,19 @@ class ResolvedTyreInputs:
 
     def strategy_overrides(self) -> dict[tuple[str, str], float]:
         values = self.by_parameter()
+        missing = [
+            name for name in TYRE_PARAMETERS
+            if values[name].selected_value is None
+        ]
+        if missing:
+            raise ValueError("Missing required tyre inputs: " + ", ".join(missing))
         return {
-            ("degradation", "HARD"): values["Deg_HARD"].selected_value,
-            ("degradation", "MEDIUM"): values["Deg_MEDIUM"].selected_value,
-            ("degradation", "SOFT"): values["Deg_SOFT"].selected_value,
+            ("degradation", "HARD"): float(values["Deg_HARD"].selected_value),
+            ("degradation", "MEDIUM"): float(values["Deg_MEDIUM"].selected_value),
+            ("degradation", "SOFT"): float(values["Deg_SOFT"].selected_value),
             ("compound_delta", "MEDIUM"): 0.0,
-            ("compound_delta", "HARD"): values["Perf_HARD_vs_MEDIUM"].selected_value,
-            ("compound_delta", "SOFT"): values["Perf_SOFT_vs_MEDIUM"].selected_value,
+            ("compound_delta", "HARD"): float(values["Perf_HARD_vs_MEDIUM"].selected_value),
+            ("compound_delta", "SOFT"): float(values["Perf_SOFT_vs_MEDIUM"].selected_value),
         }
 
     def as_dict(self) -> dict[str, object]:
@@ -220,7 +230,9 @@ class TyreInputService:
 
     def resolve(self, year: int, round_number: int) -> ResolvedTyreInputs:
         manual = self.load_manual_inputs(year, round_number)
-        legacy, source_id, legacy_path = self._legacy_values(year, round_number)
+        defaults, default_sources, source_id, default_path = self._default_values(
+            year, round_number
+        )
         cache = self.get_cached_fp_tyre_evidence(year, round_number)
         evidence = cache.evidence or {}
         direct = {
@@ -241,28 +253,34 @@ class TyreInputService:
         rows = []
         for parameter in TYRE_PARAMETERS:
             manual_value = manual[parameter]
-            selected_source = "manual" if manual_value is not None else "legacy_fp_derived"
-            selected = manual_value if manual_value is not None else legacy[parameter]
+            selected_source = (
+                "manual" if manual_value is not None
+                else default_sources[parameter] if defaults[parameter] is not None
+                else "missing"
+            )
+            selected = manual_value if manual_value is not None else defaults[parameter]
             performance = direct.get(parameter, {})
             contrast_name = relevant[parameter]
             contrast = contrasts.get(contrast_name or "", {})
             if parameter.startswith("Deg_"):
                 limitation = (
-                    "Absolute legacy degradation shares the Fuel/common-D gauge. "
+                    "Absolute default degradation shares the Fuel/common-D gauge. "
                     "FP contrast evidence is advisory only."
                 )
             else:
                 limitation = str(
                     performance.get("limitation")
-                    or "Legacy performance has zero/negligible likelihood sensitivity."
+                    or "Default performance has zero/negligible likelihood sensitivity."
                 )
             rows.append(
                 ResolvedTyreInput(
                     parameter=parameter,
-                    selected_value=float(selected),
+                    selected_value=None if selected is None else float(selected),
                     selected_source=selected_source,
                     manual_value=manual_value,
-                    legacy_value=float(legacy[parameter]),
+                    legacy_value=(
+                        None if defaults[parameter] is None else float(defaults[parameter])
+                    ),
                     fp_direct_value=(
                         None if performance.get("fp_direct_value") is None
                         else float(performance["fp_direct_value"])
@@ -292,7 +310,7 @@ class TyreInputService:
             round_number=int(round_number),
             resolved_at=datetime.now(timezone.utc).isoformat(),
             legacy_source_analysis_id=source_id,
-            legacy_artifact=str(legacy_path),
+            legacy_artifact=None if default_path is None else str(default_path),
             fp_evidence_analysis_id=(
                 str(evidence.get("analysis_id")) if evidence.get("analysis_id") else None
             ),
@@ -303,22 +321,56 @@ class TyreInputService:
     def physical_order_warnings(self, resolved: ResolvedTyreInputs) -> tuple[str, ...]:
         values = {row.parameter: row.selected_value for row in resolved.parameters}
         warnings = []
-        if values["Deg_HARD"] > values["Deg_MEDIUM"]:
+        if values["Deg_HARD"] is not None and values["Deg_MEDIUM"] is not None and values["Deg_HARD"] > values["Deg_MEDIUM"]:
             warnings.append("HARD degradation is greater than MEDIUM degradation.")
-        if values["Deg_MEDIUM"] > values["Deg_SOFT"]:
+        if values["Deg_MEDIUM"] is not None and values["Deg_SOFT"] is not None and values["Deg_MEDIUM"] > values["Deg_SOFT"]:
             warnings.append("MEDIUM degradation is greater than SOFT degradation.")
-        if values["Perf_HARD_vs_MEDIUM"] < 0:
+        if values["Perf_HARD_vs_MEDIUM"] is not None and values["Perf_HARD_vs_MEDIUM"] < 0:
             warnings.append("HARD is entered quicker than MEDIUM.")
-        if values["Perf_SOFT_vs_MEDIUM"] > 0:
+        if values["Perf_SOFT_vs_MEDIUM"] is not None and values["Perf_SOFT_vs_MEDIUM"] > 0:
             warnings.append("SOFT is entered slower than MEDIUM.")
         return tuple(warnings)
+
+    def _default_values(self, year: int, round_number: int):
+        values = {parameter: None for parameter in TYRE_PARAMETERS}
+        sources = {parameter: "missing" for parameter in TYRE_PARAMETERS}
+        source_id = None
+        source_path = None
+        try:
+            prediction = get_pre_race_tyre_prediction(
+                season=year,
+                round_number=round_number,
+                data_root=self.data_root,
+            )
+        except MissingPreRaceTyrePrediction:
+            prediction = None
+        if prediction is not None:
+            for compound, item in prediction.compounds.items():
+                compound = str(compound).upper()
+                if compound in {"HARD", "MEDIUM", "SOFT"}:
+                    values[f"Deg_{compound}"] = float(item.degradation_seconds_per_lap)
+                    sources[f"Deg_{compound}"] = "pre_race_prediction"
+                if compound == "HARD":
+                    values["Perf_HARD_vs_MEDIUM"] = float(item.performance_delta_to_medium)
+                    sources["Perf_HARD_vs_MEDIUM"] = "pre_race_prediction"
+                elif compound == "SOFT":
+                    values["Perf_SOFT_vs_MEDIUM"] = float(item.performance_delta_to_medium)
+                    sources["Perf_SOFT_vs_MEDIUM"] = "pre_race_prediction"
+            source_id = prediction.artifact_id
+            source_path = dict(prediction.provenance).get("path")
+        legacy, legacy_id, legacy_path = self._legacy_values(year, round_number)
+        for parameter, value in legacy.items():
+            if values[parameter] is None:
+                values[parameter] = value
+                sources[parameter] = "legacy_fp_derived"
+        if source_id is None:
+            source_id, source_path = legacy_id, legacy_path
+        return values, sources, source_id, source_path
 
     def _legacy_values(self, year: int, round_number: int):
         path = weekend_model_root(year, round_number, self.data_root) / "pre_race_prior_v1.json"
         if not path.is_file():
-            raise ValueError(
-                f"No {MANUAL_TYRE_INPUT_FILENAME} value and no legacy pre-race artifact at {path}."
-            )
+            return {}, None, None
         with path.open(encoding="utf-8") as handle:
             payload = json.load(handle)
         degradation = dict(payload.get("degradation") or {})
