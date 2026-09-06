@@ -129,6 +129,20 @@ latest compatible resolved race-review settings when available, otherwise from
 the pre-race model configuration, and remains editable. The value shown in the UI
 is passed explicitly to recalculation and therefore wins over a stored value.
 
+**Rules compliant** is an opt-in filter for dry strategy searches. When checked,
+every returned plan must use at least two distinct compounds from SOFT, MEDIUM,
+and HARD across the complete strategy, including the current stint during an
+in-race continuation. It can therefore return fewer rows than the requested
+result count, or no result when the remaining laps/stops cannot satisfy the
+constraint. Unchecked retains the unrestricted historical search behavior.
+
+The label is intentionally a narrow convenience rather than a complete sporting-
+regulations engine. It implements only the two-distinct-dry-compound constraint;
+it does not infer wet-race exemptions, tyre-set availability, event-specific
+mandates, race-control declarations, or other legality conditions. This keeps the
+deterministic optimizer independent of incomplete live sporting context, at the
+cost of requiring the user to decide when the checkbox is applicable.
+
 Resolved fitting settings use this precedence: successful event cache metadata,
 event-specific `latest_resolved_settings.json`, global
 `latest_resolved_settings.json`, then the pre-race model configuration. The first

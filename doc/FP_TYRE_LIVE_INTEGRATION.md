@@ -102,6 +102,14 @@ The values in the Tyre Inputs **Selected** column are converted once to the
 existing MEDIUM-reference override structure and passed unchanged into exact
 strategy search. Downstream code does not resolve manual-versus-legacy again.
 
+The Strategy Prediction **Rules compliant** checkbox is orthogonal to tyre-input
+resolution. It passes `minimum_distinct_dry_compounds=2` to the exact search and
+filters complete plans, counting the current compound for an in-race
+continuation. It defaults off for backward compatibility. The compromise is
+explicit: this is only a dry-compound-count rule, not a complete legality model;
+wet-weather exemptions, available tyre sets, race-control state and other
+event-specific regulations remain outside woPlanner's current inputs.
+
 At lap zero the resolved package is the pre-race model. During a Race, existing
 `strategy_assumptions` logic remains authoritative:
 
