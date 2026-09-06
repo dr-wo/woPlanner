@@ -1,6 +1,6 @@
 # FP Tyre Inputs and Live/Replay Debugging
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-09-06
 
 This document is the durable woPlanner handoff for the FP tyre integration and
 the current live/replay calculation pipeline. It records the boundaries,
@@ -156,13 +156,49 @@ ineligible.
   an intermediate unstarted update;
 - replay uses FIFO-all because every leader-lap result is part of the diagnostic
   history;
-- replay is bounded by telemetry high/low watermarks (256/128 by default) and at
-  most one queued MC request behind the running request;
-- source backpressure pauses replay rather than dropping telemetry or leader-lap
-  updates.
+- raw telemetry reduction retains its high/low watermarks (256/128 by default),
+  while the prepared-result handoff and MC process lane are separately bounded;
+- by default there is at most one prepared handoff and one queued MC request;
+- MC capacity does not pause replay-state production. Race timing, Cumulative
+  Delta and other state-driven views can reach the current lap while historical
+  MC cuts catch up;
+- the UI exposes the number of lightweight historical cuts awaiting preparation.
 
 These queue policies are semantic. Do not replace replay FIFO with coalescing to
 improve apparent speed; that changes the output history.
+
+The deliberate compromise is latency rather than history loss. A max-speed full
+race replay can finish visually many minutes before all historical recalculations
+complete. Bounding large prepared snapshots prevents memory growth without
+coupling MC throughput back into the GUI/replay clock.
+
+## Cumulative Delta geometry and retirement reference
+
+Sector points use a single fixed geometry for the complete session. Preferred
+geometry is cumulative physical sector-boundary distance divided by lap distance,
+but `LiveSessionSnapshot` and `CompletedSector` currently expose no such boundary
+metadata. The implemented fallback derives fractions from the earliest complete
+lap of the selected reference driver, or the earliest complete lap of another
+driver if necessary:
+
+```text
+S1 = reference S1 / reference lap time
+S2 = (reference S1 + reference S2) / reference lap time
+S3 = 1.0
+```
+
+Equal thirds are used only when no complete representative lap exists. Fractions
+are stored in plot-data attributes with source `reference_time_fraction` or
+`legacy_equal_thirds`; they are never recalculated per driver or per lap. Under
+the completed-lap coordinate convention, lap N occupies X=`N-1` through X=`N`.
+
+In averaged-reference mode, only the selected driver's positive observed sector
+times contribute. Its mean S1, S2 and S3 are repeated through the complete plot
+timeline, including after retirement. The population never changes, so retirement
+introduces no reference-definition jump. The compromise is that
+`CompletedSector` does not carry pit, SC/VSC, lapping or validity flags: those
+conditions cannot be filtered independently here, and all positive selected-
+driver sectors participate. Live and Replay share this service definition.
 
 ## Race model and scheduled distance
 
@@ -238,9 +274,65 @@ directory rather than the repository root.
   fully faithful informative Race prior.
 - Current cross-process consistency is refresh-boundary based, not instantaneous.
 - Strategy projection still does not model overtaking, lapping or traffic.
+- Live sector-distance metadata is unavailable, so Cumulative Delta uses fixed
+  reference-lap time fractions rather than true physical distance fractions.
+- Replay preserves every causal MC cut. Full-history catch-up can consequently
+  remain substantially slower than the already completed visual replay.
 
 Production code must not depend on `temp/`, `tools/`, prototype modules, or
 diagnostic CSV output.
+
+## R12 replay and visualisation closure
+
+The canonical 2026 R12 recovered replay was rerun on 2026-09-06. Recovery still
+produces leader lap 72, 1,343 completed laps, 4,002 completed sectors and 188
+clean laps. Race state and Cumulative Delta reached lap 72 in approximately
+28.5 seconds at maximum replay speed. The lossless MC tail completed in
+approximately 696.3 seconds and published its final successful result for leader
+lap 72. The apparent lap-39-to-45 freeze no longer occurs; normal race-state lap
+advancement remained below roughly one second after startup while the backlog
+was visible separately.
+
+Profiling showed that MC sampling was not the stall source: after process startup
+the MC operation normally took about 0.08–0.13 seconds. Historical physical
+traffic-gap reconstruction during MC-input preparation grew to several seconds
+per cut and dominated total catch-up time. The chosen fix preserves the 5,000
+configured samples, clean-lap rules, tyre precedence and every causal historical
+result. It accepts a long asynchronous tail and bounds large handoff objects
+instead of reducing inference work or coalescing history.
+
+R12 has no physical sector-boundary distances in its live snapshot. Its fixed
+reference-time fractions are S1=`0.2183413557`, S2=`0.5434953773`, S3=`1.0`.
+The resulting plot reaches lap 72. A focused STR retirement regression verifies
+that the same selected-driver sector increments continue immediately before and
+after retirement rather than switching reference population.
+
+The saved R12 tyre history validates these direct source changes:
+
+| Coordinate | Initial value | First direct live lap | First direct value |
+| --- | ---: | ---: | ---: |
+| SOFT degradation | 0.830 | 65 | 0.385815 |
+| MEDIUM degradation | 0.070 | 64 | 0.259445 |
+| HARD degradation | 0.045 | 31 | 0.217373 |
+| SOFT compound delta | -0.160 | 65 | -0.711407 |
+| MEDIUM compound delta | 0.000 | 64 | -0.672437 |
+| HARD compound delta | 0.450 | 31 | 0.000000 |
+
+Base and ratio-derived degradation remain visually distinct: base and derived
+segments are dashed (derived uses hollow markers), while direct Race evidence is
+solid with filled markers. This is a deliberate extra state beyond a binary
+prior/live legend because a ratio-derived value is Race-informed but is not a
+direct observation for that compound. Compound delta has only dashed-base and
+solid-direct states. Old segments stop at the first point of the next source;
+they do not persist beneath it.
+
+The full woPlanner suite closes at 172 passed and the same 18 failing standard-
+planner tests seen at clean `bff2263` and its parent. Seventeen also fail at
+`5bb4f41`, before live-planner integration. They cover older lap-level fixtures
+versus sector-expanded output, pit-default precedence, a now-required sample
+parameter artifact and incomplete strategy-model test doubles. None was caused
+by the R12 Replay/visualisation changes, so repairing them remains outside this
+focused change.
 
 ## R13 live closure validation
 
@@ -282,8 +374,9 @@ stale or missing overlays. Preventing plot clears or creating unmanaged permanen
 items was rejected because either would weaken the existing redraw/range
 lifecycle.
 
-The live/replay queue compromise remains unchanged: Live is latest-wins for
-unstarted analysis, while Replay is causal FIFO with high/low-watermark
-backpressure. Historical max-speed Replay can therefore take longer to catch up;
+The live/replay queue compromise is shared by R12 and R13: Live is latest-wins
+for unstarted analysis, while Replay is causal FIFO. Raw telemetry still uses
+high/low-watermark flow control, but MC backlog no longer controls the replay
+source. Historical max-speed Replay can therefore take longer to catch up;
 intermediate causal results are not dropped and the GUI remains decoupled from
 the CPU-heavy worker.

@@ -67,6 +67,14 @@ the same grey normal and SC/VSC pit-loss windows in either mode; the **Pit** and
 **SC/VSC** inputs control their widths. Applied ranges remain fixed across timing
 updates and **Auto range** resumes data-driven bounds.
 
+Live Cumulative Delta uses one fixed intra-lap geometry for every driver and
+lap. The current live snapshot has no circuit sector-distance boundaries, so it
+uses the selected reference driver's earliest complete lap to derive cumulative
+S1/S2/S3 time fractions; equal thirds are the final fallback. The averaged
+reference uses the selected driver's positive observed mean time for each sector
+and repeats those same three means after that driver retires. It does not switch
+to a surviving-driver population.
+
 To replay a completed archive, click **Browse**, select
 `merged_replay_v1.jsonl` from the matching
 `wodata/live_archive/schema_v1/year=.../round=.../session=.../replay/` directory,
@@ -80,7 +88,11 @@ race time. The shared **Strategy Prediction** window can consume the same
 canonical live snapshot: when the leader lap advances it checks for newly
 eligible sector-filtered clean laps. Replay expands batched leader-lap jumps
 into point-in-time snapshots and processes them through a FIFO recalculation
-queue. Live mode does not queue an
+queue. Replay-state reduction and Cumulative Delta rendering do not wait for
+that FIFO: the UI reports the number of historical cuts still awaiting input
+preparation while the race view continues to advance. Prepared inputs and the
+process queue are bounded, but lightweight causal cut requests are retained
+until every historical result has been evaluated. Live mode does not queue an
 update received while calculation is active; the newest accumulated data is picked
 up by the next leader-lap trigger. Unchanged clean-lap fingerprints are skipped
 quickly. Updated models record their version and refresh sequence-level strategy
@@ -158,6 +170,10 @@ preferred scale anchor. History renders base as dashed, live-derived as
 dashed with hollow markers, and live-direct as solid with filled markers. This
 resolver supplies Strategy Prediction as well as the chart. Compound delta is
 not ratio-derived and retains its independent base-to-direct behaviour.
+Each source segment owns the connector into the first point of the next segment,
+so the obsolete baseline is not drawn beneath later history. Coordinates that
+never become Race-informed remain dashed through the latest recorded lap, and a
+missing compound delta remains absent rather than becoming zero.
 
 The Live recalculation page's **Clean-lap details** dialog exposes required
 tyre/stint metadata, allowed compounds, driver-relative quick-lap threshold,

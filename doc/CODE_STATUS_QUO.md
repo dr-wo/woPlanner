@@ -1,6 +1,6 @@
 # woPlanner Code Status Quo
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-09-06
 
 The package is split into `standard`, `live`, `analysis`, `quali`, and `common`
 ownership areas. Live transport, recording, replay, completed-lap state, and
@@ -18,6 +18,11 @@ debug checklist, read [`FP_TYRE_LIVE_INTEGRATION.md`](FP_TYRE_LIVE_INTEGRATION.m
 For shared plot interaction ownership, coordinate contracts, live-sector/DNF
 assumptions, and the current validation baseline, read
 [`LIVE_PLOT_INTERACTIONS.md`](LIVE_PLOT_INTERACTIONS.md).
+
+The 2026 R12 closure in `FP_TYRE_LIVE_INTEGRATION.md` is the current regression
+reference for the decoupled Replay/MC pipeline, fixed sector geometry, retired-
+driver reference continuation, tyre-history source transitions, and their
+explicit compromises.
 
 ## Package Purpose
 
@@ -465,10 +470,10 @@ Visual conventions:
 - connected simulation and faded-real anchors
 - faded tyre marker state propagation
 
-`pytest` is configured in `pyproject.toml`, but the current local venv may not
-have `pytest` installed. The focused direct test-function smoke used during
-this review imports `woPlanner/src` on `sys.path` and calls the test functions
-directly.
+`pytest` is configured in `pyproject.toml`. The 2026-09-06 full-suite baseline is
+172 passed and 18 known failures in `tests/test_service.py`. Clean-HEAD and parent
+worktree comparisons reproduce the same 18 failures; 17 predate live-planner
+integration. See `FP_TYRE_LIVE_INTEGRATION.md` for the grouped classification.
 
 ## Current Caveats
 
@@ -477,5 +482,6 @@ directly.
 - It assumes the selected driver/team/compound exists in the normalized model
   artifact.
 - It does not persist scenarios across app restarts.
-- GUI behavior is best verified manually because there is no Qt integration
-  test harness yet.
+- Headless Qt coverage exercises core redraw, range, marker and Replay behavior,
+  but final visual styling still benefits from a generated screenshot/manual
+  inspection because pixel-level rendering is not asserted.
