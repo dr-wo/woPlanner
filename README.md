@@ -22,6 +22,18 @@ Planner-specific code should remain in its planner package. A component moves to
 `common` only when multiple planner modes reuse the same behavior; analysis
 functionality belongs in `analysis` even when standard and live GUIs both open it.
 
+## Qualifying monitor
+
+Run `woplanner-quali` for the live Qualifying/Sprint Qualifying timing table and
+run-plan editor. It supports FastF1 live timing and deterministic raw-recording
+replay, automatically follows Q1/Q2/Q3 or SQ1/SQ2/SQ3, projects the elimination
+cutoff, shows pit/track state and real tyre age at stint start, and recalculates
+linear track evolution as qualifying push laps finish.
+
+The complete operating guide, state definitions, calculation rules, replay
+example, and deliberate compromises are documented in
+[`doc/QUALIFYING_MONITOR.md`](doc/QUALIFYING_MONITOR.md).
+
 ## Local development
 
 For local development from the sibling checkout layout:
