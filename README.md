@@ -46,6 +46,25 @@ pip install -e .
 woplanner
 ```
 
+## Exporting plots
+
+The completed-session planner's **Export** menu supports:
+
+- PNG at the current on-screen size, saved to a file or copied to the clipboard.
+- UHD 4K PNG at 3840 × 2160, saved to a file or copied to the clipboard.
+- SVG vector plot output for scalable editing and publication.
+
+The 4K export preserves the entire visible plot. When the 16:9 output requires
+more plotting range, woPlanner expands the narrower axis equally on both sides;
+it never crops or contracts the selected range. The original window size and
+plot range are restored after export.
+
+SVG export contains the graph, axes, labels, curves, tyre markers, and track-
+status bands as vector content without embedded raster images. It intentionally
+excludes the Start and Current/Result ranking panels. All export formats hide
+temporary hover and pit-target overlays from the exported image and then restore
+them on screen.
+
 ## Live mode
 
 Run `woplanner-live` for the live observation view. It uses FastF1's browser
