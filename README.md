@@ -306,11 +306,21 @@ race_performance_{year}_{round}_{session}_clean_laps.csv
 5. Choose compound, starting tyre age, pit-loss seconds, and lap-time mode.
 6. Apply the simulation.
 
+If the selected driver has no strategy-model row for a required compound but a
+teammate has one for the same compound, the planner reports the missing driver
+data and offers **Use team's data instead**. Accepting the option retries the
+simulation with that teammate's model row while keeping the simulated driver's
+identity, race laps, strategy edits, and team unchanged. If no same-team row is
+available for the compound, the planner cannot offer this fallback.
+
 Each driver has one active scenario containing ordered strategy edits. Adding a
 new what-if pit to a driver that already has a scenario appends or replaces the
 edit at that lap, then rebuilds the whole simulated future from the earliest
 active edit. Future real pits remain active unless explicitly removed or
-replaced by an added pit on the same stop lap.
+replaced by an added pit on the same stop lap. A confirmed team-data fallback is
+stored on the scenario, so later edits and rebuilds continue using it without
+asking again. **Strategy assumptions** and the scenario warnings identify when
+the fallback is enabled.
 
 Clicking tyre markers opens additional actions:
 
@@ -384,6 +394,12 @@ real stop to be skipped; SC/VSC pit loss is removed through the model delta.
 Adding a what-if pit on the same lap as an observed stop is treated as replacing
 that observed stop: the old observed pit residual is removed from the pit-in and
 pit-out sectors, and the simulated pit uses the designated pit-loss seconds.
+
+The optional team-data fallback changes only which driver row supplies the
+model coefficients for a missing driver/compound pair. The simulated output is
+still labelled as the selected driver and continues to use that driver's
+observed race scaffold. It is therefore an explicit approximation, not an
+inference that the two teammates have identical pace.
 
 ### SC/VSC and pit loss
 

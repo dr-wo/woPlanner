@@ -182,6 +182,14 @@ It reads:
 If baseline pace is team-level, it expands team rows to drivers using
 `clean_laps` driver/team pairs.
 
+When a requested driver/compound row is absent, `predict_strategy_plan` raises
+`MissingDriverStrategyModelError`. The exception carries the driver, team,
+compound, and—when a same-team row exists—the candidate teammate driver. The
+standard GUI uses this metadata to offer **Use team's data instead**. On
+confirmation it retries with `use_team_data=True`; the adapter then uses the
+same-team, same-compound row while preserving the requested driver and team in
+the output. No cross-team or cross-compound fallback is allowed.
+
 `predict_future_laps` produces a dataframe with:
 
 - `driver`
@@ -246,6 +254,12 @@ Only one pit action is allowed at the same `stop_after_lap` for the same driver.
 Creating another action for the same lap updates or replaces the existing edit.
 If all edits are removed, the scenario is deleted and the driver returns to the
 observed trajectory.
+
+`DriverStrategyScenario.use_team_model_data` records an accepted teammate-data
+fallback. It is preserved across edit replacement, edit deletion, and complete
+scenario rebuilds. Both the what-if plan and modelled observed-strategy baseline
+receive the same setting. Comparisons add a warning when the fallback is active,
+and the Strategy assumptions dialog displays the fallback state.
 
 After any edit, the service rebuilds the full simulated strategy from the
 earliest active edit:
@@ -406,6 +420,9 @@ Simulation interaction:
 - Click while holding the modifier to open the pit-stop simulation dialog.
 - Choose compound, tyre age, and pit-loss seconds.
 - Choose lap-time mode; new scenarios default to real-race adjusted.
+- If the driver lacks a required compound row but a teammate has one, choose
+  **Use team's data instead** to retry with the teammate model row; cancel keeps
+  the current dialog open without creating the scenario.
 - The reference mode selector starts on actual pace.
 - Applying on an already simulated driver adds or replaces an edit inside that
   driver's active scenario and rebuilds the full simulated future.
@@ -457,9 +474,11 @@ Visual conventions:
 - driver ranks and tyre labels
 - team colour and teammate line-style assignment
 - strategy-model adapter cache reads and missing-cache errors
+- missing driver/compound detection and explicit teammate-data fallback
 - strategy plan prediction across multiple segments
 - scenario creation without mutating the base session
 - multi-edit scenario rebuilds
+- preservation of the team-data fallback across later scenario rebuilds
 - observed race scaffold preservation on SC/VSC laps
 - sector-level SC/VSC residual suppression against the plotted race status
 - model-delta and residual-based simulated display construction
