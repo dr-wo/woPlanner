@@ -1,9 +1,58 @@
 # woPlanner
 
-Interactive race planner built on `woStrategy` data loaders and `woData` cache paths.
+`woPlanner` is an interactive Formula 1 decision-support application for
+qualifying and race sessions. It combines public timing data with `woStrategy`
+models and `woData` recordings to monitor qualifying, inspect completed races,
+follow live timing, replay a session deterministically, update tyre assumptions,
+search strategies, and compare race what-ifs.
 
-Team and driver plotting colours come from `wodata.colours`, the shared palette
-derived from FastF1's live-timing `DriverList`.
+The examples below are real **2026-R13 Italian Grand Prix** data rendered through
+the application. They are historical analysis/replay views, not a mocked UI.
+
+## Qualifying, race and model views
+
+### Qualifying monitor
+
+![2026-R13 Q2 qualifying monitor with projected cutoff, driver state, sectors and tyre history](doc/assets/qualifying_monitor_2026_r13_q2.png)
+
+The Q2 replay combines the projected elimination cut with current sectors,
+run/pit state, gaps and each driver's tyre history. Track evolution is refitted
+as eligible push laps complete.
+
+### Race live / replay cumulative delta
+
+![2026-R13 Race replay cumulative delta with ranking panels, tyre markers and pit-loss windows](doc/assets/race_replay_cumulative_delta_2026_r13.png)
+
+The same reduction and rendering path is used for live data and deterministic
+replay. This completed-race view uses Russell as the selected actual-pace
+reference and retains start/result rankings, compound markers, retirement
+treatment, and normal versus SC/VSC pit-loss bands.
+
+### Strategy Prediction update history
+
+![2026-R13 Strategy Prediction tyre-model and sampler-quality history](doc/assets/strategy_prediction_update_history_2026_r13.png)
+
+The model layer records how degradation and compound-delta assumptions evolved
+at causal leader-lap cuts. Dashed/solid source styling distinguishes assumed,
+derived and directly Race-informed values; ESS is shown as sampler-adequacy
+diagnostic, not inference confidence.
+
+## What to inspect
+
+- [`src/woplanner/quali`](src/woplanner/quali) — qualifying projection, run state
+  and track-evolution monitoring.
+- [`src/woplanner/live`](src/woplanner/live) — live/replay ingestion boundary,
+  cumulative-delta view and telemetry worker.
+- [`src/woplanner/analysis`](src/woplanner/analysis) — tyre inputs, live model
+  updates and exact Strategy Prediction searches.
+- [`src/woplanner/standard`](src/woplanner/standard) — completed-race analysis
+  and strategy what-if editing.
+- [`doc/`](doc) — calculation rules, architecture, deliberate compromises and
+  validation notes.
+
+All analysis uses public F1 data. Strategy outputs depend on model assumptions
+and incomplete public timing context; they are engineering decision support,
+not claims of team-grade ground truth.
 
 ## Package layout
 
@@ -443,3 +492,7 @@ also be clicked to update or delete that specific edit.
 See [doc/CODE_STATUS_QUO.md](doc/CODE_STATUS_QUO.md) for the current package
 map, cache discipline, strategy simulation data flow, and future coding-agent
 orientation notes.
+
+This project is developed extensively with coding agents. Durable context
+documents preserve architecture, assumptions, interfaces, known compromises and
+validation requirements across development sessions.

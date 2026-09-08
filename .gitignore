@@ -29,6 +29,7 @@ env/
 *.jpg
 *.jpeg
 *.pdf
+!doc/assets/*.png
 exports/
 temp/
 

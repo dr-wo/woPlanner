@@ -93,6 +93,10 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(
             QtWidgets.QHeaderView.ResizeMode.Stretch
         )
+        self.table.horizontalHeader().setSectionResizeMode(
+            3, QtWidgets.QHeaderView.ResizeMode.Interactive
+        )
+        self.table.horizontalHeader().resizeSection(3, 190)
         layout.addWidget(self.table, 1)
 
         self.pit_table = QtWidgets.QTableWidget(3, 2)
