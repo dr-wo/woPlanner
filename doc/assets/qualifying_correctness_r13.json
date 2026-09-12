@@ -1,0 +1,499 @@
+{
+  "segments": [
+    {
+      "part": "Q1",
+      "time": 0.0,
+      "duration": 1080.0,
+      "ANT": null
+    },
+    {
+      "part": "Q2",
+      "time": 2243.408,
+      "duration": 900.0,
+      "ANT": {
+        "best": null,
+        "last": null,
+        "sectors": [
+          null,
+          null,
+          null
+        ],
+        "history": [
+          [
+            "Q1",
+            82.758
+          ]
+        ]
+      }
+    },
+    {
+      "part": "Q3",
+      "time": 3564.407,
+      "duration": 780.0,
+      "ANT": {
+        "best": null,
+        "last": null,
+        "sectors": [
+          null,
+          null,
+          null
+        ],
+        "history": [
+          [
+            "Q1",
+            82.758
+          ],
+          [
+            "Q2",
+            81.882
+          ]
+        ]
+      }
+    }
+  ],
+  "effective": [
+    {
+      "part": "Q1",
+      "driver": "NOR",
+      "remaining": 9.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "BEA",
+      "remaining": 7.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "TSU",
+      "remaining": 1.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "LIN",
+      "remaining": 0.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "GAS",
+      "remaining": 0.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "HUL",
+      "remaining": 0.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "BOR",
+      "remaining": 0.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "OCO",
+      "remaining": 0.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "SAI",
+      "remaining": 0.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "COL",
+      "remaining": 0.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q1",
+      "driver": "PIA",
+      "remaining": 0.0,
+      "recovery": 107.3956,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "LAW",
+      "remaining": 48.0,
+      "recovery": 106.6221,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "LEC",
+      "remaining": 0.0,
+      "recovery": 106.6221,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "HAM",
+      "remaining": 0.0,
+      "recovery": 106.6221,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "BEA",
+      "remaining": 0.0,
+      "recovery": 106.6221,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "LIN",
+      "remaining": 0.0,
+      "recovery": 106.6221,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "ANT",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "RUS",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "NOR",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "PIA",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "OCO",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "GAS",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "BOR",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "HUL",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q2",
+      "driver": "COL",
+      "remaining": 0.0,
+      "recovery": 106.4466,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q3",
+      "driver": "NOR",
+      "remaining": 0.0,
+      "recovery": 106.5077,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q3",
+      "driver": "VER",
+      "remaining": 0.0,
+      "recovery": 106.5077,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q3",
+      "driver": "RUS",
+      "remaining": 0.0,
+      "recovery": 106.39980000000001,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q3",
+      "driver": "LIN",
+      "remaining": 0.0,
+      "recovery": 106.39980000000001,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q3",
+      "driver": "LEC",
+      "remaining": 0.0,
+      "recovery": 106.39980000000001,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q3",
+      "driver": "HAM",
+      "remaining": 0.0,
+      "recovery": 106.39980000000001,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q3",
+      "driver": "GAS",
+      "remaining": 0.0,
+      "recovery": 106.32180000000001,
+      "source": "fastest \u00d7 1.30"
+    },
+    {
+      "part": "Q3",
+      "driver": "COL",
+      "remaining": 0.0,
+      "recovery": 106.32180000000001,
+      "source": "fastest \u00d7 1.30"
+    }
+  ],
+  "alb": [
+    {
+      "time": 7.128,
+      "state": "UNKNOWN",
+      "speed": null,
+      "rpm": null
+    },
+    {
+      "time": 7.128,
+      "state": "INACTIVE",
+      "speed": null,
+      "rpm": null
+    },
+    {
+      "time": 172.839,
+      "state": "FIRED_UP",
+      "speed": 0.0,
+      "rpm": 1870.0
+    },
+    {
+      "time": 178.879,
+      "state": "INACTIVE",
+      "speed": 0.0,
+      "rpm": 428.0
+    },
+    {
+      "time": 188.76,
+      "state": "FIRED_UP",
+      "speed": 0.0,
+      "rpm": 1859.0
+    },
+    {
+      "time": 194.8,
+      "state": "INACTIVE",
+      "speed": 0.0,
+      "rpm": 0.0
+    },
+    {
+      "time": 201.76,
+      "state": "FIRED_UP",
+      "speed": 0.0,
+      "rpm": 980.0
+    },
+    {
+      "time": 359.2,
+      "state": "QUEUE",
+      "speed": 4.0,
+      "rpm": 4133.0
+    },
+    {
+      "time": 360.24,
+      "state": "FIRED_UP",
+      "speed": 0.0,
+      "rpm": 4071.0
+    },
+    {
+      "time": 364.24,
+      "state": "QUEUE",
+      "speed": 27.0,
+      "rpm": 4465.0
+    },
+    {
+      "time": 388.2,
+      "state": "FIRED_UP",
+      "speed": 0.0,
+      "rpm": 4699.0
+    },
+    {
+      "time": 429.36,
+      "state": "INACTIVE",
+      "speed": 0.0,
+      "rpm": 0.0
+    },
+    {
+      "time": 832.362,
+      "state": "FIRED_UP",
+      "speed": 0.0,
+      "rpm": 3780.0
+    },
+    {
+      "time": 851.442,
+      "state": "QUEUE",
+      "speed": 11.0,
+      "rpm": 3996.0
+    },
+    {
+      "time": 873.562,
+      "state": "ON_TRACK",
+      "speed": 103.0,
+      "rpm": 9123.0
+    },
+    {
+      "time": 1155.778,
+      "state": "IN-PIT",
+      "speed": 86.0,
+      "rpm": 9460.0
+    },
+    {
+      "time": 1702.29,
+      "state": "QUEUE",
+      "speed": 40.0,
+      "rpm": 4478.0
+    },
+    {
+      "time": 1711.725,
+      "state": "ON_TRACK",
+      "speed": 114.0,
+      "rpm": 9929.0
+    },
+    {
+      "time": 2007.81,
+      "state": "IN-PIT",
+      "speed": 67.0,
+      "rpm": 7474.0
+    }
+  ],
+  "zero": [
+    {
+      "part": "Q1",
+      "time": 1883.406,
+      "remaining": 0,
+      "source": "clock_zero"
+    },
+    {
+      "part": "Q2",
+      "time": 3203.399,
+      "remaining": 0,
+      "source": "clock_zero"
+    },
+    {
+      "part": "Q3",
+      "time": 4403.402,
+      "remaining": 0,
+      "source": "clock_zero"
+    }
+  ],
+  "normal_flags": [
+    {
+      "part": "Q1",
+      "time": 1883.646
+    },
+    {
+      "part": "Q2",
+      "time": 3203.642
+    },
+    {
+      "part": "Q3",
+      "time": 4403.624
+    }
+  ],
+  "ant_first_q3_result": {
+    "time": 4049.759,
+    "best": 82.093
+  },
+  "counts": {
+    "identity": 1,
+    "segment": 3,
+    "countdown_finish": 2765,
+    "laps": 237,
+    "best": 950,
+    "queue": 340,
+    "effective": 37,
+    "planner_target": 101
+  },
+  "hashes": {
+    "identity": "ec4af4b7f28b368a3434ce10e49af84e8b724a3a40023e95661726c7e1280335",
+    "segment": "5d5e7f97480fe0ded988088a4a3fcb9cb2860d10a8c3d7959a1a13b5f1397d97",
+    "countdown_finish": "941fd7a5911b8c59d467ff096b18bc3f54d6fee0958e75f9ec18429c99a0c2c8",
+    "laps": "c84e548f1034d1a28e99e54d1057f648e5879652f421cb9875c1954fa2fdbc70",
+    "best": "89036aaf8050a7f1fad8c4cb5076928c8890ca2966426fff49f309689f429ea6",
+    "queue": "5f30cfafb4c1c2f8e32333f5b97788414c5534540c7c677d89325425d231a8bd",
+    "effective": "6ec0827dd9389cdbea343802d46691e74a1d9c97b1066517253c88e04699cd2b",
+    "planner_target": "0fb201e4f9f710a80b85c8ba23eb581b54d4969638e09565cf87de5f5095edfd"
+  },
+  "message_count": 19076,
+  "track_estimates_unchanged_algorithm": {
+    "Q1": [
+      0.02834115694641993,
+      37,
+      "estimated"
+    ],
+    "Q2": [
+      0.0031284824046930357,
+      32,
+      "estimated"
+    ],
+    "Q3": [
+      0.00547162022703757,
+      18,
+      "estimated"
+    ]
+  },
+  "configurations": [
+    {
+      "batch": 1,
+      "speed": 0,
+      "extra_reads": 0,
+      "all_sequences_match": true
+    },
+    {
+      "batch": 7,
+      "speed": 25,
+      "extra_reads": 3,
+      "all_sequences_match": true
+    },
+    {
+      "batch": 500,
+      "speed": 1,
+      "extra_reads": 7,
+      "all_sequences_match": true
+    }
+  ]
+}

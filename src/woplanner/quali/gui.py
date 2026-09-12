@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -31,23 +32,50 @@ PIT_STATUS_BACKGROUNDS = {
     "INLAP": "#1976d2",
     "IN-PIT": "#ffffff",
 }
-CHEQUERED_FINISH_REASONS = frozenset(
-    {
-        FinishedReason.NO_TIME_FOR_NEXT_PUSH,
-        FinishedReason.FINAL_LAP_COMPLETED,
-    }
-)
 
 
-def _chequered_flag_brush() -> QtGui.QBrush:
-    """Return a repeating black-and-white chequered flag brush."""
-    tile = QtGui.QPixmap(12, 12)
-    tile.fill(QtGui.QColor("white"))
-    painter = QtGui.QPainter(tile)
-    painter.fillRect(0, 0, 6, 6, QtGui.QColor("black"))
-    painter.fillRect(6, 6, 6, 6, QtGui.QColor("black"))
-    painter.end()
-    return QtGui.QBrush(tile)
+class PresentationCountdown:
+    """Locally advancing display clock; it never changes Qualifying domain state."""
+
+    def __init__(self) -> None:
+        self._token = None
+        self._remaining_s: float | None = None
+        self._anchor_monotonic_s: float | None = None
+        self._running = False
+
+    def update(self, snapshot, *, now_s: float | None = None) -> float | None:
+        now_s = time.monotonic() if now_s is None else now_s
+        stopped = (
+            snapshot.normal_finished
+            or str(snapshot.session_status or "").lower()
+            in {"aborted", "finished", "finalised", "ends", "inactive"}
+        )
+        token = (
+            snapshot.session_part,
+            snapshot.remaining_time_s,
+            snapshot.clock_running,
+            snapshot.clock_anchor_session_time_s,
+            stopped,
+        )
+        if token != self._token:
+            self._token = token
+            self._remaining_s = snapshot.remaining_time_s
+            self._anchor_monotonic_s = now_s
+            self._running = bool(snapshot.clock_running and not stopped)
+        if self._remaining_s is None:
+            return None
+        if not self._running or self._anchor_monotonic_s is None:
+            return max(0.0, self._remaining_s)
+        return max(0.0, self._remaining_s - (now_s - self._anchor_monotonic_s))
+
+
+def format_countdown(value: float | None) -> str:
+    if value is None:
+        return "—:—"
+    minutes, seconds = divmod(max(0, int(value)), 60)
+    return f"{minutes}:{seconds:02d}"
+
+
 
 
 class QualiWindow(QtWidgets.QMainWindow):
@@ -78,6 +106,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.plan_dialog = None
         self._session_metadata_signature: tuple[object, ...] | None = None
         self._non_quali_warning_shown = False
+        self._presentation_countdown = PresentationCountdown()
 
         central = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(central)
@@ -162,6 +191,9 @@ class QualiWindow(QtWidgets.QMainWindow):
             controls.addWidget(spin)
             self.elimination[part] = spin
             self.elimination_labels[part] = label
+        # Q3 is a P1 target, not an elimination calculation.
+        self.elimination["Q3"].hide()
+        self.elimination_labels["Q3"].hide()
         controls.addStretch(1)
         return controls
 
@@ -170,9 +202,11 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.connection = QtWidgets.QLabel("Idle")
         self.clock = QtWidgets.QLabel("Q1 —:—")
         self.cutoff = QtWidgets.QLabel("Projected cutoff: —")
+        self.normal_finish = QtWidgets.QLabel("")
         status.addWidget(self.connection)
         status.addStretch(1)
         status.addWidget(self.clock)
+        status.addWidget(self.normal_finish)
         status.addWidget(self.cutoff)
         return status
 
@@ -228,6 +262,7 @@ class QualiWindow(QtWidgets.QMainWindow):
             )
             rate, _, _ = self.analysis_service.effective_fp_track_rate()
             self.service.set_fp_track_rate(rate)
+            self.service.load_operational_analysis(result)
             if self.plan_dialog:
                 self.plan_dialog.load_analysis(result)
             QtWidgets.QMessageBox.information(
@@ -277,20 +312,27 @@ class QualiWindow(QtWidgets.QMainWindow):
         if self.service.session_is_qualifying is True:
             self.analyze.setEnabled(True)
             self.plan.setEnabled(True)
-        remaining = snapshot.remaining_time_s
-        remaining_text = format_time(remaining) if remaining is not None else "—:—"
+        remaining_text = format_countdown(self._presentation_countdown.update(snapshot))
         self.clock.setText(f"{snapshot.session_part} {remaining_text}")
+        self._render_normal_finish(snapshot)
         projected_cutoff = snapshot.cutoff.projected_cutoff_s
+        target_name = "Projected P1" if snapshot.cutoff.target_kind == "P1" else "Projected cutoff"
         if snapshot.cutoff.current_cutoff_s is None:
-            self.cutoff.setText("Projected cutoff: —")
+            self.cutoff.setText(f"{target_name}: —")
         else:
             self.cutoff.setText(
-                f"Projected cutoff: {format_time(projected_cutoff)}"
+                f"{target_name}: {format_time(projected_cutoff)}"
             )
         self._render_timing_table(snapshot)
         self._render_pit_status()
         if self.plan_dialog is not None:
             self.plan_dialog.refresh_live_track()
+
+    def _render_normal_finish(self, snapshot) -> None:
+        self.normal_finish.setText("SESSION CHEQUERED" if snapshot.normal_finished else "")
+        self.normal_finish.setToolTip(
+            f"Normal session finish: {snapshot.normal_finish_source}" if snapshot.normal_finished else ""
+        )
 
     def _prepare_session_start(self) -> None:
         self._session_metadata_signature = None
@@ -324,14 +366,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         if identity.year is not None:
             self.year.setValue(identity.year)
         if identity.round_number is not None:
-            changed = identity.round_number != self.round.value()
             self.round.setValue(identity.round_number)
-            if changed:
-                self.service.configure_event_geometry(
-                    identity.year or self.year.value(),
-                    identity.round_number,
-                    WORKSPACE_DATA_ROOT,
-                )
         if identity.event_name:
             self.setWindowTitle(
                 f"woPlanner Qualifying Monitor — {identity.event_name}"
@@ -340,6 +375,8 @@ class QualiWindow(QtWidgets.QMainWindow):
         for part, label in self.elimination_labels.items():
             display_part = f"S{part}" if sprint else part
             label.setText(f"{display_part} eliminated")
+        self.elimination["Q3"].setVisible(sprint)
+        self.elimination_labels["Q3"].setVisible(sprint)
 
     def _set_eliminated_count(self, part: str, value: int) -> None:
         self.service.eliminated_counts[part] = value
@@ -368,7 +405,11 @@ class QualiWindow(QtWidgets.QMainWindow):
 
     def _render_timing_table(self, snapshot) -> None:
         self.table.setRowCount(len(snapshot.drivers))
-        self.table.cutoff_rank = snapshot.cutoff.cutoff_rank
+        self.table.cutoff_rank = (
+            0
+            if getattr(snapshot.cutoff, "target_kind", "CUTOFF") == "P1"
+            else snapshot.cutoff.cutoff_rank
+        )
         self.table.setColumnHidden(
             3, not any(state.tyre_history for state in snapshot.drivers)
         )
@@ -395,18 +436,13 @@ class QualiWindow(QtWidgets.QMainWindow):
                     )
                     continue
                 item = QtWidgets.QTableWidgetItem(str(value))
-                if (
-                    column == 0
-                    and state.finished_reason in CHEQUERED_FINISH_REASONS
-                ):
-                    item.setBackground(_chequered_flag_brush())
-                    item.setForeground(QtGui.QColor("#e10600"))
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
+                if column == 0 and state.effective_finished:
+                    item.setBackground(QtGui.QColor("#f4b183"))
                     item.setToolTip(
-                        "Final push completed; not enough time for another "
-                        "slow/preparation lap"
+                        "Effective finish: completed PUSH; insufficient time for another "
+                        f"COOL/PREP lap ({state.effective_finish_remaining_s:g}s remaining, "
+                        f"{state.effective_finish_recovery_s:g}s required). "
+                        f"Source: {state.effective_finish_timing_source}. Not the session chequered flag."
                     )
                 if column == 1 and colour:
                     item.setBackground(QtGui.QColor(colour))

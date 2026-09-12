@@ -1,6 +1,6 @@
 # Qualifying Monitor
 
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-12
 
 This document is the operating and maintenance guide for `woplanner-quali`.
 The monitor combines FastF1 live timing, qualifying-only state reduction,
@@ -56,7 +56,9 @@ display strings:
 
 Queue ordering uses circuit pit-lane geometry when a cached centreline exists.
 Without geometry, speed and incremental `InPit` transitions provide the fallback.
-Telemetry has a freshness window, so stale RPM is not treated as a running car.
+Telemetry and geometry have freshness windows. Message-driven queue inference
+clears brief movement evidence on later stationary/zero-RPM observations and
+uses UNKNOWN for an unconfirmed departure after evidence expires.
 
 ### Tyre age
 
@@ -69,27 +71,40 @@ entire **Tyre age** column is hidden instead of fabricating a value.
 
 ### Finished and chequered state
 
-A driver's position cell receives a chequered background after either:
+**SESSION CHEQUERED** is session-level normal finish, driven by zero countdown,
+explicit track-wide RaceControlMessages CHEQUERED, or finished/finalised status.
+A completed PUSH with insufficient COOL/PREP time separately marks that car
+**EFF. FINISH** and colours its position amber. Its tooltip records remaining
+seconds, required seconds and operational-input provenance. This is not a
+session flag. Both states reset for the next segment.
 
-- a completed push leaves less than the configured cool/preparation-lap time for
-  another push; or
-- any on-track lap is completed after the clock reaches `0:00`, including a slow
-  lap completed under the real chequered flag.
-
-The marker is applied only after the lap completes, not while the driver remains
-on the final lap. A driver already in the pit with insufficient out-lap time is
-finished but does not receive the chequered position background. Advancing
-drivers receive fresh state at the next Q/SQ segment, which removes the marker;
-eliminated drivers are frozen with an explicit eliminated reason.
+The service resolves COOL/PREP timing in this order: a manual Plan edit,
+FP-derived timing with its sample count, then `fastest current segment lap × 1.30`.
+If no current fastest lap exists, effective finish is unavailable rather than
+silently using a default. The tooltip records the selected source. The estimator
+and completed-PUSH heuristic are unchanged.
 
 ## Clock and session-part handling
 
-FastF1's `ExtrapolatedClock` is an anchor, not a high-frequency countdown. The
-qualifying reducer subtracts elapsed monotonic time locally and the controller
-publishes refreshed snapshots even when no new feed message arrives. On a late
-connection, the feed's UTC anchor and canonical segment duration recover the
-current part where possible. A near-zero-to-full-duration reset advances the
-part during an uninterrupted connection.
+Qualifying domain state advances once per ordered message. `snapshot()` and
+empty GUI polls are read-only: no local wall-clock extrapolation feeds domain
+state. Between ExtrapolatedClock anchors, message timestamps (including
+Heartbeat/telemetry messages) advance the countdown. During complete feed
+silence the domain clock stays at its last observed value.
+
+Zero is a valid countdown. Explicit segment metadata takes precedence. Without
+it, a segment advances only after an observed zero-to-reset lifecycle transition;
+a late connection at a generic 15:00 remains Q1. Centralized
+`wodata.live.quali_clock` defaults describe segments but do not identify one.
+Q3 is 13 minutes. Red-flag/aborted status freezes the message clock until restart.
+Current timing and completed-lap state reset at segment boundaries; historical
+Q1/Q2 best results remain separately available on the raw and planner models.
+Official empty BestLapTime is not replaced by an untimed out-lap duration.
+
+The optional historical table column is omitted in this pass: on the measured
+16-inch MacBook display, the normal 1500-pixel window gives existing data columns
+98–99 logical pixels, while a combined Q1/Q2 cell needs about 169 pixels. The
+current result columns are not compressed to accommodate it.
 
 Default planning durations are:
 
@@ -101,7 +116,19 @@ Default planning durations are:
 The Plan window formats latest-start offsets as minutes and seconds and supports
 multiple arrangements of out, prep, push, cool, in, and turnaround segments.
 **Analyse FP1-FP3** derives operational timing defaults and an initial track prior;
-the timing inputs remain editable.
+the timing inputs remain editable and override FP-derived values. The displayed
+countdown advances locally between feed anchors for readability only; it cannot
+change domain state or finish decisions.
+
+### Presentation-clock snapshot contract
+
+`QualiSessionSnapshot` carries `clock_running` and
+`clock_anchor_session_time_s` from the raw qualifying clock so the GUI can make
+that display-only interpolation decision without reaching into reducer state.
+`clock_running=False`, a normal finish, or a terminal session status freezes the
+presentation countdown at its received value. These fields are presentation
+metadata: the service does not derive rankings, finish markers, or timing
+decisions from local wall-clock time.
 
 ## Live track evolution and cutoff projection
 
@@ -160,18 +187,20 @@ behavior.
   responsiveness, so the earliest estimate can be noisy. It is operational
   guidance, not a causal track-only measurement.
 - `unfinished driver count` is a one-more-push approximation, not a simulation of
-  each driver's remaining stint plan. The projected cutoff can converge to the
-  current P16/P15 value when no unfinished driver remains.
-- Chequer state is inferred from clock/lap completion because the subscribed
-  qualifying topic set does not require an explicit RaceControlMessages flag.
+  each driver's remaining stint plan. Q1/Q2 project the elimination cutoff; Q3
+  instead projects the current P1 target.
+- Qualifying subscribes to RaceControlMessages; race subscriptions are unchanged.
 - Tyre history is only as complete as public `TimingAppData`. Missing
   `StartLaps` remains missing; no qualifying-lap fallback is allowed.
 - Session-part recovery relies on standard duration/reset patterns. Red flags,
   shortened segments, or a late feed with an already-decremented anchor can
   reduce certainty until the next unambiguous reset.
-- The recording path is selected before live `SessionInfo` arrives. The UI can
-  correct its round display afterward, but it does not rename or move an open
-  recording. Inspect embedded identity for older/misfiled captures.
+- New qualifying recordings start with a unique provisional capture filename.
+  Validated feed year/event-round/session relocates that capture into the matching
+  directory without overwriting or merging existing files. An adjacent
+  `.identity.json` retains manual and validated identities, mismatch and path.
+  Unresolved identity remains explicitly provisional. Older recordings are not
+  migrated; inspect embedded identity for those captures.
 - Disabling the idle timeout keeps pre-session connections alive but does not add
   automatic SignalR reconnection after a genuine network close; reconnect from
   the UI when the source reports disconnection.
@@ -196,3 +225,12 @@ PYTHONPATH=woData/src .venv/bin/python -m pytest woData/tests -q
 PYTHONPATH=woPlanner/src:woData/src:woStrategy/src \
   .venv/bin/python -m pytest woPlanner/tests --ignore=woPlanner/tests/test_service.py -q
 ```
+
+## Determinism regression
+
+`tests/test_quali_replay_determinism.py` runs the R13 archive through the real
+controller/reducer/service path with batches 1, 7 and 500; replay speeds 0, 25
+and 1 use a virtual scheduler to avoid real-time waits. It compares every
+canonical identity, segment, countdown/normal-finish, lap, best/reference,
+queue, effective-finish, ranking and target transition. See `assets/qualifying_correctness_r13.json`
+and `QUALIFYING_CORRECTNESS_PASS.md` for evidence and review excerpts.

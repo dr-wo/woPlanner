@@ -1,0 +1,1830 @@
+# Repository: woData
+diff --git a/src/wodata/live/controller.py b/src/wodata/live/controller.py
+index da48f0e..72f54ef 100644
+--- a/src/wodata/live/controller.py
++++ b/src/wodata/live/controller.py
+@@ -11,7 +11,8 @@ from pathlib import Path
+ 
+ from .fastf1_source import FastF1LiveTimingSource
+ from .models import LiveConnectionStatus, LiveSessionSnapshot, LiveTimingMessage
+-from .recorder import LiveTimingRecorder, live_recording_path, unused_recording_path
++from .recorder import LiveTimingRecorder, FeedIdentityRecorder, live_recording_path, unused_recording_path
++from .quali_reducer import QualiSessionStore
+ from .recovery import (
+     RecoveryReport,
+     discover_live_recordings,
+@@ -81,6 +82,7 @@ class LiveTimingController:
+         self._replay_flow_cancel = threading.Event()
+         self._last_profile_log = time.monotonic()
+         self.recovery_report = RecoveryReport()
++        self.on_message_snapshot = None
+ 
+     def set_telemetry_sink(self, sink) -> None:
+         self._telemetry_sink = sink
+@@ -99,11 +101,17 @@ class LiveTimingController:
+         )
+         self._recover_live_history(config, path.parent)
+         path = unused_recording_path(path)
+-        self._recorder = LiveTimingRecorder(path)
++        self._recorder = (
++            FeedIdentityRecorder(year=config.year, round_number=config.round_number,
++                                 session=config.session, data_root=config.data_root,
++                                 logger=self.logger)
++            if isinstance(self.store, QualiSessionStore) else LiveTimingRecorder(path)
++        )
+         self.logger.info("Recording live timing to %s", path)
+         self._start_source(
+             FastF1LiveTimingSource(
+-                timeout=config.timeout, no_auth=config.no_auth, logger=self.logger
++                timeout=config.timeout, no_auth=config.no_auth, logger=self.logger,
++                extra_topics=("RaceControlMessages",) if isinstance(self.store, QualiSessionStore) else (),
+             ),
+             reset_store=False,
+         )
+@@ -151,7 +159,7 @@ class LiveTimingController:
+ 
+     def _recover_live_history(self, config: LiveConfig, directory: Path) -> None:
+         self.store.reset()
+-        if str(config.session).strip().upper() not in {"R", "RACE"}:
++        if isinstance(self.store, QualiSessionStore) or str(config.session).strip().upper() not in {"R", "RACE"}:
+             self.recovery_report = RecoveryReport()
+             self._snapshot = self.store.snapshot()
+             return
+@@ -239,6 +247,8 @@ class LiveTimingController:
+             reducer_started = time.perf_counter()
+             for message in messages:
+                 self.store._apply_message(message)
++                if self.on_message_snapshot is not None:
++                    self.on_message_snapshot(self.store.snapshot())
+             reducer_seconds = time.perf_counter() - reducer_started
+         else:
+             reducer_seconds = 0.0
+diff --git a/src/wodata/live/fastf1_source.py b/src/wodata/live/fastf1_source.py
+index 05cfb24..0257643 100644
+--- a/src/wodata/live/fastf1_source.py
++++ b/src/wodata/live/fastf1_source.py
+@@ -25,10 +25,11 @@ LIVE_PHASE_1_TOPICS = (
+ 
+ 
+ class FastF1LiveTimingSource:
+-    def __init__(self, *, timeout: int = 0, no_auth: bool = False, logger=None) -> None:
++    def __init__(self, *, timeout: int = 0, no_auth: bool = False, logger=None, extra_topics=()) -> None:
+         self.timeout = timeout
+         self.no_auth = no_auth
+         self.logger = logger
++        self.extra_topics = tuple(extra_topics)
+         self._client = None
+ 
+     def run(self, emit_message, emit_status) -> None:
+@@ -71,7 +72,7 @@ class FastF1LiveTimingSource:
+                     logger=self.logger,
+                     no_auth=self.no_auth,
+                 )
+-                inner_self.topics = list(LIVE_PHASE_1_TOPICS)
++                inner_self.topics = list((*LIVE_PHASE_1_TOPICS, *self.extra_topics))
+                 inner_self._stop_requested = threading.Event()
+ 
+             def _on_connect(inner_self) -> None:
+diff --git a/src/wodata/live/quali_models.py b/src/wodata/live/quali_models.py
+index 0f0dfc1..2e2971e 100644
+--- a/src/wodata/live/quali_models.py
++++ b/src/wodata/live/quali_models.py
+@@ -52,6 +52,16 @@ class QualiRawDriverState:
+     latest_telemetry_time_s: float | None = None
+     latest_position_time_s: float | None = None
+     tyre_history: tuple[QualiTyreStint, ...] = ()
++    historical_results: tuple[tuple[str, float | None], ...] = ()
++
++
++@dataclass(frozen=True)
++class QualiCompletedLap:
++    session_part: str
++    driver_number: str
++    lap_number: int
++    lap_time_s: float
++    session_time_s: float | None
+ 
+ 
+ @dataclass(frozen=True)
+@@ -64,6 +74,11 @@ class QualiRawSnapshot:
+     drivers: tuple[QualiRawDriverState, ...]
+     last_message_at_utc: datetime | None
+ 
++    normal_finished: bool = False
++    normal_finish_source: str | None = None
++    segment_duration_s: float | None = None
++    completed_lap_sequence: tuple[QualiCompletedLap, ...] = ()
++
+     @classmethod
+     def empty(cls) -> "QualiRawSnapshot":
+         return cls(MappingProxyType({}), None, "Q1", None, False, (), None)
+diff --git a/src/wodata/live/quali_reducer.py b/src/wodata/live/quali_reducer.py
+index a53114d..d5020d5 100644
+--- a/src/wodata/live/quali_reducer.py
++++ b/src/wodata/live/quali_reducer.py
+@@ -2,7 +2,6 @@ from __future__ import annotations
+ 
+ import copy
+ import math
+-import time
+ from dataclasses import dataclass
+ from datetime import datetime
+ from types import MappingProxyType
+@@ -11,9 +10,10 @@ from typing import Mapping
+ from .models import LiveTimingMessage
+ from .quali_models import (
+     QualiCheckpoint, QualiPitState, QualiRawDriverState, QualiRawSnapshot,
+-    QualiTyreStint,
++    QualiTyreStint, QualiCompletedLap,
+ )
+ from .replay.schema import parse_timestamp
++from .quali_clock import (DEFAULT_SESSION_DURATIONS_S, STANDARD_QUALI_PARTS, SPRINT_QUALI_PARTS, countdown_seconds)
+ from .reducer import (
+     _as_bool, _as_float, _as_int, _decode_compressed_payload, _deep_merge,
+     _lap_time_seconds, _sample_time_seconds, _sector_time_updates,
+@@ -75,9 +75,9 @@ class QualiSessionStore:
+         self._session_info: dict[str, object] = {}
+         self._session_status: str | None = None
+         self._session_part = "Q1"
++        self._explicit_part: str | None = None
+         self._remaining_time_s: float | None = None
+         self._clock_running = False
+-        self._clock_anchor_monotonic_s: float | None = None
+         self._clock_anchor_session_time_s: float | None = None
+         self._drivers: dict[str, dict] = {}
+         self._timing: dict[str, dict] = {}
+@@ -86,6 +86,14 @@ class QualiSessionStore:
+         self._position: dict[str, dict] = {}
+         self._last_message_at: datetime | None = None
+         self._latest_session_time_s: float | None = None
++        self._normal_finished = False
++        self._normal_finish_source: str | None = None
++        self._segment_started = False
++        self._segment_duration_s: float | None = None
++        self._history: dict[str, dict[str, float | None]] = {}
++        self._completed_lap_sequence: list[QualiCompletedLap] = []
++        self._utc_offset_s: float | None = None
++        self._snapshot = self._build_snapshot()
+ 
+     def apply(self, message: LiveTimingMessage) -> QualiRawSnapshot:
+         self._apply_message(message)
+@@ -99,8 +107,8 @@ class QualiSessionStore:
+     def _apply_message(self, message: LiveTimingMessage) -> None:
+         self._last_message_at = message.received_at_utc
+         candidate_time = message.session_time_seconds
+-        if candidate_time is None and message.source_timestamp_utc is not None:
+-            candidate_time = message.source_timestamp_utc.timestamp()
++        if candidate_time is None:
++            candidate_time = (message.source_timestamp_utc or message.received_at_utc).timestamp()
+         if candidate_time is not None:
+             self._latest_session_time_s = max(
+                 float(candidate_time), self._latest_session_time_s or -math.inf
+@@ -108,17 +116,28 @@ class QualiSessionStore:
+         payload = message.payload
+         if message.topic == "SessionInfo" and isinstance(payload, Mapping):
+             _deep_merge(self._session_info, payload)
+-            self._session_part = _session_part(payload, self._session_part)
++            declared_part = _explicit_session_part(payload)
++            if declared_part is not None:
++                self._explicit_part = declared_part
++            self._set_part(self._explicit_part or _session_part(self._session_info, self._session_part))
+         elif message.topic == "SessionStatus" and isinstance(payload, Mapping):
+             if payload.get("Status") is not None:
+                 self._freeze_clock()
+                 self._session_status = str(payload["Status"])
+                 self._clock_running = self._session_status.lower() in {"started", "active"}
+-                self._clock_anchor_monotonic_s = time.monotonic()
++                if self._clock_running:
++                    self._segment_started = True
++                elif self._session_status.lower() in {"finished", "finalised", "ends"}:
++                    self._normal_finished = True
++                    self._normal_finish_source = "session_status"
+         elif message.topic == "ExtrapolatedClock" and isinstance(payload, Mapping):
+-            remaining = _lap_time_seconds(payload.get("Remaining"))
++            remaining = countdown_seconds(payload.get("Remaining"))
+             if remaining is not None:
+                 declared_remaining = remaining
++                clock_utc = parse_timestamp(payload.get("Utc"))
++                if message.session_time_seconds is not None and message.source_timestamp_utc is None and clock_utc is not None:
++                    # Archive outer timestamps are session-relative; telemetry is UTC.
++                    self._utc_offset_s = clock_utc.timestamp() - candidate_time
+                 if message.source == "signalr_live":
+                     clock_utc = parse_timestamp(payload.get("Utc"))
+                     observed_utc = (
+@@ -133,22 +152,36 @@ class QualiSessionStore:
+                         )
+                 previous_remaining = self._effective_remaining_time_s()
+                 if (
+-                    previous_remaining is not None
++                    self._explicit_part is None
++                    and self._segment_started
++                    and previous_remaining is not None
+                     and previous_remaining <= 5.0
+                     and remaining > previous_remaining + 60.0
+                 ):
+-                    self._session_part = {
++                    self._set_part({
+                         "Q1": "Q2",
+                         "Q2": "Q3",
+                         "SQ1": "SQ2",
+                         "SQ2": "SQ3",
+-                    }.get(self._session_part, self._session_part)
++                    }.get(self._session_part, self._session_part))
+                 self._infer_session_part_from_clock_duration(declared_remaining)
++                if not self._segment_started and declared_remaining > 0:
++                    self._segment_duration_s = declared_remaining
+                 self._remaining_time_s = remaining
+-                self._clock_anchor_monotonic_s = time.monotonic()
+                 self._clock_anchor_session_time_s = candidate_time
+             if payload.get("Extrapolating") is not None:
++                if remaining is None:
++                    self._freeze_clock()
+                 self._clock_running = bool(_as_bool(payload.get("Extrapolating")))
++                self._segment_started |= self._clock_running
++        elif message.topic == "RaceControlMessages" and isinstance(payload, Mapping):
++            messages = payload.get("Messages", {})
++            values = messages.values() if isinstance(messages, Mapping) else messages
++            if isinstance(values, (list, tuple)) or isinstance(messages, Mapping):
++                for item in values:
++                    if isinstance(item, Mapping) and item.get("Flag") == "CHEQUERED" and item.get("Scope", "Track") == "Track":
++                        self._normal_finished = True
++                        self._normal_finish_source = "race_control"
+         elif message.topic == "DriverList" and isinstance(payload, Mapping):
+             lines = payload.get("Lines", payload)
+             if isinstance(lines, Mapping):
+@@ -163,6 +196,11 @@ class QualiSessionStore:
+             self._apply_car_data(message)
+         elif message.topic == "Position.z":
+             self._apply_position(message)
++        if self._segment_started and self._effective_remaining_time_s() == 0:
++            self._normal_finished = True
++            self._normal_finish_source = self._normal_finish_source or "clock_zero"
++        # All inference and latches are advanced once per ordered message.
++        self._snapshot = self._build_snapshot()
+ 
+     def _apply_timing(self, payload: Mapping) -> None:
+         lines = payload.get("Lines", payload)
+@@ -184,8 +222,25 @@ class QualiSessionStore:
+                 # speed confirms that the car has left pit lane.
+                 timing.pop("_pit_arriving", None)
+                 timing["_pit_queue"] = True
++            if "BestLapTime" in patch or "BestLap" in patch:
++                timing["_official_best"] = True
++                best = _lap_time_seconds(patch.get("BestLapTime") or patch.get("BestLap"))
++                if best is not None:
++                    timing["_segment_best_s"] = best
+             last = _lap_time_seconds(patch.get("LastLapTime"))
+             if last is not None:
++                timing["_pending_last_s"] = last
++            lap_number = _as_int(timing.get("NumberOfLaps")) or 0
++            pending = timing.get("_pending_last_s")
++            if pending is not None and lap_number > timing.get("_last_recorded_lap", 0):
++                timing["_last_recorded_lap"] = lap_number
++                timing.pop("_pending_last_s", None)
++                timing["_segment_laps"] = timing.get("_segment_laps", 0) + 1
++                self._completed_lap_sequence.append(QualiCompletedLap(
++                    self._session_part, str(number), lap_number, pending,
++                    self._latest_session_time_s,
++                ))
++            if last is not None and not timing.get("_official_best"):
+                 previous = timing.get("_best_seen_s")
+                 timing["_best_seen_s"] = last if previous is None else min(float(previous), last)
+ 
+@@ -197,7 +252,7 @@ class QualiSessionStore:
+         for entry in entries:
+             if not isinstance(entry, Mapping):
+                 continue
+-            sample_time = _sample_time_seconds(entry.get("Utc"), message)
++            sample_time = self._sample_time(entry.get("Utc"), message)
+             cars = entry.get("Cars", {})
+             if sample_time is None or not isinstance(cars, Mapping):
+                 continue
+@@ -256,7 +311,7 @@ class QualiSessionStore:
+         for sample in samples:
+             if not isinstance(sample, Mapping):
+                 continue
+-            sample_time = _sample_time_seconds(sample.get("Timestamp"), message)
++            sample_time = self._sample_time(sample.get("Timestamp"), message)
+             entries = sample.get("Entries", {})
+             if sample_time is None or not isinstance(entries, Mapping):
+                 continue
+@@ -273,7 +328,18 @@ class QualiSessionStore:
+                     "pit_distance": projected[1] if projected else None,
+                 }
+ 
++    def _sample_time(self, value, message) -> float | None:
++        if self._utc_offset_s is not None and message.source_timestamp_utc is None:
++            timestamp = parse_timestamp(value)
++            if timestamp is not None:
++                return timestamp.timestamp() - self._utc_offset_s
++        return _sample_time_seconds(value, message)
++
+     def snapshot(self) -> QualiRawSnapshot:
++        """Read the last message state; polling never advances domain time."""
++        return self._snapshot
++
++    def _build_snapshot(self) -> QualiRawSnapshot:
+         now_s = self._latest_session_time_s
+         sampled_now = _latest_sample_time(self._telemetry, self._position)
+         if sampled_now is not None:
+@@ -285,7 +351,11 @@ class QualiSessionStore:
+             telemetry, position = self._telemetry.get(number, {}), self._position.get(number, {})
+             in_pit = _as_bool(timing.get("InPit"))
+             stopped = _as_bool(timing.get("Stopped"))
+-            progress = position.get("pit_progress")
++            position_fresh = (
++                now_s is not None and position.get("time") is not None
++                and 0 <= now_s - position["time"] <= self.telemetry_freshness_s
++            )
++            progress = position.get("pit_progress") if position_fresh else None
+             speed = telemetry.get("speed")
+             fresh_rpm = (
+                 telemetry.get("rpm") is not None and now_s is not None
+@@ -305,10 +375,17 @@ class QualiSessionStore:
+             departed_by_position = (
+                 in_pit is False
+                 and self.pit_lane_geometry is not None
+-                and position.get("time") is not None
++                and position_fresh
+                 and progress is None
+             )
++            if progress is None and not moving_in_pit and timing.get("_pit_queue"):
++                # A brief movement is not indefinite evidence of a queue.
++                timing.pop("_pit_queue", None)
++                uncertain_departure = in_pit is False and not departed_by_position
++                if uncertain_departure:
++                    timing["_departure_unknown"] = True
+             if departed_by_speed or departed_by_position:
++                timing.pop("_departure_unknown", None)
+                 timing.pop("_pit_queue", None)
+             elif (
+                 in_pit is True
+@@ -316,12 +393,12 @@ class QualiSessionStore:
+                 and not timing.get("_pit_arriving")
+             ):
+                 timing["_pit_queue"] = True
+-            status = str(position.get("status", "")).lower()
++            status = str(position.get("status", "")).lower() if position_fresh else ""
+             arriving = bool(timing.get("_pit_arriving"))
+             inbound_outside_pit = arriving and (
+                 (
+                     self.pit_lane_geometry is not None
+-                    and position.get("time") is not None
++                    and position_fresh
+                     and progress is None
+                 )
+                 or (
+@@ -343,6 +420,8 @@ class QualiSessionStore:
+                 pit_state = QualiPitState.QUEUE
+             elif timing.get("_pit_queue"):
+                 pit_state = QualiPitState.QUEUE
++            elif timing.get("_departure_unknown") and in_pit is False:
++                pit_state = QualiPitState.UNKNOWN
+             elif in_pit and fresh_rpm:
+                 pit_state = QualiPitState.FIRED_UP
+             elif in_pit:
+@@ -358,19 +437,23 @@ class QualiSessionStore:
+             states.append(QualiRawDriverState(
+                 number, str(driver.get("Tla") or driver.get("BroadcastName") or number),
+                 str(driver.get("TeamName") or driver.get("Team") or ""),
+-                _as_int(timing.get("Position")), _as_int(timing.get("NumberOfLaps")) or 0,
++                _as_int(timing.get("Position")), timing.get("_segment_laps", 0),
+                 _lap_time_seconds(timing.get("LastLapTime")),
+                 _lap_time_seconds(timing.get("BestLapTime") or timing.get("BestLap"))
+-                or timing.get("_best_seen_s"),
++                or (None if timing.get("_official_best") else timing.get("_best_seen_s")),
+                 tuple(sectors), segments, in_pit, stopped, pit_state, progress,
+                 telemetry.get("rpm"), telemetry.get("speed"), telemetry.get("gear"),
+                 telemetry.get("time"), position.get("time"), self._tyre_history(number),
++                tuple(self._history.get(number, {}).items()),
+             ))
+         states.sort(key=lambda value: (value.position is None, value.position or 999, value.driver_code))
+         return QualiRawSnapshot(
+             MappingProxyType(copy.deepcopy(self._session_info)), self._session_status,
+             self._session_part, self._effective_remaining_time_s(), self._clock_running,
+             tuple(states), self._last_message_at,
++            self._normal_finished, self._normal_finish_source,
++            self._segment_duration_s or DEFAULT_SESSION_DURATIONS_S[self._session_part],
++            tuple(self._completed_lap_sequence),
+         )
+ 
+     def _effective_remaining_time_s(self) -> float | None:
+@@ -378,36 +461,32 @@ class QualiSessionStore:
+         if (
+             remaining is None
+             or not self._clock_running
+-            or self._clock_anchor_monotonic_s is None
+         ):
+             return remaining
+-        elapsed_monotonic_s = time.monotonic() - self._clock_anchor_monotonic_s
+         elapsed_session_s = (
+             self._latest_session_time_s - self._clock_anchor_session_time_s
+             if self._latest_session_time_s is not None
+             and self._clock_anchor_session_time_s is not None
+             else 0.0
+         )
+-        elapsed_s = max(0, math.floor(max(elapsed_monotonic_s, elapsed_session_s)))
++        elapsed_s = max(0, math.floor(elapsed_session_s))
+         return max(0.0, remaining - elapsed_s)
+ 
+     def _freeze_clock(self) -> None:
+         effective = self._effective_remaining_time_s()
+         if effective is not None:
+             self._remaining_time_s = effective
+-        self._clock_anchor_monotonic_s = time.monotonic()
+         self._clock_anchor_session_time_s = self._latest_session_time_s
+ 
+     def _infer_session_part_from_clock_duration(self, remaining: float) -> None:
++        if self._explicit_part is not None:
++            return
+         session_text = " ".join(
+             str(self._session_info.get(key, "")) for key in ("Name", "Type")
+         ).upper()
+         sprint = "SPRINT" in session_text or "SHOOTOUT" in session_text
+-        durations = (
+-            (("SQ1", 12 * 60), ("SQ2", 10 * 60), ("SQ3", 8 * 60))
+-            if sprint
+-            else (("Q1", 18 * 60), ("Q2", 15 * 60), ("Q3", 12 * 60))
+-        )
++        parts = SPRINT_QUALI_PARTS if sprint else STANDARD_QUALI_PARTS
++        durations = tuple((part, DEFAULT_SESSION_DURATIONS_S[part]) for part in parts)
+         candidate = next(
+             (part for part, duration in durations if abs(remaining - duration) <= 2.0),
+             None,
+@@ -418,7 +497,31 @@ class QualiSessionStore:
+             and self._session_part in parts
+             and parts.index(candidate) >= parts.index(self._session_part)
+         ):
+-            self._session_part = candidate
++            self._set_part(candidate)
++
++    def _set_part(self, part: str) -> None:
++        if part == self._session_part:
++            return
++        for number, timing in self._timing.items():
++            best = (_lap_time_seconds(timing.get("BestLapTime") or timing.get("BestLap"))
++                    or timing.get("_segment_best_s") or timing.get("_best_seen_s"))
++            self._history.setdefault(number, {})[self._session_part] = best
++            # Preserve physical pit state and cumulative feed lap number only.
++            retained = {key: value for key, value in timing.items() if key in {
++                "InPit", "Stopped", "NumberOfLaps", "_pit_arriving", "_pit_queue",
++                "_departure_unknown", "_official_best",
++            }}
++            retained["_last_recorded_lap"] = _as_int(timing.get("NumberOfLaps")) or 0
++            timing.clear()
++            timing.update(retained)
++        self._session_part = part
++        self._segment_started = False
++        self._normal_finished = False
++        self._normal_finish_source = None
++        self._segment_duration_s = None
++        self._remaining_time_s = None
++        self._clock_running = False
++        self._clock_anchor_session_time_s = self._latest_session_time_s
+ 
+ 
+ def _segments(sectors: object) -> tuple[QualiCheckpoint, ...]:
+@@ -457,10 +560,21 @@ def _session_part(payload: Mapping, default: str) -> str:
+         if part in upper:
+             return part
+     if "SPRINT" in upper and ("QUALI" in upper or "SHOOTOUT" in upper):
+-        return "SQ1"
++        return default if default.startswith("SQ") else "SQ1"
+     return default
+ 
+ 
+ def _latest_sample_time(*sources: dict[str, dict]) -> float | None:
+     values = [row.get("time") for source in sources for row in source.values() if row.get("time") is not None]
+     return max(values) if values else None
++
++
++def _explicit_session_part(payload: Mapping) -> str | None:
++    """Only explicit segment metadata overrides duration/reset inference."""
++    part = str(payload.get("SessionPart", "")).upper()
++    if part in DEFAULT_SESSION_DURATIONS_S:
++        return part
++    name = str(payload.get("Name", "")).upper()
++    if name in DEFAULT_SESSION_DURATIONS_S:
++        return name
++    return None
+diff --git a/src/wodata/live/recorder.py b/src/wodata/live/recorder.py
+index 73effd2..0a75846 100644
+--- a/src/wodata/live/recorder.py
++++ b/src/wodata/live/recorder.py
+@@ -87,3 +87,102 @@ def unused_recording_path(path: str | Path) -> Path:
+         if not candidate.exists() or candidate.stat().st_size == 0:
+             return candidate
+         index += 1
++
++
++class FeedIdentityRecorder(LiveTimingRecorder):
++    """Qualifying capture with exclusive filenames and feed-identity provenance.
++
++    A capture starts provisionally. Once complete feed identity arrives, the
++    same file is linked into the authoritative directory without replacement.
++    The source is removed only after the destination exists.
++    """
++
++    def __init__(self, *, year, round_number, session, data_root=None, logger):
++        from uuid import uuid4
++
++        provisional = live_recording_path(
++            year=year, round_number=round_number, session=session, data_root=data_root
++        )
++        self.capture_id = uuid4().hex
++        path = provisional.with_name(f"live_timing_{self.capture_id}.jsonl")
++        super().__init__(path, filemode="x")
++        self.data_root = data_root
++        self.logger = logger
++        self._session_info = {}
++        self.provisional_identity = {"year": year, "round_number": round_number, "session": session}
++        self.validated_identity = None
++        self.identity_mismatch = False
++
++    def write(self, message):
++        from dataclasses import asdict
++        from collections.abc import Mapping
++        from .session_identity import parse_session_identity
++        from .reducer import _deep_merge
++
++        super().write(message)
++        if message.topic == "SessionInfo" and isinstance(message.payload, Mapping):
++            _deep_merge(self._session_info, message.payload)
++            identity = parse_session_identity(self._session_info)
++            sessions = {
++                "QUALIFYING": "Q", "Q": "Q", "SPRINT QUALIFYING": "SQ",
++                "SPRINT SHOOTOUT": "SQ", "PRACTICE 1": "FP1",
++                "PRACTICE 2": "FP2", "PRACTICE 3": "FP3", "RACE": "R",
++                "SPRINT": "S",
++            }
++            session = sessions.get(identity.session_name.upper())
++            if identity.year and identity.round_number and identity.event_name and session:
++                validated = {**asdict(identity), "session": session}
++                if self.validated_identity and validated != self.validated_identity:
++                    self.logger.error("Capture %s received conflicting validated identity: %s", self.capture_id, validated)
++                    raise ValueError("Live capture changed validated event/session identity; reconnect for a new capture")
++                if self.validated_identity is None:
++                    destination = live_recording_path(
++                        year=identity.year, round_number=identity.round_number,
++                        session=session, data_root=self.data_root,
++                    ).with_name(self.path.name)
++                    with self._lock:
++                        if destination != self.path:
++                            self._relocate_exclusively(destination)
++                        self.validated_identity = validated
++                        self.identity_mismatch = any(
++                            self.provisional_identity[key] != value for key, value in {
++                                "year": identity.year, "round_number": identity.round_number,
++                                "session": session,
++                            }.items()
++                        )
++                        if self.identity_mismatch:
++                            self.logger.warning("Capture identity corrected: provisional=%s validated=%s path=%s", self.provisional_identity, validated, self.path)
++        if message.topic == "SessionInfo" or not self.path.with_suffix(".identity.json").exists():
++            self._write_provenance()
++
++    def _relocate_exclusively(self, destination):
++        import os
++        from uuid import uuid4
++
++        destination.parent.mkdir(parents=True, exist_ok=True)
++        self._file.flush()
++        while True:
++            try:
++                os.link(self.path, destination)
++                break
++            except FileExistsError:
++                destination = destination.with_name(f"live_timing_{uuid4().hex}.jsonl")
++        old_path = self.path
++        self.path = destination
++        old_path.unlink()
++        old_path.with_suffix(".identity.json").unlink(missing_ok=True)
++
++    def _write_provenance(self):
++        # Unique capture path; replace only this capture's own sidecar atomically.
++        import os
++        path = self.path.with_suffix(".identity.json")
++        temporary = path.with_suffix(".tmp")
++        temporary.write_text(json.dumps({
++            "capture_id": self.capture_id,
++            "provisional_identity": self.provisional_identity,
++            "validated_identity": self.validated_identity,
++            "identity_mismatch": self.identity_mismatch,
++            "identity_status": "validated" if self.validated_identity else "provisional_unresolved",
++            "recording_path": str(self.path),
++        }, indent=2) + "\n", encoding="utf-8")
++        os.replace(temporary, path)
+diff --git a/tests/test_live_controller.py b/tests/test_live_controller.py
+index 3d3a9e9..261b50a 100644
+--- a/tests/test_live_controller.py
++++ b/tests/test_live_controller.py
+@@ -62,9 +62,9 @@ def test_replay_flow_control_is_never_applied_to_live_ingress():
+     assert len(calls) == 13
+ 
+ 
+-def test_controller_refreshes_extrapolated_clock_without_new_messages(monkeypatch):
++def test_controller_reads_do_not_advance_domain_clock_without_messages(monkeypatch):
+     now = [100.0]
+-    monkeypatch.setattr("wodata.live.quali_reducer.time.monotonic", lambda: now[0])
++    monkeypatch.setattr("time.monotonic", lambda: now[0])
+     controller = LiveTimingController(store=QualiSessionStore())
+     timestamp = datetime.now(timezone.utc)
+     controller._enqueue_message(
+@@ -81,7 +81,7 @@ def test_controller_refreshes_extrapolated_clock_without_new_messages(monkeypatc
+     result = controller.drain()
+ 
+     assert result.messages_processed == 0
+-    assert result.snapshot.remaining_time_s == 58
++    assert result.snapshot.remaining_time_s == 60
+     controller.stop()
+ 
+ 
+diff --git a/tests/test_quali_reducer.py b/tests/test_quali_reducer.py
+index 78725ee..6f75a9e 100644
+--- a/tests/test_quali_reducer.py
++++ b/tests/test_quali_reducer.py
+@@ -140,9 +140,9 @@ def test_clock_sectors_segments_and_best_lap_reduction():
+     assert snapshot.drivers[0].sectors_s == (30, 31, 29)
+ 
+ 
+-def test_running_clock_counts_down_between_feed_updates(monkeypatch):
++def test_running_domain_clock_only_advances_on_messages(monkeypatch):
+     now = [100.0]
+-    monkeypatch.setattr("wodata.live.quali_reducer.time.monotonic", lambda: now[0])
++    monkeypatch.setattr("time.monotonic", lambda: now[0])
+     store = QualiSessionStore()
+     store.apply(
+         msg("ExtrapolatedClock", {"Remaining": "15:00", "Extrapolating": True})
+@@ -150,7 +150,8 @@ def test_running_clock_counts_down_between_feed_updates(monkeypatch):
+ 
+     now[0] += 7.9
+ 
+-    assert store.snapshot().remaining_time_s == 893
++    assert store.snapshot().remaining_time_s == 900
++    assert store.apply(msg("Heartbeat", {}, seconds=7.9)).remaining_time_s == 893
+ 
+ 
+ def test_accelerated_replay_clock_counts_down_by_session_time():
+@@ -170,12 +171,13 @@ def test_accelerated_replay_clock_counts_down_by_session_time():
+ 
+ def test_clock_reset_uses_extrapolated_zero_to_advance_part(monkeypatch):
+     now = [100.0]
+-    monkeypatch.setattr("wodata.live.quali_reducer.time.monotonic", lambda: now[0])
++    monkeypatch.setattr("time.monotonic", lambda: now[0])
+     store = QualiSessionStore()
+     store.apply(
+         msg("ExtrapolatedClock", {"Remaining": "0:05", "Extrapolating": True})
+     )
+     now[0] += 6
++    store.apply(msg("Heartbeat", {}, seconds=6))
+ 
+     snapshot = store.apply(msg("ExtrapolatedClock", {"Remaining": "15:00"}))
+ 
+
+diff --git a/src/wodata/live/quali_clock.py b/src/wodata/live/quali_clock.py
+new file mode 100644
+index 0000000..720f669
+--- /dev/null
++++ b/src/wodata/live/quali_clock.py
+@@ -0,0 +1,22 @@
++"""Shared qualifying segment defaults and countdown parsing (zero is valid)."""
++from types import MappingProxyType
++import math
++
++STANDARD_QUALI_PARTS = ("Q1", "Q2", "Q3")
++SPRINT_QUALI_PARTS = ("SQ1", "SQ2", "SQ3")
++DEFAULT_SESSION_DURATIONS_S = MappingProxyType({
++    "Q1": 1080.0, "Q2": 900.0, "Q3": 780.0,
++    "SQ1": 720.0, "SQ2": 600.0, "SQ3": 480.0,
++})
++
++
++def countdown_seconds(value: object) -> float | None:
++    if value is None or isinstance(value, bool):
++        return None
++    try:
++        seconds = 0.0
++        for part in str(value).split(":"):
++            seconds = seconds * 60 + float(part)
++    except (TypeError, ValueError):
++        return None
++    return seconds if math.isfinite(seconds) and seconds >= 0 else None
+
+diff --git a/src/wodata/live/session_identity.py b/src/wodata/live/session_identity.py
+new file mode 100644
+index 0000000..14acf1f
+--- /dev/null
++++ b/src/wodata/live/session_identity.py
+@@ -0,0 +1,78 @@
++"""Helpers for interpreting live timing session metadata."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime
++from typing import Mapping
++
++
++@dataclass(frozen=True)
++class SessionIdentity:
++    year: int | None
++    round_number: int | None
++    event_name: str
++    session_name: str
++
++    @property
++    def is_qualifying(self) -> bool | None:
++        return is_qualifying_session(self.session_name)
++
++
++def parse_session_identity(
++    session_info: Mapping[str, object], *, fallback_year: int | None = None
++) -> SessionIdentity:
++    meeting = session_info.get("Meeting")
++    meeting = meeting if isinstance(meeting, Mapping) else {}
++    year = _positive_int(session_info.get("Year") or meeting.get("Year"))
++    if year is None:
++        year = _year_from_date(session_info.get("StartDate")) or fallback_year
++    round_number = _positive_int(
++        session_info.get("RoundNumber")
++        or meeting.get("RoundNumber")
++        or meeting.get("Number")
++    )
++    event_name = str(
++        meeting.get("Name")
++        or meeting.get("OfficialName")
++        or session_info.get("EventName")
++        or ""
++    ).strip()
++    session_name = str(
++        session_info.get("Name") or session_info.get("Type") or ""
++    ).strip()
++    return SessionIdentity(year, round_number, event_name, session_name)
++
++
++def is_qualifying_session(session_name: object) -> bool | None:
++    text = str(session_name or "").strip().upper()
++    if not text:
++        return None
++    return (
++        text in {"Q", "Q1", "Q2", "Q3"}
++        or "QUALI" in text
++        or "SHOOTOUT" in text
++    )
++
++
++def is_sprint_qualifying_session(session_name: object) -> bool:
++    text = str(session_name or "").strip().upper()
++    return is_qualifying_session(text) is True and (
++        "SPRINT" in text or "SHOOTOUT" in text
++    )
++
++
++def _positive_int(value: object) -> int | None:
++    try:
++        parsed = int(value)
++    except (TypeError, ValueError):
++        return None
++    return parsed if parsed > 0 else None
++
++
++def _year_from_date(value: object) -> int | None:
++    text = str(value or "").strip()
++    try:
++        return datetime.fromisoformat(text.replace("Z", "+00:00")).year
++    except ValueError:
++        return int(text[:4]) if len(text) >= 4 and text[:4].isdigit() else None
+
+diff --git a/tests/test_quali_foundation.py b/tests/test_quali_foundation.py
+new file mode 100644
+index 0000000..a5e3ece
+--- /dev/null
++++ b/tests/test_quali_foundation.py
+@@ -0,0 +1,194 @@
++from copy import deepcopy
++from datetime import datetime, timezone
++import json
++import logging
++
++from wodata.live import QualiSessionStore, QualiPitState, PitLaneGeometry, LiveTimingMessage
++from wodata.live.recorder import FeedIdentityRecorder, live_recording_path
++from wodata.live.session_identity import parse_session_identity
++
++NOW = datetime(2026, 9, 5, 14, tzinfo=timezone.utc)
++IDENTITY = {"StartDate": "2026-09-05T16:00:00", "Name": "Qualifying",
++            "Meeting": {"Name": "Italian Grand Prix", "Number": 13}}
++
++
++def message(topic, payload, seconds=0):
++    return LiveTimingMessage(topic, payload, None, NOW, source="f1_archive_replay", session_time_seconds=seconds)
++
++
++def clock(remaining, seconds=0, running=False):
++    return message("ExtrapolatedClock", {"Remaining": remaining, "Extrapolating": running}, seconds)
++
++
++def lap(number, value, seconds=0):
++    return message("TimingData", {"Lines": {"12": {"NumberOfLaps": number,
++                   "LastLapTime": {"Value": value}, "BestLapTime": {"Value": value},
++                   "Sectors": {"0": {"Value": "26.0"}}}}}, seconds)
++
++
++def car(speed, rpm, seconds):
++    return message("CarData.z", {"Entries": [{"Cars": {"12": {
++        "Channels": {"0": rpm, "2": speed}}}}]}, seconds)
++
++
++def test_session_number_is_never_the_event_round():
++    identity = parse_session_identity({**IDENTITY, "Name": "Practice 3", "Number": 3})
++    assert identity.round_number == 13
++    assert identity.session_name == "Practice 3"
++    assert parse_session_identity({"Number": 3}).round_number is None
++
++
++def test_feed_identity_relocates_capture_and_keeps_provenance_without_overwrite(tmp_path, caplog):
++    original = live_recording_path(year=2026, round_number=13, session="Q", data_root=tmp_path)
++    original.parent.mkdir(parents=True)
++    original.write_bytes(b"existing recording")
++    recorder = FeedIdentityRecorder(year=2026, round_number=3, session="Q", data_root=tmp_path, logger=logging.getLogger(__name__))
++    provisional = recorder.path
++    recorder.write(message("Heartbeat", {}, 1))
++    # Even an exact capture-name collision must be safe, including an empty file.
++    collision = original.with_name(recorder.path.name)
++    collision.touch()
++    recorder.write(message("SessionInfo", IDENTITY, 2))
++    recorder.write(message("Heartbeat", {}, 3))
++    recorder.close()
++    assert recorder.path.parent == original.parent
++    assert recorder.path != collision
++    assert original.read_bytes() == b"existing recording"
++    assert collision.read_bytes() == b""
++    assert not provisional.exists()
++    assert not provisional.with_suffix(".identity.json").exists()
++    assert len(recorder.path.read_text().splitlines()) == 3
++    provenance = json.loads(recorder.path.with_suffix(".identity.json").read_text())
++    assert provenance["provisional_identity"]["round_number"] == 3
++    assert provenance["validated_identity"]["round_number"] == 13
++    assert provenance["identity_mismatch"] is True
++    assert "identity corrected" in caplog.text
++
++
++def test_incomplete_feed_identity_remains_explicitly_provisional(tmp_path):
++    recorder = FeedIdentityRecorder(year=2026, round_number=3, session="Q", data_root=tmp_path, logger=logging.getLogger(__name__))
++    recorder.write(message("SessionInfo", {"Number": 3, "Name": "Practice 3"}))
++    recorder.close()
++    provenance = json.loads(recorder.path.with_suffix(".identity.json").read_text())
++    assert provenance["validated_identity"] is None
++    assert provenance["identity_status"] == "provisional_unresolved"
++
++
++def test_segment_scoping_history_zero_and_13_minute_q3():
++    store = QualiSessionStore()
++    store.apply(message("SessionInfo", IDENTITY))
++    store.apply(clock("00:00:00"))  # Pre-session zero is not chequered.
++    assert not store.snapshot().normal_finished
++    assert store.apply(clock("18:00", running=True)).session_part == "Q1"
++    store.apply(lap(3, "1:22.758", 100))
++    zero = store.apply(clock("00:00:00", 1080))
++    assert zero.remaining_time_s == 0 and zero.normal_finished
++    q2 = store.apply(clock("15:00", 1200))
++    assert q2.session_part == "Q2" and not q2.normal_finished
++    assert q2.drivers[0].historical_results == (("Q1", 82.758),)
++    store.apply(clock("14:59", 1201, running=True))
++    store.apply(lap(6, "1:21.882", 1300))
++    store.apply(clock("0:00", 2100))
++    # R13 feed clears current fields just before the next clock reset.
++    store.apply(message("TimingData", {"Lines": {"12": {
++        "BestLapTime": {"Value": ""}, "LastLapTime": {"Value": ""}}}}, 2159))
++    q3 = store.apply(clock("13:00", 2160))
++    assert q3.session_part == "Q3" and q3.segment_duration_s == 780
++    driver = q3.drivers[0]
++    assert driver.best_lap_s is driver.last_lap_s is None
++    assert driver.sectors_s == (None, None, None) and driver.segments == ()
++    assert driver.completed_laps == 0
++    assert driver.historical_results == (("Q1", 82.758), ("Q2", 81.882))
++    # Pit-out increments must not turn an old last lap into a completion.
++    store.apply(message("TimingData", {"Lines": {"12": {"NumberOfLaps": 7, "InPit": False}}}, 2161))
++    assert store.snapshot().drivers[0].best_lap_s is None
++    assert len(store.snapshot().completed_lap_sequence) == 2
++    genuine = store.apply(lap(8, "1:22.100", 2260))
++    assert genuine.drivers[0].best_lap_s == 82.1
++    assert genuine.completed_lap_sequence[-1].session_part == "Q3"
++
++
++def test_explicit_part_overrides_duration_defaults_and_red_flag_freezes():
++    store = QualiSessionStore()
++    store.apply(message("SessionInfo", {**IDENTITY, "SessionPart": "Q3"}))
++    raw = store.apply(clock("14:00", running=True))
++    assert raw.session_part == "Q3" and raw.segment_duration_s == 840
++    store.apply(message("SessionStatus", {"Status": "Aborted"}, 20))
++    raw = store.apply(message("Heartbeat", {}, 200))
++    assert raw.remaining_time_s == 820 and not raw.normal_finished
++    store.apply(message("SessionStatus", {"Status": "Started"}, 201))
++    assert store.apply(message("Heartbeat", {}, 211)).remaining_time_s == 810
++
++
++def test_snapshots_do_not_mutate_and_queue_clears_on_stationary_or_stale_evidence():
++    messages = [message("TimingData", {"Lines": {"12": {"InPit": True}}}),
++                car(4, 4000, 1), car(0, 0, 2), car(20, 4000, 3),
++                message("Heartbeat", {}, 10)]
++    states = []
++    for polls in (0, 1, 20):
++        store = QualiSessionStore()
++        sequence = []
++        for msg in messages:
++            store._apply_message(msg)
++            before = deepcopy({k: v for k, v in vars(store).items() if k != "_snapshot"})
++            for _ in range(polls):
++                store.snapshot()
++            assert before == {k: v for k, v in vars(store).items() if k != "_snapshot"}
++            sequence.append(store.snapshot().drivers[0].pit_state)
++        states.append(sequence)
++    assert states[0] == states[1] == states[2]
++    assert states[0] == [QualiPitState.INACTIVE, QualiPitState.QUEUE,
++                         QualiPitState.INACTIVE, QualiPitState.QUEUE, QualiPitState.INACTIVE]
++
++
++def test_stale_geometry_does_not_hold_departing_car_in_queue():
++    store = QualiSessionStore(pit_lane_geometry=PitLaneGeometry(((0, 0), (100, 0)), 10))
++    store.apply(message("TimingData", {"Lines": {"12": {"InPit": False}}}))
++    queued = store.apply(message("Position.z", {"Position": [{"Entries": {"12": {"X": 50, "Y": 0}}}]}, 1))
++    assert queued.drivers[0].pit_state == QualiPitState.QUEUE
++    stale = store.apply(message("Heartbeat", {}, 10))
++    assert stale.drivers[0].pit_state == QualiPitState.UNKNOWN
++    assert stale.drivers[0].pit_lane_progress is None
++
++
++def test_explicit_chequered_is_session_level_even_before_clock_zero():
++    store = QualiSessionStore()
++    store.apply(clock("2:00", running=True))
++    raw = store.apply(message("RaceControlMessages", {"Messages": {"0": {
++        "Flag": "CHEQUERED", "Scope": "Track"}}}, 1))
++    assert raw.normal_finished and raw.normal_finish_source == "race_control"
++    assert raw.remaining_time_s == 119
++
++
++def test_explicit_shortened_q1_takes_precedence_over_15_minute_inference():
++    store = QualiSessionStore()
++    store.apply(message("SessionInfo", {**IDENTITY, "SessionPart": "Q1"}))
++    snapshot = store.apply(clock("15:00", running=True))
++    assert snapshot.session_part == "Q1"
++    assert snapshot.segment_duration_s == 900
++
++
++def test_controller_qualifying_uses_feed_recorder_and_subscribes_chequered(tmp_path, monkeypatch):
++    from wodata.live import LiveTimingController, LiveConfig
++    controller = LiveTimingController(store=QualiSessionStore())
++    sources = []
++    monkeypatch.setattr(controller, "_start_source", lambda source, **kwargs: sources.append(source))
++    controller.start_live(LiveConfig(2026, 3, "Q", tmp_path))
++    assert "RaceControlMessages" in sources[0].extra_topics
++    controller._enqueue_message(message("SessionInfo", IDENTITY))
++    controller._enqueue_message(message("Heartbeat", {}, 1))
++    controller.stop()
++    assert "round=13" in str(controller.recording_path)
++    assert len(controller.recording_path.read_text().splitlines()) == 2
++
++
++def test_untimed_out_lap_cannot_populate_a_cleared_official_current_result():
++    store = QualiSessionStore()
++    store.apply(clock("15:00", running=True))
++    store.apply(lap(6, "1:21.882", 1))
++    store.apply(clock("0:00", 900))
++    store.apply(clock("13:00", 1000))
++    out = store.apply(message("TimingData", {"Lines": {"12": {
++        "NumberOfLaps": 8, "LastLapTime": {"Value": "6:23.639"}}}}, 1100))
++    assert out.drivers[0].best_lap_s is None
++    assert dict(out.drivers[0].historical_results)["Q2"] == 81.882
+
+# Repository: woPlanner
+diff --git a/src/woplanner/common/session_info.py b/src/woplanner/common/session_info.py
+index 1d0760e..3c6d809 100644
+--- a/src/woplanner/common/session_info.py
++++ b/src/woplanner/common/session_info.py
+@@ -2,48 +2,14 @@
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass, replace
+-from datetime import datetime
++from dataclasses import replace
+ from typing import Callable, Mapping
+ 
+ 
+-@dataclass(frozen=True)
+-class SessionIdentity:
+-    year: int | None
+-    round_number: int | None
+-    event_name: str
+-    session_name: str
+-
+-    @property
+-    def is_qualifying(self) -> bool | None:
+-        return is_qualifying_session(self.session_name)
+-
+-
+-def parse_session_identity(
+-    session_info: Mapping[str, object], *, fallback_year: int | None = None
+-) -> SessionIdentity:
+-    meeting = session_info.get("Meeting")
+-    meeting = meeting if isinstance(meeting, Mapping) else {}
+-    year = _positive_int(session_info.get("Year") or meeting.get("Year"))
+-    if year is None:
+-        year = _year_from_date(session_info.get("StartDate")) or fallback_year
+-    round_number = _positive_int(
+-        session_info.get("RoundNumber")
+-        or session_info.get("Number")
+-        or meeting.get("RoundNumber")
+-        or meeting.get("Number")
+-    )
+-    event_name = str(
+-        meeting.get("Name")
+-        or meeting.get("OfficialName")
+-        or session_info.get("EventName")
+-        or ""
+-    ).strip()
+-    session_name = str(
+-        session_info.get("Name") or session_info.get("Type") or ""
+-    ).strip()
+-    return SessionIdentity(year, round_number, event_name, session_name)
+-
++from wodata.live.session_identity import (
++    SessionIdentity, parse_session_identity, is_qualifying_session,
++    is_sprint_qualifying_session, _positive_int,
++)
+ 
+ def resolve_session_identity(
+     session_info: Mapping[str, object],
+@@ -67,37 +33,3 @@ def resolve_session_identity(
+     except (AttributeError, ImportError, KeyError, TypeError, ValueError, OSError):
+         return identity
+     return replace(identity, round_number=round_number)
+-
+-
+-def is_qualifying_session(session_name: object) -> bool | None:
+-    text = str(session_name or "").strip().upper()
+-    if not text:
+-        return None
+-    return (
+-        text in {"Q", "Q1", "Q2", "Q3"}
+-        or "QUALI" in text
+-        or "SHOOTOUT" in text
+-    )
+-
+-
+-def is_sprint_qualifying_session(session_name: object) -> bool:
+-    text = str(session_name or "").strip().upper()
+-    return is_qualifying_session(text) is True and (
+-        "SPRINT" in text or "SHOOTOUT" in text
+-    )
+-
+-
+-def _positive_int(value: object) -> int | None:
+-    try:
+-        parsed = int(value)
+-    except (TypeError, ValueError):
+-        return None
+-    return parsed if parsed > 0 else None
+-
+-
+-def _year_from_date(value: object) -> int | None:
+-    text = str(value or "").strip()
+-    try:
+-        return datetime.fromisoformat(text.replace("Z", "+00:00")).year
+-    except ValueError:
+-        return int(text[:4]) if len(text) >= 4 and text[:4].isdigit() else None
+diff --git a/src/woplanner/quali/gui.py b/src/woplanner/quali/gui.py
+index 54e3015..a8201c6 100644
+--- a/src/woplanner/quali/gui.py
++++ b/src/woplanner/quali/gui.py
+@@ -31,23 +31,8 @@ PIT_STATUS_BACKGROUNDS = {
+     "INLAP": "#1976d2",
+     "IN-PIT": "#ffffff",
+ }
+-CHEQUERED_FINISH_REASONS = frozenset(
+-    {
+-        FinishedReason.NO_TIME_FOR_NEXT_PUSH,
+-        FinishedReason.FINAL_LAP_COMPLETED,
+-    }
+-)
+ 
+ 
+-def _chequered_flag_brush() -> QtGui.QBrush:
+-    """Return a repeating black-and-white chequered flag brush."""
+-    tile = QtGui.QPixmap(12, 12)
+-    tile.fill(QtGui.QColor("white"))
+-    painter = QtGui.QPainter(tile)
+-    painter.fillRect(0, 0, 6, 6, QtGui.QColor("black"))
+-    painter.fillRect(6, 6, 6, 6, QtGui.QColor("black"))
+-    painter.end()
+-    return QtGui.QBrush(tile)
+ 
+ 
+ class QualiWindow(QtWidgets.QMainWindow):
+@@ -170,9 +155,11 @@ class QualiWindow(QtWidgets.QMainWindow):
+         self.connection = QtWidgets.QLabel("Idle")
+         self.clock = QtWidgets.QLabel("Q1 —:—")
+         self.cutoff = QtWidgets.QLabel("Projected cutoff: —")
++        self.normal_finish = QtWidgets.QLabel("")
+         status.addWidget(self.connection)
+         status.addStretch(1)
+         status.addWidget(self.clock)
++        status.addWidget(self.normal_finish)
+         status.addWidget(self.cutoff)
+         return status
+ 
+@@ -228,6 +215,7 @@ class QualiWindow(QtWidgets.QMainWindow):
+             )
+             rate, _, _ = self.analysis_service.effective_fp_track_rate()
+             self.service.set_fp_track_rate(rate)
++            self.service.load_operational_analysis(result)
+             if self.plan_dialog:
+                 self.plan_dialog.load_analysis(result)
+             QtWidgets.QMessageBox.information(
+@@ -280,6 +268,7 @@ class QualiWindow(QtWidgets.QMainWindow):
+         remaining = snapshot.remaining_time_s
+         remaining_text = format_time(remaining) if remaining is not None else "—:—"
+         self.clock.setText(f"{snapshot.session_part} {remaining_text}")
++        self._render_normal_finish(snapshot)
+         projected_cutoff = snapshot.cutoff.projected_cutoff_s
+         if snapshot.cutoff.current_cutoff_s is None:
+             self.cutoff.setText("Projected cutoff: —")
+@@ -292,6 +281,12 @@ class QualiWindow(QtWidgets.QMainWindow):
+         if self.plan_dialog is not None:
+             self.plan_dialog.refresh_live_track()
+ 
++    def _render_normal_finish(self, snapshot) -> None:
++        self.normal_finish.setText("SESSION CHEQUERED" if snapshot.normal_finished else "")
++        self.normal_finish.setToolTip(
++            f"Normal session finish: {snapshot.normal_finish_source}" if snapshot.normal_finished else ""
++        )
++
+     def _prepare_session_start(self) -> None:
+         self._session_metadata_signature = None
+         self._non_quali_warning_shown = False
+@@ -324,14 +319,7 @@ class QualiWindow(QtWidgets.QMainWindow):
+         if identity.year is not None:
+             self.year.setValue(identity.year)
+         if identity.round_number is not None:
+-            changed = identity.round_number != self.round.value()
+             self.round.setValue(identity.round_number)
+-            if changed:
+-                self.service.configure_event_geometry(
+-                    identity.year or self.year.value(),
+-                    identity.round_number,
+-                    WORKSPACE_DATA_ROOT,
+-                )
+         if identity.event_name:
+             self.setWindowTitle(
+                 f"woPlanner Qualifying Monitor — {identity.event_name}"
+@@ -395,18 +383,13 @@ class QualiWindow(QtWidgets.QMainWindow):
+                     )
+                     continue
+                 item = QtWidgets.QTableWidgetItem(str(value))
+-                if (
+-                    column == 0
+-                    and state.finished_reason in CHEQUERED_FINISH_REASONS
+-                ):
+-                    item.setBackground(_chequered_flag_brush())
+-                    item.setForeground(QtGui.QColor("#e10600"))
+-                    font = item.font()
+-                    font.setBold(True)
+-                    item.setFont(font)
++                if column == 0 and state.effective_finished:
++                    item.setBackground(QtGui.QColor("#f4b183"))
+                     item.setToolTip(
+-                        "Final push completed; not enough time for another "
+-                        "slow/preparation lap"
++                        "Effective finish: completed PUSH; insufficient time for another "
++                        f"cool/recycle lap ({state.effective_finish_remaining_s:g}s remaining, "
++                        f"{state.effective_finish_recovery_s:g}s required). "
++                        f"Source: {state.effective_finish_timing_source}. Not the session chequered flag."
+                     )
+                 if column == 1 and colour:
+                     item.setBackground(QtGui.QColor(colour))
+diff --git a/src/woplanner/quali/models.py b/src/woplanner/quali/models.py
+index c025f0b..bd38fa3 100644
+--- a/src/woplanner/quali/models.py
++++ b/src/woplanner/quali/models.py
+@@ -37,6 +37,11 @@ class QualiDriverState:
+     tyre_history: tuple[QualiTyreStint, ...] = ()
+     active: bool = True
+     frozen_part: str | None = None
++    historical_results: tuple[tuple[str, float | None], ...] = ()
++    effective_finished: bool = False
++    effective_finish_remaining_s: float | None = None
++    effective_finish_recovery_s: float | None = None
++    effective_finish_timing_source: str | None = None
+ 
+ 
+ @dataclass(frozen=True)
+@@ -59,3 +64,5 @@ class QualiSessionSnapshot:
+     cutoff: CutoffProjection
+     actual_cutoffs: tuple[tuple[str, float | None], ...]
+     track_source: str
++    normal_finished: bool = False
++    normal_finish_source: str | None = None
+diff --git a/src/woplanner/quali/planning.py b/src/woplanner/quali/planning.py
+index e842c00..161668f 100644
+--- a/src/woplanner/quali/planning.py
++++ b/src/woplanner/quali/planning.py
+@@ -5,17 +5,9 @@ from __future__ import annotations
+ from dataclasses import dataclass, field
+ 
+ 
+-STANDARD_QUALI_PARTS = ("Q1", "Q2", "Q3")
+-SPRINT_QUALI_PARTS = ("SQ1", "SQ2", "SQ3")
+-DEFAULT_SESSION_DURATIONS_S = {
+-    "Q1": 18 * 60.0,
+-    "Q2": 15 * 60.0,
+-    "Q3": 13 * 60.0,
+-    "SQ1": 12 * 60.0,
+-    "SQ2": 10 * 60.0,
+-    "SQ3": 8 * 60.0,
+-}
+-
++from wodata.live.quali_clock import (
++    STANDARD_QUALI_PARTS, SPRINT_QUALI_PARTS, DEFAULT_SESSION_DURATIONS_S,
++)
+ 
+ @dataclass(frozen=True)
+ class QualiTimingValues:
+diff --git a/src/woplanner/quali/service.py b/src/woplanner/quali/service.py
+index 0c74feb..fb63046 100644
+--- a/src/woplanner/quali/service.py
++++ b/src/woplanner/quali/service.py
+@@ -23,7 +23,7 @@ from .models import (
+     QualiDriverState,
+     QualiSessionSnapshot,
+ )
+-from .planning import SPRINT_QUALI_PARTS, STANDARD_QUALI_PARTS
++from .planning import SPRINT_QUALI_PARTS, STANDARD_QUALI_PARTS, QualiTimingValues
+ 
+ 
+ QUALI_PARTS = (*STANDARD_QUALI_PARTS, *SPRINT_QUALI_PARTS)
+@@ -36,7 +36,7 @@ class QualiLiveService:
+         *,
+         eliminated_counts: dict[str, int] | None = None,
+         out_lap_s: float = 100.0,
+-        cool_lap_s: float = 100.0,
++        cool_lap_s: float = QualiTimingValues().cool_lap_s,
+         track_rate_s_per_field_push: float = 0.0,
+         push_threshold_fraction: float = 0.02,
+         pit_lane_geometry: PitLaneGeometry | None = None,
+@@ -46,8 +46,13 @@ class QualiLiveService:
+         )
+         self.eliminated_counts = {part: 6 for part in QUALI_PARTS}
+         self.eliminated_counts.update(eliminated_counts or {})
+-        self.out_lap_s = float(out_lap_s)
+-        self.cool_lap_s = float(cool_lap_s)
++        self.operational_timings = QualiTimingValues(
++            out_lap_s=float(out_lap_s), cool_lap_s=float(cool_lap_s)
++        )
++        self.operational_timing_source = "Configured qualifying operational timings (built-in defaults unless supplied)"
++        self._message_driven = isinstance(self.controller, LiveTimingController)
++        if self._message_driven:
++            self.controller.on_message_snapshot = self._consume_message_snapshot
+         self._fp_track_rate_s_per_field_push = float(track_rate_s_per_field_push)
+         self._automatic_track_rate_s_per_field_push = (
+             self._fp_track_rate_s_per_field_push
+@@ -70,6 +75,7 @@ class QualiLiveService:
+         }
+         self._track_estimates: dict[str, tuple[float | None, int, str]] = {}
+         self._latest_raw: dict[str, QualiRawDriverState] = {}
++        self._event_geometry_identity = None
+         self.received_session_info = self.raw_snapshot.session_info
+         self.received_session_name = ""
+         self.session_is_qualifying: bool | None = None
+@@ -77,6 +83,7 @@ class QualiLiveService:
+ 
+     def start_live(self, config: LiveConfig) -> None:
+         self.reset()
++        self._geometry_data_root = config.data_root
+         self._load_geometry(config.year, config.round_number, config.data_root)
+         self.controller.start_live(config)
+ 
+@@ -110,6 +117,7 @@ class QualiLiveService:
+     def configure_event_geometry(
+         self, year: int, round_number: int, data_root: str | Path | None = None
+     ) -> None:
++        self._geometry_data_root = data_root
+         self._load_geometry(year, round_number, data_root, force=True)
+ 
+     def reset(self) -> None:
+@@ -131,6 +139,7 @@ class QualiLiveService:
+         self.track_rate_s_per_field_push = self._automatic_track_rate_s_per_field_push
+         self.track_source = self._automatic_track_source
+         self._latest_raw.clear()
++        self._event_geometry_identity = None
+         self.received_session_info = self.raw_snapshot.session_info
+         self.received_session_name = ""
+         self.session_is_qualifying = None
+@@ -168,26 +177,57 @@ class QualiLiveService:
+             return None
+         return self._track_estimates.get(self._automatic_track_part)
+ 
+-    def poll(self):
+-        result = self.controller.drain()
+-        self.received_session_info = result.snapshot.session_info
+-        identity = parse_session_identity(self.received_session_info)
++    @property
++    def out_lap_s(self) -> float:
++        return self.operational_timings.out_lap_s
++
++    @property
++    def cool_lap_s(self) -> float:
++        return self.operational_timings.cool_lap_s
++
++    def set_operational_timings(self, timings: QualiTimingValues, *, source: str) -> None:
++        """Single explicit OUT/cool input for subsequent message finish decisions."""
++        self.operational_timings = timings
++        self.operational_timing_source = source
++
++    def load_operational_analysis(self, result) -> None:
++        values = vars(QualiTimingValues()).copy()
++        source = "Built-in fallback: no usable FP cool/prep samples"
++        for _, row in result.durations.iterrows():
++            value = row["selected_default_s"]
++            if value == value and row["category"] in values:
++                values[row["category"]] = float(value)
++                if row["category"] == "cool_lap_s":
++                    source = f"FP cool/prep selected median (n={int(row['selected_count'])})"
++        self.set_operational_timings(QualiTimingValues(**values), source=source)
++
++    def _consume_message_snapshot(self, raw):
++        self.received_session_info = raw.session_info
++        identity = parse_session_identity(raw.session_info)
+         self.received_session_name = identity.session_name
+-        session_is_qualifying = identity.is_qualifying
+-        if session_is_qualifying is False:
++        event_key = (identity.year, identity.round_number)
++        if all(event_key) and event_key != self._event_geometry_identity:
++            self._event_geometry_identity = event_key
++            self._load_geometry(*event_key, getattr(self, "_geometry_data_root", None), force=True)
++        if identity.is_qualifying is False:
+             if self.session_is_qualifying is not False:
+-                session_info = self.received_session_info
+-                session_name = self.received_session_name
+                 self.reset()
+-                self.received_session_info = session_info
+-                self.received_session_name = session_name
+-                self.session_is_qualifying = False
+-            return self.snapshot, result.statuses, False
+-        if session_is_qualifying is None:
+-            return self.snapshot, result.statuses, False
++                self.received_session_info = raw.session_info
++                self.received_session_name = identity.session_name
++            self.session_is_qualifying = False
++            return
++        if identity.is_qualifying is None:
++            return
+         self.session_is_qualifying = True
+-        self.consume(result.snapshot)
+-        return self.snapshot, result.statuses, result.changed
++        self.consume(raw)
++
++    def poll(self):
++        result = self.controller.drain()
++        # Real controllers deliver every intermediate message state, not just
++        # the final state of a drain. Snapshot-only test adapters remain usable.
++        if not self._message_driven:
++            self._consume_message_snapshot(result.snapshot)
++        return self.snapshot, result.statuses, result.changed and self.session_is_qualifying is True
+ 
+     def consume(self, raw: QualiRawSnapshot) -> QualiSessionSnapshot:
+         previous_part = self.session_part
+@@ -211,6 +251,7 @@ class QualiLiveService:
+     def _consume_driver(self, raw: QualiRawDriverState) -> None:
+         existing = self._states.get(raw.driver_number)
+         if existing is not None and not existing.active:
++            self._states[raw.driver_number] = replace(existing, historical_results=raw.historical_results)
+             return
+         previous_laps = self._completed_laps.get(raw.driver_number)
+         completed_lap = (
+@@ -240,8 +281,17 @@ class QualiLiveService:
+         finished = existing.finished if existing else False
+         reason = existing.finished_reason if existing else None
+         remaining = self.raw_snapshot.remaining_time_s
++        effective = existing.effective_finished if existing else False
++        effective_remaining = existing.effective_finish_remaining_s if existing else None
++        recovery = existing.effective_finish_recovery_s if existing else None
++        timing_source = existing.effective_finish_timing_source if existing else None
++        if (not effective and completed_push and remaining is not None
++                and remaining < self.cool_lap_s):
++            effective = True
++            effective_remaining, recovery = remaining, self.cool_lap_s
++            timing_source = self.operational_timing_source
+         if remaining is not None and not finished:
+-            if completed_lap and remaining <= 0:
++            if completed_lap and (remaining <= 0 or self.raw_snapshot.normal_finished):
+                 finished, reason = True, FinishedReason.FINAL_LAP_COMPLETED
+             elif raw.in_pit and remaining < self.out_lap_s:
+                 finished, reason = True, FinishedReason.IN_PIT_NO_OUTLAP_TIME
+@@ -267,6 +317,11 @@ class QualiLiveService:
+             pit_state=raw.pit_state,
+             pit_lane_progress=raw.pit_lane_progress,
+             tyre_history=raw.tyre_history,
++            historical_results=raw.historical_results,
++            effective_finished=effective,
++            effective_finish_remaining_s=effective_remaining,
++            effective_finish_recovery_s=recovery,
++            effective_finish_timing_source=timing_source,
+         )
+         self._states[raw.driver_number] = state
+         if best is not None and (
+@@ -333,7 +388,7 @@ class QualiLiveService:
+                 interval_s=interval,
+                 projected_gap_s=projected_gap,
+                 status=(
+-                    "FINISHED"
++                    "EFF. FINISH" if state.effective_finished else "FINISHED"
+                     if state.finished
+                     else state.pit_state.value.replace("_", " ")
+                 ),
+@@ -372,6 +427,12 @@ class QualiLiveService:
+                     finished=True,
+                     finished_reason=FinishedReason.ELIMINATED,
+                     frozen_part=self.session_part,
++                    best_lap_s=None, last_lap_s=None,
++                    sectors_s=(None, None, None), projected_lap_s=None,
++                    gap_s=None, interval_s=None, projected_gap_s=None,
++                    status="ELIMINATED",
++                    effective_finished=False, effective_finish_remaining_s=None,
++                    effective_finish_recovery_s=None, effective_finish_timing_source=None,
+                 )
+             elif state.active:
+                 self._states[number] = QualiDriverState(
+@@ -384,6 +445,7 @@ class QualiLiveService:
+                 )
+         self.session_part = new_part
+         self._completed_laps.clear()
++        self._latest_raw.clear()
+         self._reference_total_s = None
+         self._reference_checkpoints.clear()
+         self.snapshot = self._build_snapshot()
+@@ -497,6 +559,8 @@ class QualiLiveService:
+             cutoff,
+             tuple(self._actual_cutoffs.items()),
+             self.track_source,
++            self.raw_snapshot.normal_finished,
++            self.raw_snapshot.normal_finish_source,
+         )
+ 
+     @staticmethod
+diff --git a/src/woplanner/quali/widgets.py b/src/woplanner/quali/widgets.py
+index 8de917e..a6e442a 100644
+--- a/src/woplanner/quali/widgets.py
++++ b/src/woplanner/quali/widgets.py
+@@ -300,7 +300,7 @@ class QualiPlanDialog(QtWidgets.QDialog):
+             timing.addWidget(spin)
+             timing.addWidget(count)
+             self.timing_inputs[key] = (spin, count)
+-            spin.valueChanged.connect(self._refresh_timelines)
++            spin.valueChanged.connect(self._timing_edited)
+         reset = QtWidgets.QPushButton("Reset / reload")
+         reset.clicked.connect(self._reset_timings)
+         timing.addWidget(reset)
+@@ -312,7 +312,10 @@ class QualiPlanDialog(QtWidgets.QDialog):
+         body_layout = QtWidgets.QVBoxLayout(body)
+         self.part_editors = {}
+         for part in self.planning_parts:
+-            minutes = DEFAULT_SESSION_DURATIONS_S[part] / 60.0
++            seconds = DEFAULT_SESSION_DURATIONS_S[part]
++            if self.live_service is not None and self.live_service.raw_snapshot.session_part == part:
++                seconds = self.live_service.raw_snapshot.segment_duration_s or seconds
++            minutes = seconds / 60.0
+             box = QtWidgets.QGroupBox(part)
+             box.setCheckable(True)
+             box.setChecked(True)
+@@ -394,20 +397,21 @@ class QualiPlanDialog(QtWidgets.QDialog):
+ 
+     def load_analysis(self, result) -> None:
+         self.result = result
+-        defaults = {
+-            "out_lap_s": 100.0,
+-            "in_lap_s": 100.0,
+-            "cool_lap_s": 105.0,
+-            "push_lap_s": 90.0,
+-        }
++        if self.live_service is not None:
++            if result is not None:
++                self.live_service.load_operational_analysis(result)
++            timing = self.live_service.operational_timings
++            self._analysis_timing_source = self.live_service.operational_timing_source
++        else:
++            values = vars(QualiTimingValues()).copy()
++            if result is not None:
++                values.update({key: value for key, value in result.planning_defaults.items() if value is not None})
++            timing = QualiTimingValues(**values)
++            self._analysis_timing_source = "FP analysis / built-in fallback"
+         if result is not None:
+             for _, row in result.durations.iterrows():
+-                category = str(row["category"])
+-                if row["selected_default_s"] == row["selected_default_s"]:
+-                    defaults[category] = float(row["selected_default_s"])
+-                if category in self.timing_inputs:
+-                    self.timing_inputs[category][1].setText(f"n={int(row['count'])}")
+-        timing = QualiTimingValues(**defaults)
++                if row["category"] in self.timing_inputs:
++                    self.timing_inputs[row["category"]][1].setText(f"n={int(row['count'])}")
+         self.model.analysis_timings = timing
+         self.model.timings = timing
+         self._reset_timings()
+@@ -421,7 +425,16 @@ class QualiPlanDialog(QtWidgets.QDialog):
+ 
+     def _reset_timings(self) -> None:
+         for key, value in vars(self.model.analysis_timings).items():
+-            self.timing_inputs[key][0].setValue(value)
++            spin = self.timing_inputs[key][0]
++            with QtCore.QSignalBlocker(spin):
++                spin.setValue(value)
++        if self.live_service is not None:
++            self.live_service.set_operational_timings(self.model.analysis_timings, source=self._analysis_timing_source)
++        self._refresh_timelines()
++
++    def _timing_edited(self) -> None:
++        if self.live_service is not None:
++            self.live_service.set_operational_timings(self._current_timings(), source="Quali Plan manual inputs")
+         self._refresh_timelines()
+ 
+     def _current_timings(self) -> QualiTimingValues:
+diff --git a/tests/test_quali_gui.py b/tests/test_quali_gui.py
+index e1ba9bf..d14009a 100644
+--- a/tests/test_quali_gui.py
++++ b/tests/test_quali_gui.py
+@@ -128,7 +128,7 @@ def test_status_column_colours_fired_queue_and_left_pit():
+     app.processEvents()
+ 
+ 
+-def test_position_is_chequered_only_after_a_completed_final_push():
++def test_effective_finish_has_distinct_colour_and_explanation():
+     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+     window = QualiWindow()
+     states = (
+@@ -139,6 +139,10 @@ def test_position_is_chequered_only_after_a_completed_final_push():
+             rank=1,
+             finished=True,
+             finished_reason=FinishedReason.NO_TIME_FOR_NEXT_PUSH,
++            effective_finished=True,
++            effective_finish_remaining_s=80,
++            effective_finish_recovery_s=105,
++            effective_finish_timing_source="test policy",
+         ),
+         QualiDriverState(
+             "2",
+@@ -153,8 +157,8 @@ def test_position_is_chequered_only_after_a_completed_final_push():
+         SimpleNamespace(drivers=states, cutoff=SimpleNamespace(cutoff_rank=0))
+     )
+ 
+-    assert not window.table.item(0, 0).background().texture().isNull()
+-    assert "slow/preparation lap" in window.table.item(0, 0).toolTip()
++    assert window.table.item(0, 0).background().color().name() == "#f4b183"
++    assert "Not the session chequered flag" in window.table.item(0, 0).toolTip()
+     assert window.table.item(1, 0).background().style() == (
+         QtCore.Qt.BrushStyle.NoBrush
+     )
+@@ -200,3 +204,13 @@ def test_tyre_age_column_is_hidden_until_real_age_data_is_available():
+     assert window.table.isColumnHidden(3) is False
+     window.close()
+     app.processEvents()
++
++
++def test_normal_finish_is_a_session_label_not_a_car_marker():
++    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
++    window = QualiWindow()
++    window._render_normal_finish(SimpleNamespace(normal_finished=True, normal_finish_source="race_control"))
++    assert window.normal_finish.text() == "SESSION CHEQUERED"
++    window._render_normal_finish(SimpleNamespace(normal_finished=False, normal_finish_source=None))
++    assert window.normal_finish.text() == ""
++    window.close()
+diff --git a/tests/test_quali_service.py b/tests/test_quali_service.py
+index 6ef61ec..7912302 100644
+--- a/tests/test_quali_service.py
++++ b/tests/test_quali_service.py
+@@ -218,3 +218,24 @@ def test_poll_loads_drivers_after_qualifying_session_is_confirmed():
+     assert service.session_is_qualifying is True
+     assert [state.driver for state in snapshot.drivers] == ["D1"]
+     assert changed is True
++
++
++def test_effective_finish_requires_a_new_push_and_is_independent_of_session_finish():
++    from woplanner.quali.planning import QualiTimingValues
++    service = QualiLiveService(eliminated_counts={"Q1": 0})
++    service.set_operational_timings(QualiTimingValues(cool_lap_s=110), source="test operational policy")
++    service.consume(raw([driver(1, 90, laps=1), driver(2, 91, laps=1)], remaining=200))
++    unchanged = service.consume(raw([driver(1, 90, laps=1), driver(2, 91, laps=1)], remaining=100))
++    assert not any(d.effective_finished for d in unchanged.drivers)
++    slow = service.consume(raw([driver(1, 120, laps=2), driver(2, 91, laps=1)], remaining=100))
++    assert not any(d.effective_finished for d in slow.drivers)
++    push = service.consume(raw([driver(1, 89, laps=3), driver(2, 91, laps=1)], remaining=99))
++    assert not push.normal_finished
++    first = next(d for d in push.drivers if d.driver == "D1")
++    assert first.effective_finished
++    assert first.effective_finish_recovery_s == 110
++    assert first.effective_finish_timing_source == "test operational policy"
++    assert not next(d for d in push.drivers if d.driver == "D2").effective_finished
++    normal = service.consume(replace(raw([driver(1, 89, laps=3), driver(2, 91, laps=1)], remaining=80), normal_finished=True, normal_finish_source="race_control"))
++    assert normal.normal_finished
++    assert not next(d for d in normal.drivers if d.driver == "D2").effective_finished
+diff --git a/tests/test_quali_widgets.py b/tests/test_quali_widgets.py
+index ab8b415..e76a986 100644
+--- a/tests/test_quali_widgets.py
++++ b/tests/test_quali_widgets.py
+@@ -48,3 +48,24 @@ def test_sprint_qualifying_plan_uses_sq_parts_and_defaults():
+     ]
+     dialog.close()
+     app.processEvents()
++
++
++def test_plan_cooldown_edits_update_the_effective_finish_policy():
++    from PySide6 import QtWidgets
++    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
++
++    class AnalysisService:
++        result = None
++        def effective_fp_track_rate(self):
++            return 0.0, "No usable FP estimate", 0
++
++    live = QualiLiveService()
++    dialog = QualiPlanDialog(AnalysisService(), live)
++    assert live.cool_lap_s == 105
++    dialog.timing_inputs["cool_lap_s"][0].setValue(117)
++    assert live.cool_lap_s == 117
++    assert live.operational_timing_source == "Quali Plan manual inputs"
++    dialog._reset_timings()
++    assert live.cool_lap_s == 105
++    dialog.close()
++    app.processEvents()
+diff --git a/tests/test_session_info.py b/tests/test_session_info.py
+index 31eadd7..6e39702 100644
+--- a/tests/test_session_info.py
++++ b/tests/test_session_info.py
+@@ -48,3 +48,8 @@ def test_qualifying_session_aliases_are_recognised():
+     assert is_qualifying_session("Sprint Shootout") is True
+     assert is_qualifying_session("Race") is False
+     assert is_qualifying_session("") is None
++
++
++def test_session_number_does_not_override_meeting_round():
++    identity = parse_session_identity({"Number": 3, "Name": "Practice 3", "Meeting": {"Number": 13}})
++    assert identity.round_number == 13
+
+diff --git a/tests/test_quali_replay_determinism.py b/tests/test_quali_replay_determinism.py
+new file mode 100644
+index 0000000..2a1e33a
+--- /dev/null
++++ b/tests/test_quali_replay_determinism.py
+@@ -0,0 +1,153 @@
++"""R13 integration: compare each canonical transition, not final snapshots.
++
++The archive stays outside git. Set QUALI_R13_ARCHIVE to run elsewhere.
++ReplayPlayer's waiting is replaced by a virtual wall clock, so speed 1/25/0
++exercise scheduling without spending 77 minutes per replay.
++"""
++from dataclasses import asdict
++from hashlib import sha256
++import json
++import os
++from pathlib import Path
++from unittest.mock import patch
++
++import pytest
++
++from wodata.live import LiveTimingController, QualiSessionStore
++from wodata.live.replay import ReplayPlayer
++from wodata.live.session_identity import parse_session_identity
++from woplanner.quali.service import QualiLiveService
++
++ARCHIVE = Path(os.environ.get("QUALI_R13_ARCHIVE", str(
++    Path(__file__).resolve().parents[2] / "woData/wodata/live_archive/schema_v1/year=2026/round=13/session=Q/replay/merged_replay_v1.jsonl"
++)))
++
++
++def replay_transitions(path, batch_size, speed, reads):
++    controller = LiveTimingController(store=QualiSessionStore())
++    service = QualiLiveService(controller)
++    sequences = {key: [] for key in ("identity", "segment", "countdown_finish", "laps", "best", "queue", "effective")}
++    previous = {}
++    evidence = {"segments": [], "effective": [], "alb": [], "zero": [], "normal_flags": [], "ant_first_q3_result": None}
++    message_index = 0
++    last_lap_count = 0
++    virtual_wall = [0.0]
++
++    def changed(key, value):
++        if previous.get(key) != value:
++            sequences[key].append((message_index, value))
++            previous[key] = value
++            return True
++        return False
++
++    def observe(raw):
++        nonlocal message_index, last_lap_count
++        message_index += 1
++        service._consume_message_snapshot(raw)
++        t = controller.store._latest_session_time_s
++        identity = parse_session_identity(raw.session_info)
++        changed("identity", (identity.year, identity.round_number, identity.session_name, identity.event_name))
++        if changed("segment", raw.session_part):
++            ant = next((d for d in raw.drivers if d.driver_code == "ANT"), None)
++            evidence["segments"].append({"part": raw.session_part, "time": t, "duration": raw.segment_duration_s,
++                "ANT": {"best": ant.best_lap_s, "last": ant.last_lap_s, "sectors": ant.sectors_s,
++                        "history": ant.historical_results} if ant else None})
++        if changed("countdown_finish", (raw.session_part, raw.remaining_time_s, raw.clock_running, raw.normal_finished, raw.normal_finish_source)):
++            if raw.normal_finish_source == "race_control":
++                item = {"part": raw.session_part, "time": t}
++                if not evidence["normal_flags"] or evidence["normal_flags"][-1]["part"] != raw.session_part:
++                    evidence["normal_flags"].append(item)
++        if raw.session_part == "Q3":
++            ant = next(d for d in raw.drivers if d.driver_code == "ANT")
++            if t < 4049.759:
++                assert ant.best_lap_s is None, "An untimed/past-segment lap became ANT's current Q3 result"
++            elif evidence["ant_first_q3_result"] is None and ant.best_lap_s is not None:
++                evidence["ant_first_q3_result"] = {"time": t, "best": ant.best_lap_s}
++        if raw.normal_finished and raw.remaining_time_s == 0 and (not evidence["zero"] or evidence["zero"][-1]["part"] != raw.session_part):
++            evidence["zero"].append({"part": raw.session_part, "time": t, "remaining": 0, "source": raw.normal_finish_source})
++        for lap in raw.completed_lap_sequence[last_lap_count:]:
++            sequences["laps"].append((message_index, tuple(asdict(lap).values())))
++        last_lap_count = len(raw.completed_lap_sequence)
++        changed("best", tuple((d.driver_number, d.best_lap_s, d.last_lap_s, d.sectors_s, d.historical_results) for d in sorted(raw.drivers, key=lambda d: d.driver_number)))
++        changed("queue", tuple((d.driver_number, d.pit_state.value, d.pit_lane_progress) for d in sorted(raw.drivers, key=lambda d: d.driver_number)))
++        effective = tuple((d.driver_number, d.effective_finished, d.effective_finish_remaining_s, d.effective_finish_recovery_s, d.effective_finish_timing_source) for d in sorted(service.snapshot.drivers, key=lambda d: d.driver_number))
++        if changed("effective", effective):
++            for d in service.snapshot.drivers:
++                if d.effective_finished:
++                    item = {"part": raw.session_part, "driver": d.driver, "remaining": d.effective_finish_remaining_s, "recovery": d.effective_finish_recovery_s, "source": d.effective_finish_timing_source}
++                    if item not in evidence["effective"]:
++                        evidence["effective"].append(item)
++        alb = next((d for d in raw.drivers if d.driver_code == "ALB"), None)
++        if alb and raw.session_part == "Q1":
++            if not evidence["alb"] or evidence["alb"][-1]["state"] != alb.pit_state.value:
++                evidence["alb"].append({"time": t, "state": alb.pit_state.value, "speed": alb.speed_kph, "rpm": alb.rpm})
++        for _ in range(reads):
++            assert controller.store.snapshot() is raw
++            service.pit_status_groups()
++
++    controller.on_message_snapshot = observe
++    pending = 0
++
++    def ingress(message):
++        nonlocal pending
++        controller._enqueue_message(message)
++        pending += 1
++        if pending == batch_size:
++            controller.drain(max_messages=batch_size)
++            pending = 0
++            # Empty GUI polls must not repeat consumer domain transitions.
++            for _ in range(reads):
++                service.poll()
++
++    def virtual_wait(delay, _stop_event):
++        virtual_wall[0] += delay
++        return True
++
++    with patch.object(ReplayPlayer, "_wait", side_effect=virtual_wait), patch("time.monotonic", side_effect=lambda: virtual_wall[0]):
++        result = ReplayPlayer(path, speed=speed).play(ingress)
++        controller.drain(max_messages=batch_size)
++    assert result.status == "completed"
++    evidence["counts"] = {key: len(value) for key, value in sequences.items()}
++    evidence["hashes"] = {key: sha256(json.dumps(value, sort_keys=True).encode()).hexdigest() for key, value in sequences.items()}
++    evidence["message_count"] = message_index
++    evidence["track_estimates_unchanged_algorithm"] = service._track_estimates
++    return sequences, evidence
++
++
++def run_comparison(path):
++    reference = None
++    rows = []
++    evidence = None
++    for batch, speed, reads in ((1, 0, 0), (7, 25, 3), (500, 1, 7)):
++        sequences, current = replay_transitions(path, batch, speed, reads)
++        if reference is None:
++            reference, evidence = sequences, current
++        else:
++            for key in reference:
++                assert sequences[key] == reference[key], f"{key} differs with batch={batch}, speed={speed}"
++            assert current["track_estimates_unchanged_algorithm"] == evidence["track_estimates_unchanged_algorithm"]
++        rows.append({"batch": batch, "speed": speed, "extra_reads": reads, "all_sequences_match": True})
++        print(f"R13 batch={batch} speed={speed} reads={reads}: all sequences match", flush=True)
++    evidence["configurations"] = rows
++    assert [s["part"] for s in evidence["segments"]] == ["Q1", "Q2", "Q3"]
++    q3 = evidence["segments"][-1]
++    assert q3["duration"] == 780 and q3["ANT"]["best"] is None
++    assert dict(q3["ANT"]["history"])["Q2"] == pytest.approx(81.882)
++    assert [s["part"] for s in evidence["zero"]] == ["Q1", "Q2", "Q3"]
++    assert evidence["effective"]
++    assert evidence["ant_first_q3_result"]["time"] == 4049.759
++    assert evidence["ant_first_q3_result"]["best"] == pytest.approx(82.093)
++    assert [s["part"] for s in evidence["normal_flags"]] == ["Q1", "Q2", "Q3"]
++    return evidence
++
++
++@pytest.mark.skipif(not ARCHIVE.exists(), reason="R13 archive not installed; set QUALI_R13_ARCHIVE")
++def test_r13_canonical_sequences_are_independent_of_batch_speed_and_reads():
++    run_comparison(ARCHIVE)
++
++
++if __name__ == "__main__":
++    result = run_comparison(ARCHIVE)
++    output = Path(__file__).resolve().parents[1] / "doc/assets/qualifying_correctness_r13.json"
++    output.write_text(json.dumps(result, indent=2) + "\n")
++    print(output)

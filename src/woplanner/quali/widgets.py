@@ -300,7 +300,7 @@ class QualiPlanDialog(QtWidgets.QDialog):
             timing.addWidget(spin)
             timing.addWidget(count)
             self.timing_inputs[key] = (spin, count)
-            spin.valueChanged.connect(self._refresh_timelines)
+            spin.valueChanged.connect(lambda value, category=key: self._timing_edited(category, value))
         reset = QtWidgets.QPushButton("Reset / reload")
         reset.clicked.connect(self._reset_timings)
         timing.addWidget(reset)
@@ -312,7 +312,10 @@ class QualiPlanDialog(QtWidgets.QDialog):
         body_layout = QtWidgets.QVBoxLayout(body)
         self.part_editors = {}
         for part in self.planning_parts:
-            minutes = DEFAULT_SESSION_DURATIONS_S[part] / 60.0
+            seconds = DEFAULT_SESSION_DURATIONS_S[part]
+            if self.live_service is not None and self.live_service.raw_snapshot.session_part == part:
+                seconds = self.live_service.raw_snapshot.segment_duration_s or seconds
+            minutes = seconds / 60.0
             box = QtWidgets.QGroupBox(part)
             box.setCheckable(True)
             box.setChecked(True)
@@ -394,20 +397,23 @@ class QualiPlanDialog(QtWidgets.QDialog):
 
     def load_analysis(self, result) -> None:
         self.result = result
-        defaults = {
-            "out_lap_s": 100.0,
-            "in_lap_s": 100.0,
-            "cool_lap_s": 105.0,
-            "push_lap_s": 90.0,
-        }
+        if self.live_service is not None:
+            if result is not None:
+                self.live_service.load_operational_analysis(result)
+            timing = self.live_service.operational_timings
+            self._analysis_timing_source = self.live_service.operational_timing_sources[
+                "cool_lap_s"
+            ]
+        else:
+            values = vars(QualiTimingValues()).copy()
+            if result is not None:
+                values.update({key: value for key, value in result.planning_defaults.items() if value is not None})
+            timing = QualiTimingValues(**values)
+            self._analysis_timing_source = "FP analysis / built-in fallback"
         if result is not None:
             for _, row in result.durations.iterrows():
-                category = str(row["category"])
-                if row["selected_default_s"] == row["selected_default_s"]:
-                    defaults[category] = float(row["selected_default_s"])
-                if category in self.timing_inputs:
-                    self.timing_inputs[category][1].setText(f"n={int(row['count'])}")
-        timing = QualiTimingValues(**defaults)
+                if row["category"] in self.timing_inputs:
+                    self.timing_inputs[row["category"]][1].setText(f"n={int(row['count'])}")
         self.model.analysis_timings = timing
         self.model.timings = timing
         self._reset_timings()
@@ -421,7 +427,16 @@ class QualiPlanDialog(QtWidgets.QDialog):
 
     def _reset_timings(self) -> None:
         for key, value in vars(self.model.analysis_timings).items():
-            self.timing_inputs[key][0].setValue(value)
+            spin = self.timing_inputs[key][0]
+            with QtCore.QSignalBlocker(spin):
+                spin.setValue(value)
+        if self.live_service is not None:
+            self.live_service.clear_manual_operational_timings()
+        self._refresh_timelines()
+
+    def _timing_edited(self, category: str, value: float) -> None:
+        if self.live_service is not None:
+            self.live_service.set_manual_operational_timing(category, value)
         self._refresh_timelines()
 
     def _current_timings(self) -> QualiTimingValues:

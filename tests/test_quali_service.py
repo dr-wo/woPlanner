@@ -1,6 +1,7 @@
 from dataclasses import replace
 from types import MappingProxyType
 
+import pandas as pd
 import pytest
 
 from wodata.live import (
@@ -48,6 +49,27 @@ def test_ranking_no_time_gap_interval_and_projection_reference_replacement():
     # New fastest replaces the reference and recomputes active checkpoint projections.
     snapshot = service.consume(raw([driver(1, 90, sectors=(31, 30, 29)), driver(2, 89, sectors=(29, 30, 30))]))
     assert snapshot.drivers[0].driver == "D2"
+
+
+def test_q3_projects_p1_while_q1_and_q2_keep_elimination_cutoffs():
+    service = QualiLiveService(eliminated_counts={"Q1": 1, "Q2": 1, "Q3": 6})
+    q1 = service.consume(raw([driver(1, 90), driver(2, 91), driver(3, 92)]))
+    assert (q1.cutoff.target_kind, q1.cutoff.cutoff_rank, q1.cutoff.current_cutoff_s) == (
+        "CUTOFF", 2, 91,
+    )
+
+    service.transition_to("Q2")
+    q2 = service.consume(raw([driver(1, 89), driver(2, 90)], part="Q2"))
+    assert (q2.cutoff.target_kind, q2.cutoff.cutoff_rank, q2.cutoff.current_cutoff_s) == (
+        "CUTOFF", 1, 89,
+    )
+
+    service.transition_to("Q3")
+    q3 = service.consume(raw([driver(1, 88), driver(2, 89)], part="Q3"))
+    assert (q3.cutoff.target_kind, q3.cutoff.cutoff_rank, q3.cutoff.driver) == (
+        "P1", 1, "D1",
+    )
+    assert q3.cutoff.current_cutoff_s == 88
 
 
 def test_finished_reasons_and_projected_cutoff():
@@ -218,3 +240,55 @@ def test_poll_loads_drivers_after_qualifying_session_is_confirmed():
     assert service.session_is_qualifying is True
     assert [state.driver for state in snapshot.drivers] == ["D1"]
     assert changed is True
+
+
+def test_effective_finish_requires_a_new_push_and_is_independent_of_session_finish():
+    from woplanner.quali.planning import QualiTimingValues
+    service = QualiLiveService(eliminated_counts={"Q1": 0})
+    service.set_operational_timings(QualiTimingValues(cool_lap_s=110), source="test operational policy")
+    service.consume(raw([driver(1, 90, laps=1), driver(2, 91, laps=1)], remaining=200))
+    unchanged = service.consume(raw([driver(1, 90, laps=1), driver(2, 91, laps=1)], remaining=100))
+    assert not any(d.effective_finished for d in unchanged.drivers)
+    slow = service.consume(raw([driver(1, 120, laps=2), driver(2, 91, laps=1)], remaining=100))
+    assert not any(d.effective_finished for d in slow.drivers)
+    push = service.consume(raw([driver(1, 89, laps=3), driver(2, 91, laps=1)], remaining=99))
+    assert not push.normal_finished
+    first = next(d for d in push.drivers if d.driver == "D1")
+    assert first.effective_finished
+    assert first.effective_finish_recovery_s == 110
+    assert first.effective_finish_timing_source == "test operational policy"
+    assert not next(d for d in push.drivers if d.driver == "D2").effective_finished
+    normal = service.consume(replace(raw([driver(1, 89, laps=3), driver(2, 91, laps=1)], remaining=80), normal_finished=True, normal_finish_source="race_control"))
+    assert normal.normal_finished
+    assert not next(d for d in normal.drivers if d.driver == "D2").effective_finished
+
+
+def test_effective_finish_timing_hierarchy_loads_fp_and_uses_live_fallback(monkeypatch):
+    service = QualiLiveService()
+    durations = pd.DataFrame([
+        {"category": "cool_lap_s", "selected_default_s": 111.0, "selected_count": 4},
+        {"category": "out_lap_s", "selected_default_s": 99.0, "selected_count": 3},
+    ])
+    monkeypatch.setattr(
+        "wodata.artifacts.read_pre_quali_analysis",
+        lambda **_: ({}, durations, {}),
+    )
+    service._consume_message_snapshot(raw(
+        [],
+        session_info={
+            "StartDate": "2026-09-05T16:00:00Z",
+            "Name": "Qualifying",
+            "Meeting": {"Number": 13},
+        },
+    ))
+    assert service.operational_timing_sources["cool_lap_s"] == "FP-derived (n=4)"
+    assert service._effective_cool_timing(90) == (111.0, "FP-derived (n=4)")
+
+    service.set_manual_operational_timing("cool_lap_s", 112)
+    assert service._effective_cool_timing(90) == (112.0, "manual override")
+
+    service.clear_manual_operational_timings()
+    service._fp_timing_values.clear()
+    service._fp_timing_sources.clear()
+    assert service._effective_cool_timing(90) == (117.0, "fastest × 1.30")
+    assert service._effective_cool_timing(None) == (None, "unavailable")

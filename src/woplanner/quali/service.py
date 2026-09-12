@@ -23,7 +23,7 @@ from .models import (
     QualiDriverState,
     QualiSessionSnapshot,
 )
-from .planning import SPRINT_QUALI_PARTS, STANDARD_QUALI_PARTS
+from .planning import SPRINT_QUALI_PARTS, STANDARD_QUALI_PARTS, QualiTimingValues
 
 
 QUALI_PARTS = (*STANDARD_QUALI_PARTS, *SPRINT_QUALI_PARTS)
@@ -36,7 +36,7 @@ class QualiLiveService:
         *,
         eliminated_counts: dict[str, int] | None = None,
         out_lap_s: float = 100.0,
-        cool_lap_s: float = 100.0,
+        cool_lap_s: float = QualiTimingValues().cool_lap_s,
         track_rate_s_per_field_push: float = 0.0,
         push_threshold_fraction: float = 0.02,
         pit_lane_geometry: PitLaneGeometry | None = None,
@@ -46,8 +46,24 @@ class QualiLiveService:
         )
         self.eliminated_counts = {part: 6 for part in QUALI_PARTS}
         self.eliminated_counts.update(eliminated_counts or {})
-        self.out_lap_s = float(out_lap_s)
-        self.cool_lap_s = float(cool_lap_s)
+        self.operational_timings = QualiTimingValues(
+            out_lap_s=float(out_lap_s), cool_lap_s=float(cool_lap_s)
+        )
+        self.operational_timing_sources = {
+            name: "unavailable" for name in vars(self.operational_timings)
+        }
+        self._fp_timing_values: dict[str, float] = {}
+        self._fp_timing_sources: dict[str, str] = {}
+        self._manual_timing_values: dict[str, float] = {}
+        self._manual_timing_sources: dict[str, str] = {}
+        if cool_lap_s != QualiTimingValues().cool_lap_s:
+            self._manual_timing_values["cool_lap_s"] = float(cool_lap_s)
+            self._manual_timing_sources["cool_lap_s"] = "manual override"
+            self.operational_timing_sources["cool_lap_s"] = "manual override"
+        self._operational_artifact_identity: tuple[int, int] | None = None
+        self._message_driven = isinstance(self.controller, LiveTimingController)
+        if self._message_driven:
+            self.controller.on_message_snapshot = self._consume_message_snapshot
         self._fp_track_rate_s_per_field_push = float(track_rate_s_per_field_push)
         self._automatic_track_rate_s_per_field_push = (
             self._fp_track_rate_s_per_field_push
@@ -70,6 +86,7 @@ class QualiLiveService:
         }
         self._track_estimates: dict[str, tuple[float | None, int, str]] = {}
         self._latest_raw: dict[str, QualiRawDriverState] = {}
+        self._event_geometry_identity = None
         self.received_session_info = self.raw_snapshot.session_info
         self.received_session_name = ""
         self.session_is_qualifying: bool | None = None
@@ -77,6 +94,7 @@ class QualiLiveService:
 
     def start_live(self, config: LiveConfig) -> None:
         self.reset()
+        self._geometry_data_root = config.data_root
         self._load_geometry(config.year, config.round_number, config.data_root)
         self.controller.start_live(config)
 
@@ -110,6 +128,7 @@ class QualiLiveService:
     def configure_event_geometry(
         self, year: int, round_number: int, data_root: str | Path | None = None
     ) -> None:
+        self._geometry_data_root = data_root
         self._load_geometry(year, round_number, data_root, force=True)
 
     def reset(self) -> None:
@@ -131,6 +150,7 @@ class QualiLiveService:
         self.track_rate_s_per_field_push = self._automatic_track_rate_s_per_field_push
         self.track_source = self._automatic_track_source
         self._latest_raw.clear()
+        self._event_geometry_identity = None
         self.received_session_info = self.raw_snapshot.session_info
         self.received_session_name = ""
         self.session_is_qualifying = None
@@ -168,26 +188,123 @@ class QualiLiveService:
             return None
         return self._track_estimates.get(self._automatic_track_part)
 
+    @property
+    def out_lap_s(self) -> float:
+        return self.operational_timings.out_lap_s
+
+    @property
+    def cool_lap_s(self) -> float:
+        return self.operational_timings.cool_lap_s
+
+    def set_operational_timings(self, timings: QualiTimingValues, *, source: str) -> None:
+        """Compatibility entry point for an explicit manual timing policy."""
+        self.operational_timings = timings
+        self._manual_timing_values["cool_lap_s"] = timings.cool_lap_s
+        self._manual_timing_sources["cool_lap_s"] = source
+        self.operational_timing_sources["cool_lap_s"] = source
+
+    def set_manual_operational_timing(self, category: str, value: float) -> None:
+        if category not in vars(self.operational_timings):
+            raise ValueError(f"Unknown operational timing category: {category}")
+        value = float(value)
+        self._manual_timing_values[category] = value
+        self._manual_timing_sources[category] = "manual override"
+        self.operational_timings = replace(self.operational_timings, **{category: value})
+        self.operational_timing_sources[category] = "manual override"
+
+    def clear_manual_operational_timings(self) -> None:
+        self._manual_timing_values.clear()
+        self._manual_timing_sources.clear()
+        self._apply_operational_sources()
+
+    def load_operational_analysis(self, result) -> None:
+        self._fp_timing_values.clear()
+        self._fp_timing_sources.clear()
+        for _, row in result.durations.iterrows():
+            value = row["selected_default_s"]
+            category = str(row["category"])
+            if value == value and category in vars(self.operational_timings):
+                self._fp_timing_values[category] = float(value)
+                self._fp_timing_sources[category] = (
+                    f"FP-derived (n={int(row['selected_count'])})"
+                )
+        self._apply_operational_sources()
+
+    def _apply_operational_sources(self) -> None:
+        values = vars(QualiTimingValues()).copy()
+        sources = {name: "unavailable" for name in values}
+        for category, value in self._fp_timing_values.items():
+            values[category] = value
+            sources[category] = self._fp_timing_sources[category]
+        for category, value in self._manual_timing_values.items():
+            values[category] = value
+            sources[category] = self._manual_timing_sources[category]
+        self.operational_timings = QualiTimingValues(**values)
+        self.operational_timing_sources = sources
+
+    def _effective_cool_timing(self, current_fastest_s: float | None) -> tuple[float | None, str]:
+        if "cool_lap_s" in self._manual_timing_values:
+            return (
+                self._manual_timing_values["cool_lap_s"],
+                self._manual_timing_sources["cool_lap_s"],
+            )
+        if "cool_lap_s" in self._fp_timing_values:
+            return (
+                self._fp_timing_values["cool_lap_s"],
+                self._fp_timing_sources["cool_lap_s"],
+            )
+        if current_fastest_s is None:
+            return None, "unavailable"
+        return current_fastest_s * 1.30, "fastest × 1.30"
+
+    def _load_operational_artifact(self, year: int, round_number: int) -> None:
+        identity = (year, round_number)
+        if identity == self._operational_artifact_identity:
+            return
+        self._operational_artifact_identity = identity
+        try:
+            from wodata.artifacts import read_pre_quali_analysis
+
+            _, durations, _ = read_pre_quali_analysis(
+                year=year,
+                round_number=round_number,
+                data_root=getattr(self, "_geometry_data_root", None),
+            )
+        except (FileNotFoundError, ValueError, OSError):
+            self._fp_timing_values.clear()
+            self._fp_timing_sources.clear()
+            self._apply_operational_sources()
+            return
+        self.load_operational_analysis(type("Analysis", (), {"durations": durations})())
+
+    def _consume_message_snapshot(self, raw):
+        self.received_session_info = raw.session_info
+        identity = parse_session_identity(raw.session_info)
+        self.received_session_name = identity.session_name
+        event_key = (identity.year, identity.round_number)
+        if all(event_key) and event_key != self._event_geometry_identity:
+            self._event_geometry_identity = event_key
+            self._load_geometry(*event_key, getattr(self, "_geometry_data_root", None), force=True)
+            self._load_operational_artifact(*event_key)
+        if identity.is_qualifying is False:
+            if self.session_is_qualifying is not False:
+                self.reset()
+                self.received_session_info = raw.session_info
+                self.received_session_name = identity.session_name
+            self.session_is_qualifying = False
+            return
+        if identity.is_qualifying is None:
+            return
+        self.session_is_qualifying = True
+        self.consume(raw)
+
     def poll(self):
         result = self.controller.drain()
-        self.received_session_info = result.snapshot.session_info
-        identity = parse_session_identity(self.received_session_info)
-        self.received_session_name = identity.session_name
-        session_is_qualifying = identity.is_qualifying
-        if session_is_qualifying is False:
-            if self.session_is_qualifying is not False:
-                session_info = self.received_session_info
-                session_name = self.received_session_name
-                self.reset()
-                self.received_session_info = session_info
-                self.received_session_name = session_name
-                self.session_is_qualifying = False
-            return self.snapshot, result.statuses, False
-        if session_is_qualifying is None:
-            return self.snapshot, result.statuses, False
-        self.session_is_qualifying = True
-        self.consume(result.snapshot)
-        return self.snapshot, result.statuses, result.changed
+        # Real controllers deliver every intermediate message state, not just
+        # the final state of a drain. Snapshot-only test adapters remain usable.
+        if not self._message_driven:
+            self._consume_message_snapshot(result.snapshot)
+        return self.snapshot, result.statuses, result.changed and self.session_is_qualifying is True
 
     def consume(self, raw: QualiRawSnapshot) -> QualiSessionSnapshot:
         previous_part = self.session_part
@@ -211,6 +328,7 @@ class QualiLiveService:
     def _consume_driver(self, raw: QualiRawDriverState) -> None:
         existing = self._states.get(raw.driver_number)
         if existing is not None and not existing.active:
+            self._states[raw.driver_number] = replace(existing, historical_results=raw.historical_results)
             return
         previous_laps = self._completed_laps.get(raw.driver_number)
         completed_lap = (
@@ -240,12 +358,30 @@ class QualiLiveService:
         finished = existing.finished if existing else False
         reason = existing.finished_reason if existing else None
         remaining = self.raw_snapshot.remaining_time_s
+        effective = existing.effective_finished if existing else False
+        effective_remaining = existing.effective_finish_remaining_s if existing else None
+        recovery = existing.effective_finish_recovery_s if existing else None
+        timing_source = existing.effective_finish_timing_source if existing else None
+        current_fastest = min(
+            (value for value in (
+                raw.best_lap_s,
+                raw.last_lap_s if completed_push else None,
+                *(state.best_lap_s for state in self._states.values() if state.active),
+            ) if value is not None),
+            default=None,
+        )
+        cool_requirement, cool_source = self._effective_cool_timing(current_fastest)
+        if (not effective and completed_push and remaining is not None
+                and cool_requirement is not None and remaining < cool_requirement):
+            effective = True
+            effective_remaining, recovery = remaining, cool_requirement
+            timing_source = cool_source
         if remaining is not None and not finished:
-            if completed_lap and remaining <= 0:
+            if completed_lap and (remaining <= 0 or self.raw_snapshot.normal_finished):
                 finished, reason = True, FinishedReason.FINAL_LAP_COMPLETED
             elif raw.in_pit and remaining < self.out_lap_s:
                 finished, reason = True, FinishedReason.IN_PIT_NO_OUTLAP_TIME
-            elif completed_push and remaining < self.cool_lap_s:
+            elif completed_push and cool_requirement is not None and remaining < cool_requirement:
                 finished, reason = True, FinishedReason.NO_TIME_FOR_NEXT_PUSH
         best = raw.best_lap_s
         if existing and existing.best_lap_s is not None:
@@ -267,6 +403,11 @@ class QualiLiveService:
             pit_state=raw.pit_state,
             pit_lane_progress=raw.pit_lane_progress,
             tyre_history=raw.tyre_history,
+            historical_results=raw.historical_results,
+            effective_finished=effective,
+            effective_finish_remaining_s=effective_remaining,
+            effective_finish_recovery_s=recovery,
+            effective_finish_timing_source=timing_source,
         )
         self._states[raw.driver_number] = state
         if best is not None and (
@@ -333,7 +474,7 @@ class QualiLiveService:
                 interval_s=interval,
                 projected_gap_s=projected_gap,
                 status=(
-                    "FINISHED"
+                    "EFF. FINISH" if state.effective_finished else "FINISHED"
                     if state.finished
                     else state.pit_state.value.replace("_", " ")
                 ),
@@ -372,6 +513,12 @@ class QualiLiveService:
                     finished=True,
                     finished_reason=FinishedReason.ELIMINATED,
                     frozen_part=self.session_part,
+                    best_lap_s=None, last_lap_s=None,
+                    sectors_s=(None, None, None), projected_lap_s=None,
+                    gap_s=None, interval_s=None, projected_gap_s=None,
+                    status="ELIMINATED",
+                    effective_finished=False, effective_finish_remaining_s=None,
+                    effective_finish_recovery_s=None, effective_finish_timing_source=None,
                 )
             elif state.active:
                 self._states[number] = QualiDriverState(
@@ -384,6 +531,7 @@ class QualiLiveService:
                 )
         self.session_part = new_part
         self._completed_laps.clear()
+        self._latest_raw.clear()
         self._reference_total_s = None
         self._reference_checkpoints.clear()
         self.snapshot = self._build_snapshot()
@@ -466,12 +614,16 @@ class QualiLiveService:
             key=lambda state: state.rank or 999,
         )
         count = len(active)
-        cutoff_rank = max(count - self.eliminated_counts.get(self.session_part, 0), 0)
+        p1_target = self.session_part == "Q3"
+        cutoff_rank = 1 if p1_target and count else max(
+            count - self.eliminated_counts.get(self.session_part, 0), 0
+        )
         cutoff_state = active[cutoff_rank - 1] if cutoff_rank else None
         unfinished = sum(not state.finished for state in active)
         correction = -self.track_rate_s_per_field_push * unfinished
         current = cutoff_state.best_lap_s if cutoff_state else None
         cutoff = CutoffProjection(
+            "P1" if p1_target else "CUTOFF",
             cutoff_rank,
             cutoff_state.driver if cutoff_state else None,
             current,
@@ -497,6 +649,10 @@ class QualiLiveService:
             cutoff,
             tuple(self._actual_cutoffs.items()),
             self.track_source,
+            self.raw_snapshot.normal_finished,
+            self.raw_snapshot.normal_finish_source,
+            clock_running=self.raw_snapshot.clock_running,
+            clock_anchor_session_time_s=self.raw_snapshot.clock_anchor_session_time_s,
         )
 
     @staticmethod

@@ -5,17 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-STANDARD_QUALI_PARTS = ("Q1", "Q2", "Q3")
-SPRINT_QUALI_PARTS = ("SQ1", "SQ2", "SQ3")
-DEFAULT_SESSION_DURATIONS_S = {
-    "Q1": 18 * 60.0,
-    "Q2": 15 * 60.0,
-    "Q3": 13 * 60.0,
-    "SQ1": 12 * 60.0,
-    "SQ2": 10 * 60.0,
-    "SQ3": 8 * 60.0,
-}
-
+from wodata.live.quali_clock import (
+    STANDARD_QUALI_PARTS, SPRINT_QUALI_PARTS, DEFAULT_SESSION_DURATIONS_S,
+)
 
 @dataclass(frozen=True)
 class QualiTimingValues:

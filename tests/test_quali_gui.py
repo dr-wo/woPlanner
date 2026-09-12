@@ -1,13 +1,15 @@
 import os
+from dataclasses import replace
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtCore, QtWidgets
 
-from wodata.live import QualiPitState, QualiTyreStint
-from woplanner.quali.gui import PIT_STATUS_BACKGROUNDS, QualiWindow
+from wodata.live import QualiPitState, QualiRawSnapshot, QualiTyreStint
+from woplanner.quali.gui import PIT_STATUS_BACKGROUNDS, PresentationCountdown, QualiWindow, format_countdown
 from woplanner.quali.models import FinishedReason, QualiDriverState
+from woplanner.quali.service import QualiLiveService
 
 
 def test_quali_window_updates_round_from_received_session_info():
@@ -27,6 +29,31 @@ def test_quali_window_updates_round_from_received_session_info():
     assert "British Grand Prix" in window.windowTitle()
     window.close()
     app.processEvents()
+
+
+def test_presentation_countdown_advances_only_its_local_display_state():
+    clock = PresentationCountdown()
+    service = QualiLiveService()
+    raw = replace(
+        QualiRawSnapshot.empty(),
+        session_part="Q2", remaining_time_s=125.0, clock_running=True,
+        clock_anchor_session_time_s=1000.0, normal_finished=False, session_status="Started",
+    )
+    live = service.consume(raw)
+    assert live.clock_running is True
+    assert live.clock_anchor_session_time_s == 1000.0
+    assert clock.update(live, now_s=10.0) == 125.0
+    assert clock.update(live, now_s=12.9) == 122.1
+    assert live.remaining_time_s == 125.0
+    assert format_countdown(clock.update(live, now_s=13.0)) == "2:02"
+
+    paused = service.consume(replace(raw, clock_running=False))
+    assert clock.update(paused, now_s=14.0) == 125.0
+    assert clock.update(paused, now_s=19.0) == 125.0
+
+    finished = service.consume(replace(raw, normal_finished=True))
+    assert clock.update(finished, now_s=20.0) == 125.0
+    assert clock.update(finished, now_s=25.0) == 125.0
 
 
 def test_quali_window_labels_sprint_qualifying_parts():
@@ -128,7 +155,7 @@ def test_status_column_colours_fired_queue_and_left_pit():
     app.processEvents()
 
 
-def test_position_is_chequered_only_after_a_completed_final_push():
+def test_effective_finish_has_distinct_colour_and_explanation():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = QualiWindow()
     states = (
@@ -139,6 +166,10 @@ def test_position_is_chequered_only_after_a_completed_final_push():
             rank=1,
             finished=True,
             finished_reason=FinishedReason.NO_TIME_FOR_NEXT_PUSH,
+            effective_finished=True,
+            effective_finish_remaining_s=80,
+            effective_finish_recovery_s=105,
+            effective_finish_timing_source="test policy",
         ),
         QualiDriverState(
             "2",
@@ -153,8 +184,8 @@ def test_position_is_chequered_only_after_a_completed_final_push():
         SimpleNamespace(drivers=states, cutoff=SimpleNamespace(cutoff_rank=0))
     )
 
-    assert not window.table.item(0, 0).background().texture().isNull()
-    assert "slow/preparation lap" in window.table.item(0, 0).toolTip()
+    assert window.table.item(0, 0).background().color().name() == "#f4b183"
+    assert "Not the session chequered flag" in window.table.item(0, 0).toolTip()
     assert window.table.item(1, 0).background().style() == (
         QtCore.Qt.BrushStyle.NoBrush
     )
@@ -200,3 +231,13 @@ def test_tyre_age_column_is_hidden_until_real_age_data_is_available():
     assert window.table.isColumnHidden(3) is False
     window.close()
     app.processEvents()
+
+
+def test_normal_finish_is_a_session_label_not_a_car_marker():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = QualiWindow()
+    window._render_normal_finish(SimpleNamespace(normal_finished=True, normal_finish_source="race_control"))
+    assert window.normal_finish.text() == "SESSION CHEQUERED"
+    window._render_normal_finish(SimpleNamespace(normal_finished=False, normal_finish_source=None))
+    assert window.normal_finish.text() == ""
+    window.close()

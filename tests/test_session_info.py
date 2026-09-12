@@ -48,3 +48,8 @@ def test_qualifying_session_aliases_are_recognised():
     assert is_qualifying_session("Sprint Shootout") is True
     assert is_qualifying_session("Race") is False
     assert is_qualifying_session("") is None
+
+
+def test_session_number_does_not_override_meeting_round():
+    identity = parse_session_identity({"Number": 3, "Name": "Practice 3", "Meeting": {"Number": 13}})
+    assert identity.round_number == 13

@@ -37,10 +37,16 @@ class QualiDriverState:
     tyre_history: tuple[QualiTyreStint, ...] = ()
     active: bool = True
     frozen_part: str | None = None
+    historical_results: tuple[tuple[str, float | None], ...] = ()
+    effective_finished: bool = False
+    effective_finish_remaining_s: float | None = None
+    effective_finish_recovery_s: float | None = None
+    effective_finish_timing_source: str | None = None
 
 
 @dataclass(frozen=True)
 class CutoffProjection:
+    target_kind: str
     cutoff_rank: int
     driver: str | None
     current_cutoff_s: float | None
@@ -59,3 +65,7 @@ class QualiSessionSnapshot:
     cutoff: CutoffProjection
     actual_cutoffs: tuple[tuple[str, float | None], ...]
     track_source: str
+    normal_finished: bool = False
+    normal_finish_source: str | None = None
+    clock_running: bool = False
+    clock_anchor_session_time_s: float | None = None

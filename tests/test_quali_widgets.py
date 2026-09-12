@@ -48,3 +48,24 @@ def test_sprint_qualifying_plan_uses_sq_parts_and_defaults():
     ]
     dialog.close()
     app.processEvents()
+
+
+def test_plan_cooldown_edits_update_the_effective_finish_policy():
+    from PySide6 import QtWidgets
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    class AnalysisService:
+        result = None
+        def effective_fp_track_rate(self):
+            return 0.0, "No usable FP estimate", 0
+
+    live = QualiLiveService()
+    dialog = QualiPlanDialog(AnalysisService(), live)
+    assert live.cool_lap_s == 105
+    dialog.timing_inputs["cool_lap_s"][0].setValue(117)
+    assert live.cool_lap_s == 117
+    assert live.operational_timing_sources["cool_lap_s"] == "manual override"
+    dialog._reset_timings()
+    assert live.cool_lap_s == 105
+    dialog.close()
+    app.processEvents()
