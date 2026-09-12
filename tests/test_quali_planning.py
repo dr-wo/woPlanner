@@ -3,7 +3,8 @@ import pytest
 from woplanner.quali.planning import (
     DEFAULT_SESSION_DURATIONS_S,
     QualiArrangement, QualiPlanModel, QualiRunPlan, QualiTimingValues,
-    calculate_arrangement_timing, run_duration,
+    calculate_arrangement_timing, calculate_double_yellow_latest_safe_release,
+    run_duration,
 )
 
 
@@ -58,3 +59,13 @@ def test_sprint_qualifying_default_session_durations():
     assert DEFAULT_SESSION_DURATIONS_S["SQ3"] == 8 * 60
     assert model.session_durations_s["SQ1"] == 12 * 60
     assert set(model.arrangements).issuperset({"SQ1", "SQ2", "SQ3"})
+
+
+def test_double_yellow_latest_safe_release_lists_each_non_overlapping_component():
+    result = calculate_double_yellow_latest_safe_release(
+        T, turnaround_s=120, margin_s=30,
+        timing_sources={"cool_lap_s": "FP-derived (n=4)"},
+    )
+    assert result.invalidated_attempt_s == 300  # OUT + PREP + invalidated PUSH
+    assert result.latest_safe_release_remaining_s == 760
+    assert dict(result.sources)["cool_lap_s"] == "FP-derived (n=4)"

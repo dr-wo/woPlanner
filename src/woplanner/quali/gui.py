@@ -26,10 +26,14 @@ from .widgets import CutoffTable, QualiPlanDialog, format_time
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
 PIT_STATUS_BACKGROUNDS = {
-    "FIRED_UP": "#f0ad00",
+    "NOT ACTIVE": "#e0e0e0",
+    "FIRE-UP": "#f0ad00",
+    "PIT-LANE": "#607d8b",
     "QUEUE": "#d00000",
-    "ON_TRACK": "#2e7d32",
-    "INLAP": "#1976d2",
+    "OUT": "#2e7d32",
+    "FAST": "#2e7d32",
+    "SLOW": "#b26a00",
+    "IN": "#1976d2",
     "IN-PIT": "#ffffff",
 }
 
@@ -447,15 +451,15 @@ class QualiWindow(QtWidgets.QMainWindow):
                 if column == 1 and colour:
                     item.setBackground(QtGui.QColor(colour))
                     item.setForeground(QtGui.QColor("white"))
+                if column == 4 and not state.active and state.finished_reason == FinishedReason.ELIMINATED:
+                    item.setToolTip(f"Eliminated after {state.frozen_part or 'previous segment'}")
                 if column == 4 and state.active:
-                    status_colour = PIT_STATUS_BACKGROUNDS.get(
-                        state.pit_state.value
-                    )
+                    status_colour = PIT_STATUS_BACKGROUNDS.get(state.status)
                     if status_colour:
                         item.setBackground(QtGui.QColor(status_colour))
                         item.setForeground(
                             QtGui.QColor(
-                                "black" if state.pit_state.value == "IN-PIT" else "white"
+                                "black" if state.status in {"IN-PIT", "NOT ACTIVE", "FIRE-UP"} else "white"
                             )
                         )
                 if not state.active:

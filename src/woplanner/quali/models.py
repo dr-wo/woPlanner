@@ -23,6 +23,7 @@ class QualiDriverState:
     team: str
     rank: int | None = None
     status: str = "NO TIME"
+    lap_state: str = "UNKNOWN"
     sectors_s: tuple[float | None, float | None, float | None] = (None, None, None)
     last_lap_s: float | None = None
     best_lap_s: float | None = None

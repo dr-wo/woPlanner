@@ -16,6 +16,7 @@ from .planning import (
     QualiPlanModel,
     QualiRunPlan,
     QualiTimingValues,
+    calculate_double_yellow_latest_safe_release,
 )
 from .service import QualiLiveService
 
@@ -306,6 +307,15 @@ class QualiPlanDialog(QtWidgets.QDialog):
         timing.addWidget(reset)
         outer.addWidget(timing_box)
 
+        double_yellow = QtWidgets.QGroupBox("Double-yellow latest-safe release")
+        double_yellow_layout = QtWidgets.QVBoxLayout(double_yellow)
+        self.double_yellow_countdown = QtWidgets.QLabel()
+        self.double_yellow_detail = QtWidgets.QLabel()
+        self.double_yellow_detail.setWordWrap(True)
+        double_yellow_layout.addWidget(self.double_yellow_countdown)
+        double_yellow_layout.addWidget(self.double_yellow_detail)
+        outer.addWidget(double_yellow)
+
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         body = QtWidgets.QWidget()
@@ -355,6 +365,13 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self.track_effective = QtWidgets.QLabel("—")
         self.track_source = QtWidgets.QLabel("—")
         self.track_quality = QtWidgets.QLabel("—")
+        self.clean_air_gap = QtWidgets.QDoubleSpinBox()
+        self.clean_air_gap.setRange(0.1, 30.0)
+        self.clean_air_gap.setDecimals(1)
+        self.clean_air_gap.setSuffix(" s ahead gap")
+        self.clean_air_gap.setValue(
+            self.live_service.clean_air_gap_s if self.live_service is not None else 3.0
+        )
         override_row = QtWidgets.QHBoxLayout()
         override_row.addWidget(self.track_override_enabled)
         override_row.addWidget(self.track_override)
@@ -364,8 +381,10 @@ class QualiPlanDialog(QtWidgets.QDialog):
         form.addRow("Effective value", self.track_effective)
         form.addRow("Source", self.track_source)
         form.addRow("Quality / samples", self.track_quality)
+        form.addRow("Clean-air threshold", self.clean_air_gap)
         self.track_override.valueChanged.connect(self._update_effective_track)
         self.track_override_enabled.toggled.connect(self._update_effective_track)
+        self.clean_air_gap.valueChanged.connect(self._update_clean_air_gap)
         self.tabs.addTab(page, "Track Correction")
 
     def _build_debug_tab(self) -> None:
@@ -459,6 +478,7 @@ class QualiPlanDialog(QtWidgets.QDialog):
         if not hasattr(self, "part_editors"):
             return
         self.model.timings = self._current_timings()
+        self._refresh_double_yellow_release()
         for part, (duration, _, editors) in self.part_editors.items():
             seconds = duration.value() * 60.0
             self.model.session_durations_s[part] = seconds
@@ -466,6 +486,42 @@ class QualiPlanDialog(QtWidgets.QDialog):
                 arrangement = editor.arrangement()
                 timing = self.model.timing(part, arrangement)
                 editor.timeline.set_timing(timing, seconds, arrangement.margin_s)
+
+    def _refresh_double_yellow_release(self) -> None:
+        """Render the conditional local-yellow recovery calculation in countdown terms."""
+        if not hasattr(self, "double_yellow_countdown"):
+            return
+        first_editor = next(
+            (editors[0] for _, _, editors in self.part_editors.values() if editors),
+            None,
+        )
+        if first_editor is None:
+            return
+        arrangement = first_editor.arrangement()
+        sources = (
+            self.live_service.operational_timing_sources
+            if self.live_service is not None else {}
+        )
+        result = calculate_double_yellow_latest_safe_release(
+            self.model.timings,
+            turnaround_s=arrangement.turnaround_s,
+            margin_s=arrangement.margin_s,
+            timing_sources=sources,
+            prep_required=arrangement.runs[0].prep_required,
+        )
+        self.double_yellow_countdown.setText(
+            "Latest-safe release: leave with at least "
+            f"{format_duration_words(result.latest_safe_release_remaining_s)} remaining"
+        )
+        self.double_yellow_detail.setText(
+            "Conditional double-yellow path: invalidated OUT/PREP/PUSH "
+            f"{result.invalidated_attempt_s:g}s + IN {result.recovery_in_s:g}s + "
+            f"turnaround {result.turnaround_s:g}s + replacement OUT "
+            f"{result.replacement_out_s:g}s + PREP {result.replacement_prep_s:g}s "
+            f"+ next-PUSH margin {result.next_push_margin_s:g}s. "
+            "Red-flag waiting is excluded because the session clock pauses. "
+            + "; ".join(f"{name}: {source}" for name, source in result.sources)
+        )
 
     def _update_effective_track(self) -> None:
         if self.live_service is not None:
@@ -482,6 +538,10 @@ class QualiPlanDialog(QtWidgets.QDialog):
             else getattr(self, "_estimated_track_rate", 0.0)
         )
         self.track_effective.setText(f"{value:+.4f} s / field push")
+
+    def _update_clean_air_gap(self, value: float) -> None:
+        if self.live_service is not None:
+            self.live_service.set_clean_air_gap_s(value)
 
     def refresh_live_track(self) -> None:
         if self.live_service is None:

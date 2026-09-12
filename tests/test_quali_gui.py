@@ -107,7 +107,7 @@ def test_quali_window_warns_and_clears_tables_for_race_session(monkeypatch):
     app.processEvents()
 
 
-def test_status_column_colours_fired_queue_and_left_pit():
+def test_status_column_colours_operational_states():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = QualiWindow()
     states = tuple(
@@ -120,11 +120,11 @@ def test_status_column_colours_fired_queue_and_left_pit():
         )
         for index, (label, pit_state) in enumerate(
             (
-                ("INACTIVE", QualiPitState.INACTIVE),
-                ("FIRED UP", QualiPitState.FIRED_UP),
+                ("UNKNOWN", QualiPitState.UNKNOWN),
+                ("FIRE-UP", QualiPitState.FIRE_UP),
                 ("QUEUE", QualiPitState.QUEUE),
-                ("ON TRACK", QualiPitState.ON_TRACK),
-                ("INLAP", QualiPitState.IN_LAP),
+                ("FAST", QualiPitState.ON_TRACK),
+                ("IN", QualiPitState.IN_LAP),
                 ("IN-PIT", QualiPitState.IN_PIT),
             ),
             start=1,
@@ -136,16 +136,16 @@ def test_status_column_colours_fired_queue_and_left_pit():
 
     assert window.table.item(0, 4).background().style() == QtCore.Qt.BrushStyle.NoBrush
     assert window.table.item(1, 4).background().color().name() == (
-        PIT_STATUS_BACKGROUNDS["FIRED_UP"]
+        PIT_STATUS_BACKGROUNDS["FIRE-UP"]
     )
     assert window.table.item(2, 4).background().color().name() == (
         PIT_STATUS_BACKGROUNDS["QUEUE"]
     )
     assert window.table.item(3, 4).background().color().name() == (
-        PIT_STATUS_BACKGROUNDS["ON_TRACK"]
+        PIT_STATUS_BACKGROUNDS["FAST"]
     )
     assert window.table.item(4, 4).background().color().name() == (
-        PIT_STATUS_BACKGROUNDS["INLAP"]
+        PIT_STATUS_BACKGROUNDS["IN"]
     )
     assert window.table.item(5, 4).background().color().name() == (
         PIT_STATUS_BACKGROUNDS["IN-PIT"]

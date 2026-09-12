@@ -1,5 +1,9 @@
 # Qualifying deterministic state foundation — 2026-09-12
 
+> Historical foundation report. The operational-state contract and corrected
+> lap-association evidence supersede its old queue labels and raw completion
+> counts; see [R13 operational-state regression](QUALIFYING_OPERATIONAL_STATE_R13.md).
+
 Implemented in woData and woPlanner; woStrategy has no changes. No evolution,
 PUSH threshold/classifier, FP estimator, projected-cut equation or release model
 was redesigned. Corrected input scoping can change their outputs.
@@ -46,7 +50,7 @@ Times below are archive offsets, not session countdowns.
 | Zero countdown | Preserved at Q1 1883.406, Q2 3203.399, Q3 4403.402; no old-anchor rebound |
 | Explicit normal chequered | Reduced at Q1 1883.646, Q2 3203.642, Q3 4403.624 |
 | Effective finish example | NOR after a completed PUSH in Q1: 9 seconds remaining < 107.3956-second `fastest × 1.30` COOL/PREP input; normal session finish still false |
-| ALB queue | QUEUE at 359.200 with 4 km/h; FIRED_UP at 360.240 with 0 km/h; INACTIVE at 429.360 with zero RPM; no minutes-long latch |
+| ALB queue baseline | Pre-operational-contract observation retained for audit only; it is not the current QUEUE policy. Moving outbound pit-lane transit is now `PIT-LANE`, while `QUEUE` requires a stopped outbound car. |
 
 ## Replay determinism
 
@@ -63,7 +67,10 @@ included. Every canonical transition sequence is compared by exact equality;
 | 7 | 25× (virtual scheduler) | 3 | Match |
 | 500 | 1× (virtual scheduler) | 7 | Match |
 
-Compared transition counts: identity=1, segment=3, countdown_finish=2765, laps=237, best=950, queue=340, effective=37, planner_target=101.
+Compared historical transition counts: identity=1, segment=3,
+countdown_finish=2765, laps=237, best=950, queue=340, effective=37,
+planner_target=101. These are not current validated normal-lap counts; the
+operational-state R13 replay emits 105 associated timed laps.
 
 The unchanged downstream live evolution estimates also matched across all
 configurations. This is a determinism observation, not validation of that model's

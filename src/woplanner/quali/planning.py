@@ -58,6 +58,24 @@ class ArrangementTiming:
     segments: tuple[TimelineSegment, ...]
 
 
+@dataclass(frozen=True)
+class DoubleYellowReleaseTiming:
+    """Countdown required for one replacement PUSH after a local yellow.
+
+    This models a continuing qualifying clock.  A red flag is deliberately not
+    represented because its paused duration is unknowable.
+    """
+
+    invalidated_attempt_s: float
+    recovery_in_s: float
+    turnaround_s: float
+    replacement_out_s: float
+    replacement_prep_s: float
+    next_push_margin_s: float
+    latest_safe_release_remaining_s: float
+    sources: tuple[tuple[str, str], ...]
+
+
 @dataclass
 class QualiPlanModel:
     analysis_timings: QualiTimingValues = field(default_factory=QualiTimingValues)
@@ -117,6 +135,47 @@ def calculate_arrangement_timing(
         latest_start,
         latest_start >= 0,
         segments,
+    )
+
+
+def calculate_double_yellow_latest_safe_release(
+    timings: QualiTimingValues,
+    *,
+    turnaround_s: float,
+    margin_s: float,
+    timing_sources: dict[str, str] | None = None,
+    prep_required: bool = True,
+) -> DoubleYellowReleaseTiming:
+    """Calculate the release countdown for the stated double-yellow scenario.
+
+    The invalidated first attempt consumes OUT, optional PREP, and PUSH.  Its
+    return path is then IN, pit turnaround, OUT, optional PREP, and the margin
+    needed to begin the replacement PUSH.  Each component occurs once.
+    """
+    if turnaround_s < 0 or margin_s < 0:
+        raise ValueError("turnaround and margin must be non-negative")
+    prep = timings.cool_lap_s if prep_required else 0.0
+    invalidated = timings.out_lap_s + prep + timings.push_lap_s
+    components = (
+        invalidated,
+        timings.in_lap_s,
+        float(turnaround_s),
+        timings.out_lap_s,
+        prep,
+        float(margin_s),
+    )
+    sources = timing_sources or {}
+    return DoubleYellowReleaseTiming(
+        invalidated_attempt_s=invalidated,
+        recovery_in_s=timings.in_lap_s,
+        turnaround_s=float(turnaround_s),
+        replacement_out_s=timings.out_lap_s,
+        replacement_prep_s=prep,
+        next_push_margin_s=float(margin_s),
+        latest_safe_release_remaining_s=sum(components),
+        sources=tuple((key, sources.get(key, "built-in fallback")) for key in (
+            "out_lap_s", "in_lap_s", "cool_lap_s", "push_lap_s",
+        )),
     )
 
 

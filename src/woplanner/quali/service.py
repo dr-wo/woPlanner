@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import math
 from pathlib import Path
 
 from wodata.live import (
@@ -23,10 +24,19 @@ from .models import (
     QualiDriverState,
     QualiSessionSnapshot,
 )
+from .lap_state import LapPaceReference, classify_lap_state
 from .planning import SPRINT_QUALI_PARTS, STANDARD_QUALI_PARTS, QualiTimingValues
 
 
 QUALI_PARTS = (*STANDARD_QUALI_PARTS, *SPRINT_QUALI_PARTS)
+
+
+def _finite_float(value) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
 
 
 class QualiLiveService:
@@ -39,6 +49,7 @@ class QualiLiveService:
         cool_lap_s: float = QualiTimingValues().cool_lap_s,
         track_rate_s_per_field_push: float = 0.0,
         push_threshold_fraction: float = 0.02,
+        clean_air_gap_s: float = 3.0,
         pit_lane_geometry: PitLaneGeometry | None = None,
     ) -> None:
         self.controller = controller or LiveTimingController(
@@ -73,11 +84,17 @@ class QualiLiveService:
         self._track_override_s_per_field_push: float | None = None
         self.track_rate_s_per_field_push = self._automatic_track_rate_s_per_field_push
         self.push_threshold_fraction = float(push_threshold_fraction)
+        self.clean_air_gap_s = float(clean_air_gap_s)
         self.track_source = "FP prior"
         self.raw_snapshot = QualiRawSnapshot.empty()
         self.session_part = "Q1"
         self._states: dict[str, QualiDriverState] = {}
         self._completed_laps: dict[str, int] = {}
+        self._seen_completed_lap_keys: set[tuple[str, str, int, float | None]] = set()
+        self._new_completed_lap_numbers: dict[str, set[int]] = {}
+        self.lap_state_references: dict[str, LapPaceReference] = {}
+        self._common_lap_state_reference: LapPaceReference | None = None
+        self._slow_lap_evidence: list[tuple[str, float]] = []
         self._reference_total_s: float | None = None
         self._reference_checkpoints: dict[tuple[str, int], float] = {}
         self._actual_cutoffs: dict[str, float | None] = {}
@@ -136,6 +153,8 @@ class QualiLiveService:
         self.session_part = "Q1"
         self._states.clear()
         self._completed_laps.clear()
+        self._seen_completed_lap_keys.clear()
+        self._new_completed_lap_numbers.clear()
         self._reference_total_s = None
         self._reference_checkpoints.clear()
         self._actual_cutoffs.clear()
@@ -199,9 +218,16 @@ class QualiLiveService:
     def set_operational_timings(self, timings: QualiTimingValues, *, source: str) -> None:
         """Compatibility entry point for an explicit manual timing policy."""
         self.operational_timings = timings
-        self._manual_timing_values["cool_lap_s"] = timings.cool_lap_s
-        self._manual_timing_sources["cool_lap_s"] = source
-        self.operational_timing_sources["cool_lap_s"] = source
+        for category, value in vars(timings).items():
+            self._manual_timing_values[category] = value
+            self._manual_timing_sources[category] = source
+            self.operational_timing_sources[category] = source
+
+    def set_clean_air_gap_s(self, value: float) -> None:
+        value = float(value)
+        if value <= 0 or not math.isfinite(value):
+            raise ValueError("clean-air threshold must be positive and finite")
+        self.clean_air_gap_s = value
 
     def set_manual_operational_timing(self, category: str, value: float) -> None:
         if category not in vars(self.operational_timings):
@@ -229,6 +255,29 @@ class QualiLiveService:
                     f"FP-derived (n={int(row['selected_count'])})"
                 )
         self._apply_operational_sources()
+        self._load_lap_state_references(getattr(result, "laps", None))
+
+    def _load_lap_state_references(self, laps) -> None:
+        self.lap_state_references = {}
+        self._common_lap_state_reference = None
+        if (
+            laps is None
+            or not hasattr(laps, "columns")
+            or not {"is_driver_fp_reference"}.issubset(laps.columns)
+        ):
+            return
+        references = {}
+        rows = laps.loc[laps["is_driver_fp_reference"].fillna(False)]
+        if rows.empty:
+            return
+        row = rows.iloc[0]
+        reference = LapPaceReference(
+                _finite_float(row.get("fp_start_to_5pct_s")),
+                _finite_float(row.get("fp_start_to_s1_s")),
+                _finite_float(row.get("fp_s1_to_s2_s")),
+                f"FP common reference: {row.get('driver', 'unknown')}",
+            )
+        self._common_lap_state_reference = reference
 
     def _apply_operational_sources(self) -> None:
         values = vars(QualiTimingValues()).copy()
@@ -265,7 +314,7 @@ class QualiLiveService:
         try:
             from wodata.artifacts import read_pre_quali_analysis
 
-            _, durations, _ = read_pre_quali_analysis(
+            laps, durations, _ = read_pre_quali_analysis(
                 year=year,
                 round_number=round_number,
                 data_root=getattr(self, "_geometry_data_root", None),
@@ -275,7 +324,7 @@ class QualiLiveService:
             self._fp_timing_sources.clear()
             self._apply_operational_sources()
             return
-        self.load_operational_analysis(type("Analysis", (), {"durations": durations})())
+        self.load_operational_analysis(type("Analysis", (), {"laps": laps, "durations": durations})())
 
     def _consume_message_snapshot(self, raw):
         self.received_session_info = raw.session_info
@@ -314,6 +363,14 @@ class QualiLiveService:
                 self.session_part = raw.session_part
             else:
                 self.transition_to(raw.session_part)
+        self._new_completed_lap_numbers = {}
+        for event in raw.completed_lap_sequence:
+            key = (event.session_part, event.driver_number, event.lap_number, event.session_time_s)
+            if key in self._seen_completed_lap_keys:
+                continue
+            self._seen_completed_lap_keys.add(key)
+            if event.session_part == raw.session_part:
+                self._new_completed_lap_numbers.setdefault(event.driver_number, set()).add(event.lap_number)
         for driver in raw.drivers:
             self._consume_driver(driver)
         for number, driver in self._latest_raw.items():
@@ -335,6 +392,7 @@ class QualiLiveService:
             previous_laps is not None
             and raw.completed_laps > previous_laps
             and raw.last_lap_s is not None
+            and bool(self._new_completed_lap_numbers.get(raw.driver_number))
         )
         fastest_before = min(
             (
@@ -344,8 +402,16 @@ class QualiLiveService:
             ),
             default=raw.best_lap_s,
         )
+        lap_state = classify_lap_state(
+            raw,
+            previous_state=existing.lap_state if existing else None,
+            new_lap=completed_lap,
+            reference=self.lap_state_references.get(raw.driver_number, self._common_lap_state_reference),
+        )
         completed_push = (
             completed_lap
+            and raw.timed_lap_eligible
+            and lap_state == "FAST"
             and fastest_before is not None
             and raw.last_lap_s <= fastest_before * (1.0 + self.push_threshold_fraction)
         )
@@ -353,6 +419,10 @@ class QualiLiveService:
         if completed_push:
             self._part_push_laps[self.session_part].append(float(raw.last_lap_s))
             self._update_track_from_part(self.session_part, live=True)
+        elif completed_lap and existing is not None and existing.lap_state == "SLOW":
+            # A completed non-pit SLOW lap is operational COOL/PREP evidence,
+            # never a PUSH/track-evolution sample.
+            self._slow_lap_evidence.append((raw.driver_number, float(raw.last_lap_s)))
         self._completed_laps[raw.driver_number] = raw.completed_laps
         projected = self._project(raw)
         finished = existing.finished if existing else False
@@ -394,6 +464,7 @@ class QualiLiveService:
             raw.driver_number,
             raw.driver_code,
             raw.team,
+            lap_state=lap_state,
             sectors_s=raw.sectors_s,
             last_lap_s=raw.last_lap_s,
             best_lap_s=best,
@@ -419,6 +490,8 @@ class QualiLiveService:
                 self._reference_checkpoints = checkpoints
 
     def _project(self, raw: QualiRawDriverState) -> float | None:
+        if not raw.timed_lap_eligible:
+            return None
         if self._reference_total_s is None:
             return None
         checkpoints = _checkpoint_elapsed(raw)
@@ -473,11 +546,7 @@ class QualiLiveService:
                 gap_s=gap,
                 interval_s=interval,
                 projected_gap_s=projected_gap,
-                status=(
-                    "EFF. FINISH" if state.effective_finished else "FINISHED"
-                    if state.finished
-                    else state.pit_state.value.replace("_", " ")
-                ),
+                status=state.lap_state,
             )
             if state.best_lap_s is not None:
                 previous = state.best_lap_s
@@ -516,7 +585,7 @@ class QualiLiveService:
                     best_lap_s=None, last_lap_s=None,
                     sectors_s=(None, None, None), projected_lap_s=None,
                     gap_s=None, interval_s=None, projected_gap_s=None,
-                    status="ELIMINATED",
+                    status="UNKNOWN", lap_state="UNKNOWN",
                     effective_finished=False, effective_finish_remaining_s=None,
                     effective_finish_recovery_s=None, effective_finish_timing_source=None,
                 )
@@ -576,7 +645,7 @@ class QualiLiveService:
         fired = sorted(
             state.driver
             for state in self._states.values()
-            if state.pit_state == QualiPitState.FIRED_UP
+            if state.pit_state in {QualiPitState.FIRE_UP, QualiPitState.FIRED_UP}
         )
         queue = sorted(
             (

@@ -11,6 +11,8 @@ from wodata.live import (
     QualiRawDriverState,
     QualiRawSnapshot,
 )
+from wodata.live.quali_models import QualiCompletedLap
+from woplanner.quali.lap_state import LapPaceReference
 from woplanner.quali.models import FinishedReason
 from woplanner.quali.service import QualiLiveService
 
@@ -24,6 +26,10 @@ def raw(drivers, *, part="Q1", remaining=600, session_info=None):
         True,
         tuple(drivers),
         None,
+        completed_lap_sequence=tuple(
+            QualiCompletedLap(part, driver.driver_number, lap, driver.last_lap_s or 0.0, None)
+            for driver in drivers for lap in range(1, driver.completed_laps + 1)
+        ),
     )
 
 
@@ -34,7 +40,14 @@ def driver(number, best=None, *, laps=1, in_pit=False, sectors=(30, 30, 30), pro
         segments=(QualiCheckpoint("sector", 1, sectors[0]),), in_pit=in_pit,
         pit_state=QualiPitState.QUEUE if in_pit else QualiPitState.ON_TRACK,
         pit_lane_progress=progress,
+        timed_lap_eligible=not in_pit,
+        structural_state=QualiPitState.ON_TRACK if not in_pit else QualiPitState.UNKNOWN,
     )
+
+
+def with_test_pace_reference(service):
+    service._common_lap_state_reference = LapPaceReference(start_to_s1_s=30.0)
+    return service
 
 
 def test_ranking_no_time_gap_interval_and_projection_reference_replacement():
@@ -83,11 +96,11 @@ def test_finished_reasons_and_projected_cutoff():
     assert snapshot.cutoff.unfinished_driver_count == 1
     assert snapshot.cutoff.projected_cutoff_s == 89.98
     # A completed push with insufficient cool time has its explicit reason.
-    service = QualiLiveService(cool_lap_s=110)
+    service = with_test_pace_reference(QualiLiveService(cool_lap_s=110))
     service.consume(raw([driver(1, 90, laps=1)], remaining=200))
     snapshot = service.consume(raw([driver(1, 89, laps=2)], remaining=100))
     assert snapshot.drivers[0].finished_reason == FinishedReason.NO_TIME_FOR_NEXT_PUSH
-    service = QualiLiveService()
+    service = with_test_pace_reference(QualiLiveService())
     service.consume(raw([driver(1, 90, laps=1)], remaining=20))
     snapshot = service.consume(raw([driver(1, 89, laps=2)], remaining=0))
     assert snapshot.drivers[0].finished_reason == FinishedReason.FINAL_LAP_COMPLETED
@@ -116,7 +129,7 @@ def test_q1_q2_transition_freezes_eliminated_and_clears_advancers_then_q3_finali
 
 
 def test_next_part_clears_completed_final_push_marker_for_advancing_driver():
-    service = QualiLiveService(eliminated_counts={"Q1": 0}, cool_lap_s=110)
+    service = with_test_pace_reference(QualiLiveService(eliminated_counts={"Q1": 0}, cool_lap_s=110))
     service.consume(raw([driver(1, 90, laps=1)], remaining=200))
     snapshot = service.consume(raw([driver(1, 89, laps=2)], remaining=100))
     assert snapshot.drivers[0].finished_reason == FinishedReason.NO_TIME_FOR_NEXT_PUSH
@@ -130,7 +143,7 @@ def test_next_part_clears_completed_final_push_marker_for_advancing_driver():
 
 
 def test_sq1_sq2_transition_uses_sprint_parts_without_phantom_q1_elimination():
-    service = QualiLiveService(eliminated_counts={"SQ1": 1, "SQ2": 1, "SQ3": 0})
+    service = with_test_pace_reference(QualiLiveService(eliminated_counts={"SQ1": 1, "SQ2": 1, "SQ3": 0}))
     snapshot = service.consume(
         raw([driver(1, 90), driver(2, 91), driver(3, 92)], part="SQ1")
     )
@@ -151,7 +164,7 @@ def test_sq1_sq2_transition_uses_sprint_parts_without_phantom_q1_elimination():
 
 
 def test_completed_part_updates_existing_track_evolution_fit():
-    service = QualiLiveService(eliminated_counts={"Q1": 0})
+    service = with_test_pace_reference(QualiLiveService(eliminated_counts={"Q1": 0}))
     service.consume(raw([driver(1, 91, laps=1), driver(2, 92, laps=1)]))
     service.consume(raw([driver(1, 90, laps=2), driver(2, 91, laps=2)]))
     service.transition_to("Q2")
@@ -160,9 +173,9 @@ def test_completed_part_updates_existing_track_evolution_fit():
 
 
 def test_track_evolution_updates_live_before_part_transition():
-    service = QualiLiveService(
+    service = with_test_pace_reference(QualiLiveService(
         eliminated_counts={"Q1": 0}, track_rate_s_per_field_push=0.25
-    )
+    ))
     service.consume(raw([driver(1, 90, laps=1)]))
     service.consume(raw([driver(1, 89, laps=2)]))
     assert service.track_source == "FP prior"
@@ -178,7 +191,7 @@ def test_track_evolution_updates_live_before_part_transition():
 
 
 def test_manual_track_override_does_not_replace_latest_automatic_fit():
-    service = QualiLiveService(eliminated_counts={"Q1": 0})
+    service = with_test_pace_reference(QualiLiveService(eliminated_counts={"Q1": 0}))
     service.consume(raw([driver(1, 90, laps=1)]))
     service.consume(raw([driver(1, 89, laps=2)]))
     service.consume(raw([driver(1, 88, laps=3)]))
@@ -244,7 +257,7 @@ def test_poll_loads_drivers_after_qualifying_session_is_confirmed():
 
 def test_effective_finish_requires_a_new_push_and_is_independent_of_session_finish():
     from woplanner.quali.planning import QualiTimingValues
-    service = QualiLiveService(eliminated_counts={"Q1": 0})
+    service = with_test_pace_reference(QualiLiveService(eliminated_counts={"Q1": 0}))
     service.set_operational_timings(QualiTimingValues(cool_lap_s=110), source="test operational policy")
     service.consume(raw([driver(1, 90, laps=1), driver(2, 91, laps=1)], remaining=200))
     unchanged = service.consume(raw([driver(1, 90, laps=1), driver(2, 91, laps=1)], remaining=100))
@@ -292,3 +305,25 @@ def test_effective_finish_timing_hierarchy_loads_fp_and_uses_live_fallback(monke
     service._fp_timing_sources.clear()
     assert service._effective_cool_timing(90) == (117.0, "fastest × 1.30")
     assert service._effective_cool_timing(None) == (None, "unavailable")
+
+
+def test_fp_fastest_lap_references_load_with_operational_artifact():
+    service = QualiLiveService()
+    service.load_operational_analysis(type("Analysis", (), {
+        "durations": pd.DataFrame(),
+        "laps": pd.DataFrame([{
+            "driver": "D1", "is_driver_fp_reference": True,
+            "fp_start_to_5pct_s": 5.0, "fp_start_to_s1_s": 30.0,
+            "fp_s1_to_s2_s": 31.0,
+        }]),
+    })())
+    reference = service._common_lap_state_reference
+    assert (reference.start_to_5pct_s, reference.start_to_s1_s, reference.s1_to_s2_s) == (5, 30, 31)
+
+
+def test_clean_air_threshold_is_explicit_and_does_not_change_push_classification():
+    service = QualiLiveService(clean_air_gap_s=3)
+    service.set_clean_air_gap_s(4.5)
+    assert service.clean_air_gap_s == 4.5
+    with pytest.raises(ValueError):
+        service.set_clean_air_gap_s(0)
