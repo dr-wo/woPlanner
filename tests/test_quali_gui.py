@@ -155,6 +155,29 @@ def test_status_column_colours_operational_states():
     app.processEvents()
 
 
+def test_eliminated_table_row_keeps_known_identity_and_unknown_falls_back_safely():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = QualiWindow()
+    states = (
+        QualiDriverState("15", "AAA", "Ferrari", active=False,
+                         finished_reason=FinishedReason.ELIMINATED, frozen_part="Q1"),
+        QualiDriverState("17", "17", "", active=False,
+                         finished_reason=FinishedReason.ELIMINATED, frozen_part="Q2"),
+    )
+    window._render_timing_table(
+        SimpleNamespace(drivers=states, cutoff=SimpleNamespace(cutoff_rank=0))
+    )
+    assert (window.table.item(0, 1).text(), window.table.item(0, 2).text()) == (
+        "AAA", "Ferrari",
+    )
+    assert window.table.item(0, 1).background().color().isValid()
+    assert (window.table.item(1, 1).text(), window.table.item(1, 2).text()) == (
+        "17", "",
+    )
+    window.close()
+    app.processEvents()
+
+
 def test_effective_finish_has_distinct_colour_and_explanation():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = QualiWindow()

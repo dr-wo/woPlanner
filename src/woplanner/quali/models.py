@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from wodata.live import QualiPitState, QualiTyreStint
+
+if TYPE_CHECKING:
+    from .track_evolution import TrackEvolutionDiagnostic
 
 
 class FinishedReason(str, Enum):
@@ -70,3 +74,4 @@ class QualiSessionSnapshot:
     normal_finish_source: str | None = None
     clock_running: bool = False
     clock_anchor_session_time_s: float | None = None
+    track_evolution_diagnostic: TrackEvolutionDiagnostic | None = None

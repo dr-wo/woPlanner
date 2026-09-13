@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from concurrent.futures import ThreadPoolExecutor
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -19,6 +20,7 @@ from .planning import (
     calculate_double_yellow_latest_safe_release,
 )
 from .service import QualiLiveService
+from .track_evolution import TrackEvolutionDiagnostic, render_track_evolution_diagnostic
 
 
 ROLE_COLOURS = {
@@ -78,6 +80,70 @@ class CutoffTable(QtWidgets.QTableWidget):
             self.viewport().width(),
             rect.bottom() + 1,
         )
+
+
+class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
+    """Qt consumer of the shared track-evolution diagnostic view model."""
+
+    image_ready = QtCore.Signal(object, bytes)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.diagnostic: TrackEvolutionDiagnostic | None = None
+        self._plot = QtGui.QPixmap()
+        self._render_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="quali-plot")
+        self._render_future = None
+        self.image_ready.connect(self._accept_image)
+        self.setMinimumHeight(450)
+
+    def set_diagnostic(self, diagnostic: TrackEvolutionDiagnostic) -> None:
+        if diagnostic is self.diagnostic:
+            return
+        if diagnostic == self.diagnostic:
+            self.diagnostic = diagnostic
+            return
+        self.diagnostic = diagnostic
+        self._plot = QtGui.QPixmap()
+        if self._render_future is not None:
+            self._render_future.cancel()
+        self._render_future = self._render_pool.submit(render_track_evolution_diagnostic, diagnostic)
+        self._render_future.add_done_callback(
+            lambda future, current=diagnostic: self._render_finished(current, future)
+        )
+        self.update()
+
+    def _render_finished(self, diagnostic, future) -> None:
+        if future.cancelled():
+            return
+        try:
+            self.image_ready.emit(diagnostic, future.result())
+        except RuntimeError:
+            # The view may close while a previously requested image finishes.
+            pass
+
+    def _accept_image(self, diagnostic, data: bytes) -> None:
+        if diagnostic != self.diagnostic:
+            return
+        self._plot.loadFromData(data)
+        self.update()
+
+    def closeEvent(self, event) -> None:
+        if self._render_future is not None:
+            self._render_future.cancel()
+        self._render_pool.shutdown(wait=False, cancel_futures=True)
+        super().closeEvent(event)
+
+    def paintEvent(self, event) -> None:
+        painter = QtGui.QPainter(self)
+        if self.diagnostic is None:
+            painter.drawText(self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter, "No track-evolution evidence")
+            return
+        if not self._plot.isNull():
+            painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform)
+            painter.drawPixmap(self.rect(), self._plot)
+        else:
+            painter.drawText(self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter,
+                             "Rendering track-evolution plot…")
 
 
 class TimelineWidget(QtWidgets.QWidget):
@@ -365,6 +431,8 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self.track_effective = QtWidgets.QLabel("—")
         self.track_source = QtWidgets.QLabel("—")
         self.track_quality = QtWidgets.QLabel("—")
+        self.track_diagnostic_summary = QtWidgets.QLabel("—")
+        self.track_diagnostic = TrackEvolutionDiagnosticView()
         self.clean_air_gap = QtWidgets.QDoubleSpinBox()
         self.clean_air_gap.setRange(0.1, 30.0)
         self.clean_air_gap.setDecimals(1)
@@ -376,11 +444,13 @@ class QualiPlanDialog(QtWidgets.QDialog):
         override_row.addWidget(self.track_override_enabled)
         override_row.addWidget(self.track_override)
         override_row.addStretch(1)
-        form.addRow("Estimated value", self.track_estimated)
+        form.addRow("Projected-cut estimate", self.track_estimated)
         form.addRow("User override", override_row)
         form.addRow("Effective value", self.track_effective)
         form.addRow("Source", self.track_source)
         form.addRow("Quality / samples", self.track_quality)
+        form.addRow("Track Evolution", self.track_diagnostic_summary)
+        form.addRow("", self.track_diagnostic)
         form.addRow("Clean-air threshold", self.clean_air_gap)
         self.track_override.valueChanged.connect(self._update_effective_track)
         self.track_override_enabled.toggled.connect(self._update_effective_track)
@@ -542,10 +612,15 @@ class QualiPlanDialog(QtWidgets.QDialog):
     def _update_clean_air_gap(self, value: float) -> None:
         if self.live_service is not None:
             self.live_service.set_clean_air_gap_s(value)
+            self.refresh_live_track()
 
-    def refresh_live_track(self) -> None:
+    def refresh_live_track(self, snapshot=None) -> None:
         if self.live_service is None:
             return
+        snapshot = snapshot or self.live_service.snapshot
+        self.track_estimated.setText(
+            f"{self.live_service.automatic_track_rate_s_per_field_push:+.4f} s / field push"
+        )
         self.track_effective.setText(
             f"{self.live_service.track_rate_s_per_field_push:+.4f} s / field push"
         )
@@ -556,6 +631,23 @@ class QualiPlanDialog(QtWidgets.QDialog):
             self.track_quality.setText(
                 f"{samples} live push laps ({quality.replace('_', ' ')})"
             )
+        else:
+            self.track_quality.setText("0 live push laps (FP prior)")
+        diagnostic = snapshot.track_evolution_diagnostic
+        if diagnostic is not None:
+            aggregate = (
+                "—" if diagnostic.aggregate_slope_s_per_push is None
+                else f"{diagnostic.aggregate_slope_s_per_push:+.4f} s/push"
+            )
+            sigma = (
+                "—" if diagnostic.weighted_slope_std_s_per_push is None
+                else f"{diagnostic.weighted_slope_std_s_per_push:.4f} s/push"
+            )
+            self.track_diagnostic_summary.setText(
+                f"Aggregate {aggregate} · σ {sigma} · "
+                f"{diagnostic.driver_count} drivers / {diagnostic.lap_count} laps"
+            )
+            self.track_diagnostic.set_diagnostic(diagnostic)
 
     def _refresh_debug(self) -> None:
         if self.result is None:

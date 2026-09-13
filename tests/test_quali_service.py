@@ -10,6 +10,7 @@ from wodata.live import (
     QualiPitState,
     QualiRawDriverState,
     QualiRawSnapshot,
+    QualiTyreStint,
 )
 from wodata.live.quali_models import QualiCompletedLap
 from woplanner.quali.lap_state import LapPaceReference
@@ -128,6 +129,24 @@ def test_q1_q2_transition_freezes_eliminated_and_clears_advancers_then_q3_finali
     assert next(s for s in service.snapshot.drivers if s.driver == "D1").finished_reason == FinishedReason.SESSION_FINALISED
 
 
+def test_eliminated_driver_identity_and_tyre_history_survive_both_part_transitions():
+    service = QualiLiveService(eliminated_counts={"Q1": 1, "Q2": 1})
+    tyres = (QualiTyreStint("SOFT", 0, True, 0),)
+    q1 = [driver(1, 90), driver(2, 91), replace(driver(3, 92), tyre_history=tyres)]
+    service.consume(raw(q1))
+    service.transition_to("Q2")
+    q1_out = next(s for s in service.snapshot.drivers if s.driver_number == "3")
+    assert (q1_out.driver, q1_out.team, q1_out.tyre_history, q1_out.frozen_part) == (
+        "D3", "Team", tyres, "Q1",
+    )
+    service.consume(raw([driver(1, 89), driver(2, 90)], part="Q2"))
+    service.transition_to("Q3")
+    q2_out = next(s for s in service.snapshot.drivers if s.driver_number == "2")
+    q1_out = next(s for s in service.snapshot.drivers if s.driver_number == "3")
+    assert (q2_out.driver, q2_out.team, q2_out.frozen_part) == ("D2", "Team", "Q2")
+    assert (q1_out.driver, q1_out.team, q1_out.tyre_history) == ("D3", "Team", tyres)
+
+
 def test_next_part_clears_completed_final_push_marker_for_advancing_driver():
     service = with_test_pace_reference(QualiLiveService(eliminated_counts={"Q1": 0}, cool_lap_s=110))
     service.consume(raw([driver(1, 90, laps=1)], remaining=200))
@@ -170,6 +189,23 @@ def test_completed_part_updates_existing_track_evolution_fit():
     service.transition_to("Q2")
     assert service._track_estimates["Q1"][2] == "estimated"
     assert service.track_source == "Q1 estimate"
+
+
+def test_global_push_index_continues_across_qualifying_parts():
+    service = with_test_pace_reference(QualiLiveService(
+        eliminated_counts={"Q1": 0, "Q2": 0},
+    ))
+    service.consume(raw([driver(1, 90, laps=1)]))
+    service.consume(raw([driver(1, 89, laps=2)]))
+    service.transition_to("Q2")
+    service.consume(raw([driver(1, 88, laps=3)], part="Q2"))
+    service.consume(raw([driver(1, 87, laps=4)], part="Q2"))
+    service.transition_to("Q3")
+    service.consume(raw([driver(1, 86, laps=5)], part="Q3"))
+    service.consume(raw([driver(1, 85, laps=6)], part="Q3"))
+    assert [(sample.part, sample.global_push_index) for sample in service._track_samples] == [
+        ("Q1", 1), ("Q2", 2), ("Q3", 3),
+    ]
 
 
 def test_track_evolution_updates_live_before_part_transition():

@@ -26,6 +26,8 @@ from .models import (
 )
 from .lap_state import LapPaceReference, classify_lap_state
 from .planning import SPRINT_QUALI_PARTS, STANDARD_QUALI_PARTS, QualiTimingValues
+from .track_evolution import TrackEvolutionSample, build_track_evolution_diagnostic
+from .physical_traffic import RollingQualiPhysicalTraffic
 
 
 QUALI_PARTS = (*STANDARD_QUALI_PARTS, *SPRINT_QUALI_PARTS)
@@ -98,9 +100,15 @@ class QualiLiveService:
         self._reference_total_s: float | None = None
         self._reference_checkpoints: dict[tuple[str, int], float] = {}
         self._actual_cutoffs: dict[str, float | None] = {}
+        # Legacy per-part projection correction. Session-wide Track Evolution
+        # uses _track_samples and its continuous global PUSH indices instead.
         self._part_push_laps: dict[str, list[float]] = {
             part: [] for part in QUALI_PARTS
         }
+        self._track_samples: list[TrackEvolutionSample] = []
+        self._track_diagnostic_cache = None
+        self._track_diagnostic_cache_key = None
+        self._physical_traffic = RollingQualiPhysicalTraffic()
         self._track_estimates: dict[str, tuple[float | None, int, str]] = {}
         self._latest_raw: dict[str, QualiRawDriverState] = {}
         self._event_geometry_identity = None
@@ -159,6 +167,10 @@ class QualiLiveService:
         self._reference_checkpoints.clear()
         self._actual_cutoffs.clear()
         self._part_push_laps = {part: [] for part in QUALI_PARTS}
+        self._track_samples.clear()
+        self._track_diagnostic_cache = None
+        self._track_diagnostic_cache_key = None
+        self._physical_traffic = RollingQualiPhysicalTraffic()
         self._track_estimates.clear()
         self._automatic_track_rate_s_per_field_push = (
             self._fp_track_rate_s_per_field_push
@@ -200,6 +212,11 @@ class QualiLiveService:
             self.track_source = "Manual override"
 
     @property
+    def automatic_track_rate_s_per_field_push(self) -> float:
+        """Current automatic rate used for projected-cut correction."""
+        return self._automatic_track_rate_s_per_field_push
+
+    @property
     def automatic_track_estimate(
         self,
     ) -> tuple[float | None, int, str] | None:
@@ -228,6 +245,9 @@ class QualiLiveService:
         if value <= 0 or not math.isfinite(value):
             raise ValueError("clean-air threshold must be positive and finite")
         self.clean_air_gap_s = value
+        self.snapshot = replace(
+            self.snapshot, track_evolution_diagnostic=self.track_evolution_diagnostic()
+        )
 
     def set_manual_operational_timing(self, category: str, value: float) -> None:
         if category not in vars(self.operational_timings):
@@ -358,6 +378,7 @@ class QualiLiveService:
     def consume(self, raw: QualiRawSnapshot) -> QualiSessionSnapshot:
         previous_part = self.session_part
         self.raw_snapshot = raw
+        self._physical_traffic.ingest(raw)
         if raw.session_part != previous_part:
             if not self._states:
                 self.session_part = raw.session_part
@@ -418,6 +439,25 @@ class QualiLiveService:
         self._latest_raw[raw.driver_number] = raw
         if completed_push:
             self._part_push_laps[self.session_part].append(float(raw.last_lap_s))
+            tyre = raw.tyre_history[-1] if raw.tyre_history else None
+            completed_number = max(self._new_completed_lap_numbers[raw.driver_number])
+            traffic = self._physical_traffic.finalize(raw.driver_code, completed_number)
+            self._track_samples.append(TrackEvolutionSample(
+                self.session_part, raw.driver_code, raw.team,
+                completed_number,
+                float(raw.last_lap_s), len(self._track_samples) + 1,
+                tyre.compound if tyre else None,
+                tyre.start_laps if tyre else None,
+                tyre.fresh if tyre else None,
+                traffic.mean_ahead_gap_s, traffic.ahead_coverage,
+                traffic.status, traffic.method, traffic.target_samples,
+                traffic.ahead_samples, traffic.evaluator_version,
+                (traffic.mean_ahead_gap_s > self.clean_air_gap_s)
+                if traffic.available else None,
+                self.clean_air_gap_s,
+                traffic.circuit_length_m,
+                tyre.stint_index if tyre else None,
+            ))
             self._update_track_from_part(self.session_part, live=True)
         elif completed_lap and existing is not None and existing.lap_state == "SLOW":
             # A completed non-pit SLOW lap is operational COOL/PREP evidence,
@@ -627,6 +667,18 @@ class QualiLiveService:
             self.track_rate_s_per_field_push = rate
             self.track_source = self._automatic_track_source
 
+    def track_evolution_diagnostic(self):
+        """Return the immutable diagnostic shared by snapshots, Qt and exporters."""
+        key = (len(self._track_samples), self.clean_air_gap_s,
+               self._physical_traffic.policy)
+        if key != self._track_diagnostic_cache_key:
+            self._track_diagnostic_cache = build_track_evolution_diagnostic(
+                tuple(self._track_samples), clean_air_gap_s=self.clean_air_gap_s,
+                coverage_policy=self._physical_traffic.policy,
+            )
+            self._track_diagnostic_cache_key = key
+        return self._track_diagnostic_cache
+
     def finalise(self) -> None:
         final_part = "SQ3" if self.session_part.startswith("SQ") else "Q3"
         self._update_track_from_part(final_part)
@@ -722,6 +774,7 @@ class QualiLiveService:
             self.raw_snapshot.normal_finish_source,
             clock_running=self.raw_snapshot.clock_running,
             clock_anchor_session_time_s=self.raw_snapshot.clock_anchor_session_time_s,
+            track_evolution_diagnostic=self.track_evolution_diagnostic(),
         )
 
     @staticmethod

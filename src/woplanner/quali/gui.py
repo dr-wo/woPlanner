@@ -298,6 +298,7 @@ class QualiWindow(QtWidgets.QMainWindow):
                 lambda: setattr(self, "plan_dialog", None)
             )
         self.plan_dialog.show()
+        self.plan_dialog.refresh_live_track(self.service.snapshot)
         self.plan_dialog.raise_()
 
     def _poll(self) -> None:
@@ -330,7 +331,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         self._render_timing_table(snapshot)
         self._render_pit_status()
         if self.plan_dialog is not None:
-            self.plan_dialog.refresh_live_track()
+            self.plan_dialog.refresh_live_track(snapshot)
 
     def _render_normal_finish(self, snapshot) -> None:
         self.normal_finish.setText("SESSION CHEQUERED" if snapshot.normal_finished else "")
