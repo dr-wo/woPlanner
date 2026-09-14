@@ -51,7 +51,14 @@ class QualiAnalysisService:
         return self.result
 
     def _load_fp_laps(self, year: int, round_number: int) -> pd.DataFrame:
+        import fastf1
+
+        from wodata import get_fastf1_raw_cache_dir
         from wostrategy.core.session import Session
+
+        # The GUI invokes Session directly; without enabling the workspace
+        # cache it ignores the already available FP session downloads.
+        fastf1.Cache.enable_cache(str(get_fastf1_raw_cache_dir()))
 
         sessions = []
         loaded_sessions = {}
@@ -79,6 +86,8 @@ class QualiAnalysisService:
         for column in ("FpStartTo5PctS", "FpStartToS1S", "FpS1ToS2S"):
             output[column] = float("nan")
         valid = output["LapTime"].notna() & output["PitOutTime"].isna() & output["PitInTime"].isna()
+        if "Deleted" in output:
+            valid &= ~output["Deleted"].fillna(False).astype(bool)
         for column in ("IsAccurate", "IsValid"):
             if column in output:
                 valid &= output[column].isna() | output[column].astype(bool)

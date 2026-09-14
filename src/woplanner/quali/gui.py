@@ -409,18 +409,30 @@ class QualiWindow(QtWidgets.QMainWindow):
         )
 
     def _render_timing_table(self, snapshot) -> None:
+        current_item = self.table.currentItem()
+        selected_driver_number = (
+            self.table.item(current_item.row(), 0).data(QtCore.Qt.ItemDataRole.UserRole)
+            if current_item is not None and self.table.item(current_item.row(), 0) is not None
+            else None
+        )
+        selected_column = current_item.column() if current_item is not None else 0
         self.table.setRowCount(len(snapshot.drivers))
         self.table.cutoff_rank = (
             0
             if getattr(snapshot.cutoff, "target_kind", "CUTOFF") == "P1"
             else snapshot.cutoff.cutoff_rank
         )
+        cutoff_driver = getattr(snapshot.cutoff, "driver", None)
+        self.table.cutoff_driver_number = next(
+            (state.driver_number for state in snapshot.drivers if state.driver == cutoff_driver),
+            None,
+        )
         self.table.setColumnHidden(
             3, not any(state.tyre_history for state in snapshot.drivers)
         )
         for row, state in enumerate(snapshot.drivers):
             values = (
-                state.rank or "—",
+                state.official_position if state.official_position is not None else "—",
                 state.driver,
                 state.team,
                 None,
@@ -441,7 +453,12 @@ class QualiWindow(QtWidgets.QMainWindow):
                     )
                     continue
                 item = QtWidgets.QTableWidgetItem(str(value))
-                if column == 0 and state.effective_finished:
+                if column == 0:
+                    item.setData(QtCore.Qt.ItemDataRole.UserRole, state.driver_number)
+                if column == 0 and state.finished_reason == FinishedReason.FINAL_LAP_COMPLETED:
+                    item.setText(f"🏁 {value}")
+                    item.setToolTip("Chequered: recognised final timed lap completed.")
+                elif column == 0 and state.effective_finished:
                     item.setBackground(QtGui.QColor("#f4b183"))
                     item.setToolTip(
                         "Effective finish: completed PUSH; insufficient time for another "
@@ -466,6 +483,15 @@ class QualiWindow(QtWidgets.QMainWindow):
                 if not state.active:
                     item.setForeground(QtGui.QColor("#777777"))
                 self.table.setItem(row, column, item)
+        if selected_driver_number is not None:
+            selected_row = next(
+                (row for row in range(self.table.rowCount())
+                 if self.table.item(row, 0).data(QtCore.Qt.ItemDataRole.UserRole)
+                 == selected_driver_number),
+                None,
+            )
+            if selected_row is not None:
+                self.table.setCurrentCell(selected_row, selected_column)
         self.table.viewport().update()
 
     def _tyre_history_widget(self, tyre_history) -> QtWidgets.QWidget:

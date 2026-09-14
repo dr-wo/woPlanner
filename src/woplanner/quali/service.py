@@ -48,7 +48,7 @@ class QualiLiveService:
         *,
         eliminated_counts: dict[str, int] | None = None,
         out_lap_s: float = 100.0,
-        cool_lap_s: float = QualiTimingValues().cool_lap_s,
+        cool_lap_s: float | None = None,
         track_rate_s_per_field_push: float = 0.0,
         push_threshold_fraction: float = 0.02,
         clean_air_gap_s: float = 3.0,
@@ -60,16 +60,26 @@ class QualiLiveService:
         self.eliminated_counts = {part: 6 for part in QUALI_PARTS}
         self.eliminated_counts.update(eliminated_counts or {})
         self.operational_timings = QualiTimingValues(
-            out_lap_s=float(out_lap_s), cool_lap_s=float(cool_lap_s)
+            out_lap_s=float(out_lap_s),
+            cool_lap_s=None if cool_lap_s is None else float(cool_lap_s),
         )
         self.operational_timing_sources = {
-            name: "unavailable" for name in vars(self.operational_timings)
+            name: "built-in fallback" for name in vars(self.operational_timings)
         }
+        self.operational_timing_sources["cool_lap_s"] = (
+            "unavailable — manual override required"
+        )
         self._fp_timing_values: dict[str, float] = {}
         self._fp_timing_sources: dict[str, str] = {}
+        self._fp_best_lap_s: float | None = None
+        self._fp_best_lap_source = "FP best"
         self._manual_timing_values: dict[str, float] = {}
         self._manual_timing_sources: dict[str, str] = {}
-        if cool_lap_s != QualiTimingValues().cool_lap_s:
+        if out_lap_s != QualiTimingValues().out_lap_s:
+            self._manual_timing_values["out_lap_s"] = float(out_lap_s)
+            self._manual_timing_sources["out_lap_s"] = "manual override"
+            self.operational_timing_sources["out_lap_s"] = "manual override"
+        if cool_lap_s is not None:
             self._manual_timing_values["cool_lap_s"] = float(cool_lap_s)
             self._manual_timing_sources["cool_lap_s"] = "manual override"
             self.operational_timing_sources["cool_lap_s"] = "manual override"
@@ -99,6 +109,7 @@ class QualiLiveService:
         self._slow_lap_evidence: list[tuple[str, float]] = []
         self._reference_total_s: float | None = None
         self._reference_checkpoints: dict[tuple[str, int], float] = {}
+        self._driver_best_references: dict[str, tuple[float, dict[tuple[str, int], float]]] = {}
         self._actual_cutoffs: dict[str, float | None] = {}
         # Legacy per-part projection correction. Session-wide Track Evolution
         # uses _track_samples and its continuous global PUSH indices instead.
@@ -165,6 +176,7 @@ class QualiLiveService:
         self._new_completed_lap_numbers.clear()
         self._reference_total_s = None
         self._reference_checkpoints.clear()
+        self._driver_best_references.clear()
         self._actual_cutoffs.clear()
         self._part_push_laps = {part: [] for part in QUALI_PARTS}
         self._track_samples.clear()
@@ -229,19 +241,27 @@ class QualiLiveService:
         return self.operational_timings.out_lap_s
 
     @property
-    def cool_lap_s(self) -> float:
+    def cool_lap_s(self) -> float | None:
         return self.operational_timings.cool_lap_s
+
+    @property
+    def track_override_s_per_field_push(self) -> float | None:
+        return self._track_override_s_per_field_push
 
     def set_operational_timings(self, timings: QualiTimingValues, *, source: str) -> None:
         """Compatibility entry point for an explicit manual timing policy."""
         self.operational_timings = timings
         for category, value in vars(timings).items():
+            if value is None:
+                continue
             self._manual_timing_values[category] = value
             self._manual_timing_sources[category] = source
             self.operational_timing_sources[category] = source
 
     def set_clean_air_gap_s(self, value: float) -> None:
         value = float(value)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("Operational timing must be positive and finite")
         if value <= 0 or not math.isfinite(value):
             raise ValueError("clean-air threshold must be positive and finite")
         self.clean_air_gap_s = value
@@ -266,16 +286,30 @@ class QualiLiveService:
     def load_operational_analysis(self, result) -> None:
         self._fp_timing_values.clear()
         self._fp_timing_sources.clear()
+        self._fp_best_lap_s = None
+        self._fp_best_lap_source = "FP best"
         for _, row in result.durations.iterrows():
-            value = row["selected_default_s"]
+            value = _finite_float(row.get("selected_default_s"))
             category = str(row["category"])
-            if value == value and category in vars(self.operational_timings):
-                self._fp_timing_values[category] = float(value)
+            if value is not None and value > 0 and category in vars(self.operational_timings):
+                self._fp_timing_values[category] = value
                 self._fp_timing_sources[category] = (
                     f"FP-derived (n={int(row['selected_count'])})"
                 )
+        laps = getattr(result, "laps", None)
+        if laps is not None and hasattr(laps, "columns"):
+            if "is_driver_fp_reference" in laps.columns and "raw_lap_time_s" in laps.columns:
+                marked = laps.loc[laps["is_driver_fp_reference"].fillna(False)]
+                references = [_finite_float(value) for value in marked["raw_lap_time_s"]]
+                self._fp_best_lap_s = min(
+                    (value for value in references if value is not None and value > 0),
+                    default=None,
+                )
+        if self._fp_best_lap_s is None:
+            self._fp_best_lap_s = self._fp_timing_values.get("push_lap_s")
+            self._fp_best_lap_source = "FP representative"
         self._apply_operational_sources()
-        self._load_lap_state_references(getattr(result, "laps", None))
+        self._load_lap_state_references(laps)
 
     def _load_lap_state_references(self, laps) -> None:
         self.lap_state_references = {}
@@ -301,30 +335,22 @@ class QualiLiveService:
 
     def _apply_operational_sources(self) -> None:
         values = vars(QualiTimingValues()).copy()
-        sources = {name: "unavailable" for name in values}
+        sources = {name: "built-in fallback" for name in values}
+        sources["cool_lap_s"] = "unavailable — manual override required"
         for category, value in self._fp_timing_values.items():
             values[category] = value
             sources[category] = self._fp_timing_sources[category]
+        if "cool_lap_s" not in self._fp_timing_values and self._fp_best_lap_s is not None:
+            values["cool_lap_s"] = self._fp_best_lap_s * 1.30
+            sources["cool_lap_s"] = f"{self._fp_best_lap_source} × 1.30 fallback"
         for category, value in self._manual_timing_values.items():
             values[category] = value
             sources[category] = self._manual_timing_sources[category]
         self.operational_timings = QualiTimingValues(**values)
         self.operational_timing_sources = sources
 
-    def _effective_cool_timing(self, current_fastest_s: float | None) -> tuple[float | None, str]:
-        if "cool_lap_s" in self._manual_timing_values:
-            return (
-                self._manual_timing_values["cool_lap_s"],
-                self._manual_timing_sources["cool_lap_s"],
-            )
-        if "cool_lap_s" in self._fp_timing_values:
-            return (
-                self._fp_timing_values["cool_lap_s"],
-                self._fp_timing_sources["cool_lap_s"],
-            )
-        if current_fastest_s is None:
-            return None, "unavailable"
-        return current_fastest_s * 1.30, "fastest × 1.30"
+    def _effective_cool_timing(self, current_fastest_s: float | None = None) -> tuple[float | None, str]:
+        return self.operational_timings.cool_lap_s, self.operational_timing_sources["cool_lap_s"]
 
     def _load_operational_artifact(self, year: int, round_number: int) -> None:
         identity = (year, round_number)
@@ -342,6 +368,8 @@ class QualiLiveService:
         except (FileNotFoundError, ValueError, OSError):
             self._fp_timing_values.clear()
             self._fp_timing_sources.clear()
+            self._fp_best_lap_s = None
+            self._fp_best_lap_source = "FP best"
             self._apply_operational_sources()
             return
         self.load_operational_analysis(type("Analysis", (), {"laps": laps, "durations": durations})())
@@ -394,6 +422,7 @@ class QualiLiveService:
                 self._new_completed_lap_numbers.setdefault(event.driver_number, set()).add(event.lap_number)
         for driver in raw.drivers:
             self._consume_driver(driver)
+        self._refresh_projection_reference()
         for number, driver in self._latest_raw.items():
             state = self._states.get(number)
             if state is not None and state.active:
@@ -415,29 +444,35 @@ class QualiLiveService:
             and raw.last_lap_s is not None
             and bool(self._new_completed_lap_numbers.get(raw.driver_number))
         )
-        fastest_before = min(
-            (
-                state.best_lap_s
-                for state in self._states.values()
-                if state.active and state.best_lap_s is not None
-            ),
-            default=raw.best_lap_s,
+        # Read the current feed snapshot, not the previous service states: a
+        # deletion and another driver's completion can share one update.
+        current_valid_bests = (
+            driver.best_lap_s for driver in self.raw_snapshot.drivers
+            if driver.best_lap_s is not None
+            and (self._states.get(driver.driver_number) is None
+                 or self._states[driver.driver_number].active)
         )
+        fastest_before = min(current_valid_bests, default=None)
         lap_state = classify_lap_state(
             raw,
             previous_state=existing.lap_state if existing else None,
             new_lap=completed_lap,
             reference=self.lap_state_references.get(raw.driver_number, self._common_lap_state_reference),
         )
-        completed_push = (
+        # A completed FAST lap is operationally a push even when it is too
+        # slow for the deliberately stricter evolution-sample filter.
+        completed_operational_push = (
             completed_lap
             and raw.timed_lap_eligible
             and lap_state == "FAST"
+        )
+        evolution_sample_eligible = (
+            completed_operational_push
             and fastest_before is not None
             and raw.last_lap_s <= fastest_before * (1.0 + self.push_threshold_fraction)
         )
         self._latest_raw[raw.driver_number] = raw
-        if completed_push:
+        if evolution_sample_eligible:
             self._part_push_laps[self.session_part].append(float(raw.last_lap_s))
             tyre = raw.tyre_history[-1] if raw.tyre_history else None
             completed_number = max(self._new_completed_lap_numbers[raw.driver_number])
@@ -472,38 +507,32 @@ class QualiLiveService:
         effective_remaining = existing.effective_finish_remaining_s if existing else None
         recovery = existing.effective_finish_recovery_s if existing else None
         timing_source = existing.effective_finish_timing_source if existing else None
-        current_fastest = min(
-            (value for value in (
-                raw.best_lap_s,
-                raw.last_lap_s if completed_push else None,
-                *(state.best_lap_s for state in self._states.values() if state.active),
-            ) if value is not None),
-            default=None,
+        cool_requirement, cool_source = self._effective_cool_timing()
+        clock_has_started = remaining is not None and (
+            remaining > 0 or self.raw_snapshot.normal_finished
         )
-        cool_requirement, cool_source = self._effective_cool_timing(current_fastest)
-        if (not effective and completed_push and remaining is not None
+        if (not effective and completed_operational_push and clock_has_started
                 and cool_requirement is not None and remaining < cool_requirement):
             effective = True
             effective_remaining, recovery = remaining, cool_requirement
             timing_source = cool_source
-        if remaining is not None and not finished:
-            if completed_lap and (remaining <= 0 or self.raw_snapshot.normal_finished):
-                finished, reason = True, FinishedReason.FINAL_LAP_COMPLETED
-            elif raw.in_pit and remaining < self.out_lap_s:
+        # A recognised lap after the real chequered flag supersedes an earlier
+        # predictive finish.  An archive bootstrap zero is not a finish.
+        if completed_lap and self.raw_snapshot.normal_finished:
+            finished, reason = True, FinishedReason.FINAL_LAP_COMPLETED
+        elif clock_has_started and not finished:
+            if raw.in_pit and remaining < self.out_lap_s:
                 finished, reason = True, FinishedReason.IN_PIT_NO_OUTLAP_TIME
-            elif completed_push and cool_requirement is not None and remaining < cool_requirement:
+            elif completed_operational_push and cool_requirement is not None and remaining < cool_requirement:
                 finished, reason = True, FinishedReason.NO_TIME_FOR_NEXT_PUSH
+        # Current official timing is authoritative: a deletion/retraction may
+        # clear the best entirely, so never retain a historical minimum here.
         best = raw.best_lap_s
-        if existing and existing.best_lap_s is not None:
-            best = (
-                existing.best_lap_s
-                if best is None
-                else min(best, existing.best_lap_s)
-            )
         state = QualiDriverState(
             raw.driver_number,
             raw.driver_code,
             raw.team,
+            official_position=raw.position,
             lap_state=lap_state,
             sectors_s=raw.sectors_s,
             last_lap_s=raw.last_lap_s,
@@ -521,13 +550,31 @@ class QualiLiveService:
             effective_finish_timing_source=timing_source,
         )
         self._states[raw.driver_number] = state
-        if best is not None and (
-            self._reference_total_s is None or best < self._reference_total_s
-        ):
-            self._reference_total_s = best
-            checkpoints = _checkpoint_elapsed(raw)
+        if best is None:
+            self._driver_best_references.pop(raw.driver_number, None)
+        elif (raw.driver_number not in self._driver_best_references
+              or self._driver_best_references[raw.driver_number][0] != best):
+            checkpoints = _associated_best_sector_checkpoints(
+                raw, self.raw_snapshot.completed_lap_sequence, self.session_part
+            )
             if checkpoints:
-                self._reference_checkpoints = checkpoints
+                self._driver_best_references[raw.driver_number] = (best, checkpoints)
+            else:
+                self._driver_best_references.pop(raw.driver_number, None)
+
+    def _refresh_projection_reference(self) -> None:
+        """Use the fastest *current valid* result as the projection reference."""
+        candidates = (
+            (state.best_lap_s, number)
+            for number, state in self._states.items()
+            if state.active and state.best_lap_s is not None
+            and number in self._driver_best_references
+        )
+        best = min(candidates, default=None, key=lambda item: (item[0], item[1]))
+        self._reference_total_s = best[0] if best is not None else None
+        self._reference_checkpoints = (
+            self._driver_best_references[best[1]][1] if best is not None else {}
+        )
 
     def _project(self, raw: QualiRawDriverState) -> float | None:
         if not raw.timed_lap_eligible:
@@ -599,8 +646,9 @@ class QualiLiveService:
         current = [state for state in self._states.values() if state.active]
         current.sort(
             key=lambda state: (
-                state.best_lap_s is None,
-                state.best_lap_s or float("inf"),
+                state.official_position is None,
+                state.official_position if state.official_position is not None else state.rank or 999,
+                state.driver,
             )
         )
         eliminated_count = min(
@@ -643,6 +691,7 @@ class QualiLiveService:
         self._latest_raw.clear()
         self._reference_total_s = None
         self._reference_checkpoints.clear()
+        self._driver_best_references.clear()
         self.snapshot = self._build_snapshot()
 
     def _update_track_from_part(self, part: str, *, live: bool = False) -> None:
@@ -741,8 +790,14 @@ class QualiLiveService:
         )
         cutoff_state = active[cutoff_rank - 1] if cutoff_rank else None
         unfinished = sum(not state.finished for state in active)
-        correction = -self.track_rate_s_per_field_push * unfinished
+        # This slope is lap-time change per future field push.  A negative
+        # rate means improving conditions and therefore a faster cutoff.
+        correction = self.track_rate_s_per_field_push * unfinished
         current = cutoff_state.best_lap_s if cutoff_state else None
+        projected = current + correction if current is not None else None
+        # Future slower laps cannot erase an already observed valid cutoff.
+        if current is not None and projected is not None:
+            projected = min(projected, current)
         cutoff = CutoffProjection(
             "P1" if p1_target else "CUTOFF",
             cutoff_rank,
@@ -751,14 +806,14 @@ class QualiLiveService:
             unfinished,
             self.track_rate_s_per_field_push,
             correction,
-            current + correction if current is not None else None,
+            projected,
         )
         rows = sorted(
             self._states.values(),
             key=lambda state: (
                 state.active is False,
-                state.rank is None,
-                state.rank or 999,
+                state.official_position is None,
+                (state.official_position if state.official_position is not None else state.rank or 999),
                 state.driver,
             ),
         )
@@ -796,3 +851,37 @@ def _checkpoint_elapsed(raw: QualiRawDriverState) -> dict[tuple[str, int], float
         elapsed += sector
         checkpoints[("sector", index)] = elapsed
     return checkpoints
+
+
+def _associated_best_sector_checkpoints(
+    raw: QualiRawDriverState,
+    completed_laps,
+    session_part: str,
+) -> dict[tuple[str, int], float]:
+    """Only retain complete sectors proven consistent with the official best.
+
+    Current segment checkpoints can be from a different lap, so they are not
+    admitted into a historical best-lap reference.
+    """
+    best = _finite_float(raw.best_lap_s)
+    last = _finite_float(raw.last_lap_s)
+    sectors = tuple(_finite_float(value) for value in raw.sectors_s)
+    if (best is None or last is None or len(sectors) != 3
+            or any(value is None or value <= 0 for value in sectors)):
+        return {}
+    if not math.isclose(best, last, abs_tol=0.01, rel_tol=0.0):
+        return {}
+    if not any(
+        lap.session_part == session_part
+        and lap.driver_number == raw.driver_number
+        and lap.lap_number == raw.completed_laps
+        and math.isclose(lap.lap_time_s, best, abs_tol=0.01, rel_tol=0.0)
+        for lap in completed_laps
+    ):
+        return {}
+    if not math.isclose(best, sum(sectors), abs_tol=0.01, rel_tol=0.0):
+        return {}
+    return {
+        ("sector", index): sum(sectors[:index])
+        for index in (1, 2, 3)
+    }

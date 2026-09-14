@@ -34,9 +34,9 @@ def raw(drivers, *, part="Q1", remaining=600, session_info=None):
     )
 
 
-def driver(number, best=None, *, laps=1, in_pit=False, sectors=(30, 30, 30), progress=None):
+def driver(number, best=None, *, laps=1, in_pit=False, sectors=(30, 30, 30), progress=None, position=None):
     return QualiRawDriverState(
-        str(number), f"D{number}", "Team", completed_laps=laps,
+        str(number), f"D{number}", "Team", position=position, completed_laps=laps,
         last_lap_s=best, best_lap_s=best, sectors_s=sectors,
         segments=(QualiCheckpoint("sector", 1, sectors[0]),), in_pit=in_pit,
         pit_state=QualiPitState.QUEUE if in_pit else QualiPitState.ON_TRACK,
@@ -63,6 +63,47 @@ def test_ranking_no_time_gap_interval_and_projection_reference_replacement():
     # New fastest replaces the reference and recomputes active checkpoint projections.
     snapshot = service.consume(raw([driver(1, 90, sectors=(31, 30, 29)), driver(2, 89, sectors=(29, 30, 30))]))
     assert snapshot.drivers[0].driver == "D2"
+
+
+def test_reverted_best_never_pairs_with_deleted_lap_sectors():
+    unconfirmed = QualiLiveService()
+    unconfirmed.consume(replace(
+        raw([driver(1, 90, sectors=(30, 30, 30))]),
+        completed_lap_sequence=(),
+    ))
+    assert unconfirmed._reference_total_s is None
+
+    service = QualiLiveService(eliminated_counts={"Q1": 0})
+    service.consume(raw([driver(1, 91, sectors=(30, 30, 31))]))
+    assert service._reference_total_s == 91
+    service.consume(raw([driver(1, 90, laps=2, sectors=(30, 30, 30))]))
+    assert service._reference_total_s == 90
+
+    reverted = replace(
+        driver(1, 90, laps=2, sectors=(30, 30, 30)), best_lap_s=91,
+    )
+    snapshot = service.consume(raw([reverted]))
+    assert snapshot.drivers[0].best_lap_s == 91
+    assert service._reference_total_s is None
+    assert service._reference_checkpoints == {}
+    assert snapshot.drivers[0].projected_lap_s is None
+
+    # The deleted lap's sectors can remain in the next timing update.
+    service.consume(raw([reverted]))
+    assert service._reference_total_s is None
+    service.consume(raw([driver(1, 89, laps=3, sectors=(29, 30, 30))]))
+    assert service._reference_total_s == 89
+    assert service._reference_checkpoints[("sector", 3)] == 89
+    snapshot = service.consume(raw([
+        driver(1, 89, laps=3, sectors=(29, 30, 30)),
+        driver(2, None, laps=0, sectors=(28, None, None)),
+    ]))
+    assert next(state for state in snapshot.drivers if state.driver == "D2").projected_lap_s == pytest.approx(28 * 89 / 29)
+
+    service.transition_to("Q2")
+    assert service._reference_total_s is None
+    service.consume(raw([driver(1, 88, sectors=(29, 29, 30))], part="Q2"))
+    assert service._reference_total_s == 88
 
 
 def test_q3_projects_p1_while_q1_and_q2_keep_elimination_cutoffs():
@@ -95,7 +136,9 @@ def test_finished_reasons_and_projected_cutoff():
     first = next(s for s in snapshot.drivers if s.driver == "D1")
     assert first.finished_reason == FinishedReason.IN_PIT_NO_OUTLAP_TIME
     assert snapshot.cutoff.unfinished_driver_count == 1
-    assert snapshot.cutoff.projected_cutoff_s == 89.98
+    # Positive evolution means no projected improvement; the observed cutoff
+    # remains the safe published threshold.
+    assert snapshot.cutoff.projected_cutoff_s == 90
     # A completed push with insufficient cool time has its explicit reason.
     service = with_test_pace_reference(QualiLiveService(cool_lap_s=110))
     service.consume(raw([driver(1, 90, laps=1)], remaining=200))
@@ -103,14 +146,14 @@ def test_finished_reasons_and_projected_cutoff():
     assert snapshot.drivers[0].finished_reason == FinishedReason.NO_TIME_FOR_NEXT_PUSH
     service = with_test_pace_reference(QualiLiveService())
     service.consume(raw([driver(1, 90, laps=1)], remaining=20))
-    snapshot = service.consume(raw([driver(1, 89, laps=2)], remaining=0))
+    snapshot = service.consume(replace(raw([driver(1, 89, laps=2)], remaining=0), normal_finished=True))
     assert snapshot.drivers[0].finished_reason == FinishedReason.FINAL_LAP_COMPLETED
     # A real chequer applies when any current lap is completed after zero,
     # including a slow lap rather than only a push lap.
     service = QualiLiveService()
-    service.consume(raw([driver(1, 90, laps=1)], remaining=0))
+    service.consume(replace(raw([driver(1, 90, laps=1)], remaining=0), normal_finished=True))
     snapshot = service.consume(
-        raw([driver(1, 120, laps=2, in_pit=True)], remaining=0)
+        replace(raw([driver(1, 120, laps=2, in_pit=True)], remaining=0), normal_finished=True)
     )
     assert snapshot.drivers[0].finished_reason == FinishedReason.FINAL_LAP_COMPLETED
 
@@ -298,8 +341,11 @@ def test_effective_finish_requires_a_new_push_and_is_independent_of_session_fini
     service.consume(raw([driver(1, 90, laps=1), driver(2, 91, laps=1)], remaining=200))
     unchanged = service.consume(raw([driver(1, 90, laps=1), driver(2, 91, laps=1)], remaining=100))
     assert not any(d.effective_finished for d in unchanged.drivers)
-    slow = service.consume(raw([driver(1, 120, laps=2), driver(2, 91, laps=1)], remaining=100))
+    slow = service.consume(raw([
+        driver(1, 120, laps=2, sectors=(34, 30, 30)), driver(2, 91, laps=1),
+    ], remaining=100))
     assert not any(d.effective_finished for d in slow.drivers)
+    assert not any(sample.driver == "D1" for sample in service._track_samples)
     push = service.consume(raw([driver(1, 89, laps=3), driver(2, 91, laps=1)], remaining=99))
     assert not push.normal_finished
     first = next(d for d in push.drivers if d.driver == "D1")
@@ -312,7 +358,110 @@ def test_effective_finish_requires_a_new_push_and_is_independent_of_session_fini
     assert not next(d for d in normal.drivers if d.driver == "D2").effective_finished
 
 
-def test_effective_finish_timing_hierarchy_loads_fp_and_uses_live_fallback(monkeypatch):
+def test_current_official_best_retraction_is_not_a_historical_minimum():
+    service = QualiLiveService(eliminated_counts={"Q1": 1})
+    service.consume(raw([driver(1, 95.149, position=1), driver(2, 95.4, position=2)]))
+
+    retracted = service.consume(raw([
+        driver(1, None, position=20), driver(2, 95.4, position=1),
+    ]))
+    lin = next(state for state in retracted.drivers if state.driver == "D1")
+    assert lin.best_lap_s is None
+    assert lin.rank == 2
+    assert [state.driver for state in retracted.drivers] == ["D2", "D1"]
+    assert retracted.cutoff.current_cutoff_s == 95.4
+    # The official 95.4 s best has no matching sector evidence in this fixture.
+    assert service._reference_total_s is None
+
+    replacement = service.consume(raw([
+        driver(1, 94.9, laps=2, position=1), driver(2, 95.4, position=2),
+    ]))
+    assert next(state for state in replacement.drivers if state.driver == "D1").best_lap_s == 94.9
+
+    service.transition_to("Q2")
+    assert next(state for state in service.snapshot.drivers if state.driver == "D1").best_lap_s is None
+
+
+def test_official_position_selects_advancers_when_end_of_part_bests_are_cleared():
+    service = QualiLiveService(eliminated_counts={"Q1": 1, "Q2": 0})
+    service.consume(raw([
+        driver(1, 90, position=1), driver(2, 91, position=2),
+        driver(3, 92, position=3),
+    ]))
+    # The feed clears a valid result just before the segment reset.  Its
+    # official position still determines who advances.
+    service.consume(raw([
+        driver(1, None, position=1), driver(2, 91, position=2),
+        driver(3, 92, position=3),
+    ]))
+    service.transition_to("Q2")
+    assert {state.driver for state in service.snapshot.drivers if state.active} == {"D1", "D2"}
+    assert all(state.best_lap_s is None for state in service.snapshot.drivers if state.active)
+
+
+def test_operational_push_is_independent_of_evolution_sample_filter():
+    service = with_test_pace_reference(QualiLiveService(cool_lap_s=132.118))
+    service.consume(raw([
+        driver(1, 93.267, laps=1), driver(2, 95.312, laps=1),
+        driver(3, 95.307, laps=1),
+    ], remaining=200))
+    snapshot = service.consume(raw([
+        driver(1, 93.267, laps=1), driver(2, 95.312, laps=2),
+        driver(3, 95.307, laps=2),
+    ], remaining=77))
+    sai = next(state for state in snapshot.drivers if state.driver == "D2")
+    alb = next(state for state in snapshot.drivers if state.driver == "D3")
+    assert sai.effective_finished and alb.effective_finished
+    assert sai.finished_reason == alb.finished_reason == FinishedReason.NO_TIME_FOR_NEXT_PUSH
+    assert not [sample for sample in service._track_samples if sample.driver in {"D2", "D3"}]
+
+    sample_count = len(service._track_samples)
+    fast = service.consume(raw([
+        driver(1, 93.0, laps=2), driver(2, 95.312, laps=2),
+        driver(3, 95.307, laps=2),
+    ], remaining=50))
+    assert next(state for state in fast.drivers if state.driver == "D1").effective_finished
+    assert len(service._track_samples) == sample_count + 1
+    assert any(sample.driver == "D1" and sample.lap_number == 2
+               for sample in service._track_samples)
+
+
+def test_presession_zero_does_not_set_driver_finish_and_real_end_upgrades_reason():
+    service = with_test_pace_reference(QualiLiveService(cool_lap_s=132.118))
+    bootstrap = service.consume(raw([driver(1, None, laps=0, in_pit=True)], remaining=0))
+    assert not bootstrap.drivers[0].finished
+
+    service.consume(raw([driver(1, 93.0, laps=1)], remaining=200))
+    effective = service.consume(raw([driver(1, 92.0, laps=2)], remaining=77))
+    assert effective.drivers[0].finished_reason == FinishedReason.NO_TIME_FOR_NEXT_PUSH
+    chequered = service.consume(replace(
+        raw([driver(1, 91.0, laps=3)], remaining=0), normal_finished=True,
+    ))
+    assert chequered.drivers[0].finished_reason == FinishedReason.FINAL_LAP_COMPLETED
+
+
+@pytest.mark.parametrize(("rate", "expected"), [(-0.038276, 90.387584), (0.0, 91.0), (0.02, 91.0)])
+def test_projected_cutoff_uses_rate_sign_and_never_slows_current_cutoff(rate, expected):
+    service = QualiLiveService(eliminated_counts={"Q2": 6}, track_rate_s_per_field_push=rate)
+    snapshot = service.consume(raw(
+        [driver(number, 90 + number / 10) for number in range(1, 17)],
+        part="Q2",
+    ))
+    # P10 is 91.0 in this fixture and all drivers are unfinished.
+    assert snapshot.cutoff.current_cutoff_s == 91.0
+    assert snapshot.cutoff.projected_cutoff_s == pytest.approx(expected)
+    assert snapshot.cutoff.projected_cutoff_s <= snapshot.cutoff.current_cutoff_s
+
+
+def test_cutoff_with_insufficient_live_support_uses_zero_prior_and_current_result():
+    service = QualiLiveService(eliminated_counts={"Q1": 1})
+    snapshot = service.consume(raw([driver(1, 90), driver(2, 91)]))
+    assert service.track_source == "FP prior"
+    assert snapshot.cutoff.track_rate_s_per_field_push == 0
+    assert snapshot.cutoff.projected_cutoff_s == snapshot.cutoff.current_cutoff_s == 90
+
+
+def test_effective_finish_timing_hierarchy_loads_fp_and_uses_fp_fallback(monkeypatch):
     service = QualiLiveService()
     durations = pd.DataFrame([
         {"category": "cool_lap_s", "selected_default_s": 111.0, "selected_count": 4},
@@ -337,10 +486,36 @@ def test_effective_finish_timing_hierarchy_loads_fp_and_uses_live_fallback(monke
     assert service._effective_cool_timing(90) == (112.0, "manual override")
 
     service.clear_manual_operational_timings()
-    service._fp_timing_values.clear()
-    service._fp_timing_sources.clear()
-    assert service._effective_cool_timing(90) == (117.0, "fastest × 1.30")
-    assert service._effective_cool_timing(None) == (None, "unavailable")
+    service.load_operational_analysis(type("Analysis", (), {
+        "durations": pd.DataFrame(),
+        "laps": pd.DataFrame([{
+            "is_driver_fp_reference": True, "raw_lap_time_s": 92.797,
+            "driver": "ANT",
+        }]),
+    })())
+    value, source = service._effective_cool_timing(90)
+    assert value == pytest.approx(92.797 * 1.30)
+    assert source == "FP best × 1.30 fallback"
+    assert service._effective_cool_timing(80)[0] == 92.797 * 1.30
+    service.load_operational_analysis(type("Analysis", (), {
+        "durations": pd.DataFrame([{
+            "category": "push_lap_s", "selected_default_s": 94.865,
+            "selected_count": 4,
+        }]),
+        "laps": pd.DataFrame(),
+    })())
+    value, source = service._effective_cool_timing(80)
+    assert value == pytest.approx(94.865 * 1.30)
+    assert source == "FP representative × 1.30 fallback"
+    service.load_operational_analysis(type("Analysis", (), {
+        "durations": pd.DataFrame(), "laps": pd.DataFrame(),
+    })())
+    assert service._effective_cool_timing(90) == (None, "unavailable — manual override required")
+    service = with_test_pace_reference(QualiLiveService())
+    service.consume(raw([driver(1, 90, laps=1)], remaining=200))
+    snapshot = service.consume(raw([driver(1, 89, laps=2)], remaining=30))
+    assert snapshot.drivers[0].effective_finished is False
+    assert snapshot.drivers[0].finished_reason is None
 
 
 def test_fp_fastest_lap_references_load_with_operational_artifact():

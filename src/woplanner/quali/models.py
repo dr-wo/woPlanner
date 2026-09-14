@@ -26,6 +26,8 @@ class QualiDriverState:
     driver: str
     team: str
     rank: int | None = None
+    # Feed classification is distinct from the calculated valid-lap rank.
+    official_position: int | None = None
     status: str = "NO TIME"
     lap_state: str = "UNKNOWN"
     sectors_s: tuple[float | None, float | None, float | None] = (None, None, None)
@@ -51,6 +53,12 @@ class QualiDriverState:
 
 @dataclass(frozen=True)
 class CutoffProjection:
+    """Raw slope contribution plus the published non-worsening threshold.
+
+    ``projected_correction_s`` is the signed model contribution before the
+    observed-result invariant; ``projected_cutoff_s`` is what the UI publishes.
+    """
+
     target_kind: str
     cutoff_rank: int
     driver: str | None

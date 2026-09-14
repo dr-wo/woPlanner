@@ -216,6 +216,49 @@ def test_effective_finish_has_distinct_colour_and_explanation():
     app.processEvents()
 
 
+def test_final_lap_chequered_marker_takes_precedence_over_effective_finish():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = QualiWindow()
+    state = QualiDriverState(
+        "1", "AAA", "Team", rank=1, effective_finished=True,
+        finished=True, finished_reason=FinishedReason.FINAL_LAP_COMPLETED,
+    )
+    window._render_timing_table(
+        SimpleNamespace(drivers=(state,), cutoff=SimpleNamespace(cutoff_rank=0))
+    )
+    item = window.table.item(0, 0)
+    assert item.text().startswith("🏁")
+    assert "recognised final timed lap" in item.toolTip()
+    assert item.background().style() == QtCore.Qt.BrushStyle.NoBrush
+    window.close()
+    app.processEvents()
+
+
+def test_official_reorder_keeps_selected_driver_and_cutoff_identity():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = QualiWindow()
+    lin = QualiDriverState("41", "LIN", "Team", rank=1, official_position=1, best_lap_s=95.149)
+    tsu = QualiDriverState("22", "TSU", "Team", rank=2, official_position=2, best_lap_s=95.3)
+    cutoff = SimpleNamespace(cutoff_rank=1, driver="LIN")
+    window._render_timing_table(SimpleNamespace(drivers=(lin, tsu), cutoff=cutoff))
+    window.table.setCurrentCell(0, 1)
+
+    lin = replace(lin, rank=2, official_position=20, best_lap_s=None)
+    tsu = replace(tsu, rank=1, official_position=1)
+    window._render_timing_table(SimpleNamespace(drivers=(tsu, lin), cutoff=cutoff))
+    assert [window.table.item(row, 1).text() for row in range(2)] == ["TSU", "LIN"]
+    assert window.table.item(1, 0).text() == "20"
+    assert window.table.currentItem().text() == "LIN"
+    assert window.table.cutoff_row() == 1
+
+    window._render_timing_table(SimpleNamespace(
+        drivers=(tsu, lin), cutoff=SimpleNamespace(cutoff_rank=1, driver="TSU", target_kind="P1"),
+    ))
+    assert window.table.cutoff_row() is None
+    window.close()
+    app.processEvents()
+
+
 def test_tyre_history_uses_compound_circles_with_age_at_stint_start():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = QualiWindow()

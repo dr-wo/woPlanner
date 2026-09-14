@@ -13,7 +13,7 @@ from wodata.live.quali_clock import (
 class QualiTimingValues:
     out_lap_s: float = 100.0
     in_lap_s: float = 100.0
-    cool_lap_s: float = 105.0
+    cool_lap_s: float | None = None
     push_lap_s: float = 90.0
 
 
@@ -99,6 +99,8 @@ class QualiPlanModel:
 
 
 def run_duration(run: QualiRunPlan, timings: QualiTimingValues) -> float:
+    if timings.cool_lap_s is None:
+        raise ValueError("Cool / Prep timing unavailable; manual override required")
     pushes = run.number_of_push_laps
     return (
         timings.out_lap_s
@@ -110,6 +112,8 @@ def run_duration(run: QualiRunPlan, timings: QualiTimingValues) -> float:
 
 
 def final_push_start_in_run(run: QualiRunPlan, timings: QualiTimingValues) -> float:
+    if timings.cool_lap_s is None:
+        raise ValueError("Cool / Prep timing unavailable; manual override required")
     return (
         timings.out_lap_s
         + (timings.cool_lap_s if run.prep_required else 0.0)
@@ -154,6 +158,8 @@ def calculate_double_yellow_latest_safe_release(
     """
     if turnaround_s < 0 or margin_s < 0:
         raise ValueError("turnaround and margin must be non-negative")
+    if timings.cool_lap_s is None and prep_required:
+        raise ValueError("Cool / Prep timing unavailable; manual override required")
     prep = timings.cool_lap_s if prep_required else 0.0
     invalidated = timings.out_lap_s + prep + timings.push_lap_s
     components = (

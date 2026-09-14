@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -61,12 +62,14 @@ class CutoffTable(QtWidgets.QTableWidget):
     def __init__(self) -> None:
         super().__init__()
         self.cutoff_rank = 0
+        self.cutoff_driver_number: str | None = None
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
-        if self.cutoff_rank <= 0 or self.cutoff_rank > self.rowCount():
+        row = self.cutoff_row()
+        if row is None:
             return
-        item = self.item(self.cutoff_rank - 1, 0)
+        item = self.item(row, 0)
         if item is None:
             return
         rect = self.visualItemRect(item)
@@ -79,6 +82,18 @@ class CutoffTable(QtWidgets.QTableWidget):
             rect.bottom() + 1,
             self.viewport().width(),
             rect.bottom() + 1,
+        )
+
+    def cutoff_row(self) -> int | None:
+        """Locate the calculated cutoff driver in official display order."""
+        if self.cutoff_rank <= 0 or self.cutoff_driver_number is None:
+            return None
+        return next(
+            (index for index in range(self.rowCount())
+             if self.item(index, 0) is not None
+             and self.item(index, 0).data(QtCore.Qt.ItemDataRole.UserRole)
+             == self.cutoff_driver_number),
+            None,
         )
 
 
@@ -167,7 +182,8 @@ class TimelineWidget(QtWidgets.QWidget):
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         if self.timing is None:
             painter.drawText(
-                self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter, "Add a run"
+                self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter,
+                "Timing unavailable — enter Cool / Prep duration",
             )
             return
 
@@ -331,6 +347,7 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self.setWindowTitle("Quali Plan")
         self.resize(1200, 800)
         self.model = QualiPlanModel()
+        self._manual_timing_values: dict[str, float] = {}
         self.planning_parts = (
             SPRINT_QUALI_PARTS
             if live_service is not None
@@ -359,14 +376,16 @@ class QualiPlanDialog(QtWidgets.QDialog):
         )
         for key, label in timing_fields:
             spin = QtWidgets.QDoubleSpinBox()
-            spin.setRange(1, 600)
+            spin.setRange(0 if key == "cool_lap_s" else 1, 600)
             spin.setDecimals(1)
             spin.setSuffix(" s")
-            count = QtWidgets.QLabel("n=0")
+            if key == "cool_lap_s":
+                spin.setSpecialValueText("Manual required")
+            source = QtWidgets.QLabel("built-in fallback")
             timing.addWidget(QtWidgets.QLabel(label))
             timing.addWidget(spin)
-            timing.addWidget(count)
-            self.timing_inputs[key] = (spin, count)
+            timing.addWidget(source)
+            self.timing_inputs[key] = (spin, source)
             spin.valueChanged.connect(lambda value, category=key: self._timing_edited(category, value))
         reset = QtWidgets.QPushButton("Reset / reload")
         reset.clicked.connect(self._reset_timings)
@@ -428,6 +447,11 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self.track_override.setRange(-10, 10)
         self.track_override.setDecimals(4)
         self.track_override.setSuffix(" s / field push")
+        if self.live_service is not None:
+            existing_override = self.live_service.track_override_s_per_field_push
+            if existing_override is not None:
+                self.track_override.setValue(existing_override)
+                self.track_override_enabled.setChecked(True)
         self.track_effective = QtWidgets.QLabel("—")
         self.track_source = QtWidgets.QLabel("—")
         self.track_quality = QtWidgets.QLabel("—")
@@ -487,54 +511,74 @@ class QualiPlanDialog(QtWidgets.QDialog):
     def load_analysis(self, result) -> None:
         self.result = result
         if self.live_service is not None:
-            if result is not None:
-                self.live_service.load_operational_analysis(result)
             timing = self.live_service.operational_timings
             self._analysis_timing_source = self.live_service.operational_timing_sources[
                 "cool_lap_s"
             ]
         else:
-            values = vars(QualiTimingValues()).copy()
+            offline_policy = QualiLiveService()
             if result is not None:
-                values.update({key: value for key, value in result.planning_defaults.items() if value is not None})
-            timing = QualiTimingValues(**values)
-            self._analysis_timing_source = "FP analysis / built-in fallback"
-        if result is not None:
-            for _, row in result.durations.iterrows():
-                if row["category"] in self.timing_inputs:
-                    self.timing_inputs[row["category"]][1].setText(f"n={int(row['count'])}")
+                offline_policy.load_operational_analysis(result)
+            timing = offline_policy.operational_timings
+            self._offline_timing_sources = offline_policy.operational_timing_sources
+            self._analysis_timing_source = self._offline_timing_sources["cool_lap_s"]
         self.model.analysis_timings = timing
         self.model.timings = timing
-        self._reset_timings()
+        self._display_timings()
         rate, source, samples = self.analysis_service.effective_fp_track_rate()
         self._estimated_track_rate = rate
         self.track_estimated.setText(f"{rate:+.4f} s / field push")
         self.track_source.setText(source)
         self.track_quality.setText(f"{samples} usable push laps")
-        self._update_effective_track()
+        if self.live_service is not None:
+            self.refresh_live_track()
+        else:
+            self._display_effective_track()
         self._refresh_debug()
 
     def _reset_timings(self) -> None:
-        for key, value in vars(self.model.analysis_timings).items():
-            spin = self.timing_inputs[key][0]
-            with QtCore.QSignalBlocker(spin):
-                spin.setValue(value)
         if self.live_service is not None:
             self.live_service.clear_manual_operational_timings()
+            self.model.analysis_timings = self.live_service.operational_timings
+        else:
+            self._manual_timing_values.clear()
+        self._display_timings()
+
+    def _display_timings(self) -> None:
+        self.model.timings = self._current_timings()
+        for key in vars(self.model.analysis_timings):
+            spin = self.timing_inputs[key][0]
+            with QtCore.QSignalBlocker(spin):
+                value = getattr(self.model.timings, key)
+                spin.setValue(0 if value is None else value)
+        if self.live_service is not None:
+            for key, (_, source) in self.timing_inputs.items():
+                source.setText(self.live_service.operational_timing_sources[key])
+        else:
+            for key, (_, source) in self.timing_inputs.items():
+                source.setText(self._offline_timing_sources[key])
+        if self.live_service is None:
+            for key in self._manual_timing_values:
+                self.timing_inputs[key][1].setText("manual override")
         self._refresh_timelines()
 
     def _timing_edited(self, category: str, value: float) -> None:
+        if category == "cool_lap_s" and value <= 0:
+            return
         if self.live_service is not None:
             self.live_service.set_manual_operational_timing(category, value)
+            self.timing_inputs[category][1].setText(
+                self.live_service.operational_timing_sources[category]
+            )
+        else:
+            self._manual_timing_values[category] = value
+            self.timing_inputs[category][1].setText("manual override")
         self._refresh_timelines()
 
     def _current_timings(self) -> QualiTimingValues:
-        return QualiTimingValues(
-            **{
-                key: spin.value()
-                for key, (spin, _) in self.timing_inputs.items()
-            }
-        )
+        if self.live_service is not None:
+            return self.live_service.operational_timings
+        return replace(self.model.analysis_timings, **self._manual_timing_values)
 
     def _add_arrangement(self, part: str) -> None:
         _, layout, editors = self.part_editors[part]
@@ -554,7 +598,10 @@ class QualiPlanDialog(QtWidgets.QDialog):
             self.model.session_durations_s[part] = seconds
             for editor in editors:
                 arrangement = editor.arrangement()
-                timing = self.model.timing(part, arrangement)
+                timing = (
+                    None if self.model.timings.cool_lap_s is None
+                    else self.model.timing(part, arrangement)
+                )
                 editor.timeline.set_timing(timing, seconds, arrangement.margin_s)
 
     def _refresh_double_yellow_release(self) -> None:
@@ -566,6 +613,14 @@ class QualiPlanDialog(QtWidgets.QDialog):
             None,
         )
         if first_editor is None:
+            return
+        if self.model.timings.cool_lap_s is None:
+            self.double_yellow_countdown.setText(
+                "Cool / Prep timing unavailable — manual override required"
+            )
+            self.double_yellow_detail.setText(
+                "Enter a Cool / Prep duration to calculate a latest-safe release."
+            )
             return
         arrangement = first_editor.arrangement()
         sources = (
@@ -602,6 +657,9 @@ class QualiPlanDialog(QtWidgets.QDialog):
             )
             self.refresh_live_track()
             return
+        self._display_effective_track()
+
+    def _display_effective_track(self) -> None:
         value = (
             self.track_override.value()
             if self.track_override_enabled.isChecked()

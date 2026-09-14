@@ -1,6 +1,6 @@
 # Qualifying Monitor
 
-Last reviewed: 2026-09-12
+Last reviewed: 2026-09-14
 
 This document is the operating and maintenance guide for `woplanner-quali`.
 The monitor combines FastF1 live timing, qualifying-only state reduction,
@@ -41,6 +41,12 @@ labelled SQ1/SQ2/SQ3 and uses its own segment durations.
 
 The table shows position, driver/team, status, sectors, last/best lap, gaps, and
 current/projected cutoff values. Team colours come from `wodata.colours`.
+Its row order follows the feed's official **Position**; calculated valid-lap
+rank is retained separately for cutoff calculations. The current best follows
+current official timing, so a deleted or retracted lap cannot remain the current
+result. Checkpoint-based lap projection is shown only when the reference
+checkpoints can be associated with that same valid best lap; otherwise that
+projection is withheld rather than mixing laps.
 
 Status backgrounds are deliberately operational rather than copies of FastF1's
 display strings:
@@ -76,13 +82,14 @@ explicit track-wide RaceControlMessages CHEQUERED, or finished/finalised status.
 A completed PUSH with insufficient COOL/PREP time separately marks that car
 **EFF. FINISH** and colours its position amber. Its tooltip records remaining
 seconds, required seconds and operational-input provenance. This is not a
-session flag. Both states reset for the next segment.
+session flag. A recognised final-lap completion displays a chequered marker for
+that driver. Both states reset for the next segment.
 
-The service resolves COOL/PREP timing in this order: a manual Plan edit,
-FP-derived timing with its sample count, then `fastest current segment lap × 1.30`.
-If no current fastest lap exists, effective finish is unavailable rather than
-silently using a default. The tooltip records the selected source. The estimator
-and completed-PUSH heuristic are unchanged.
+An operational completed `FAST` timed lap can count as a PUSH for effective
+finish even when it fails the stricter 2% quality filter for a track-evolution
+sample. The latter controls the evolution fit, not the driver finish decision.
+COOL/PREP timing follows the shared Plan policy below; without a usable value,
+no cool-duration-based effective finish is asserted.
 
 ## Clock and session-part handling
 
@@ -96,7 +103,10 @@ Zero is a valid countdown. Explicit segment metadata takes precedence. Without
 it, a segment advances only after an observed zero-to-reset lifecycle transition;
 a late connection at a generic 15:00 remains Q1. Centralized
 `wodata.live.quali_clock` defaults describe segments but do not identify one.
-Q3 is 13 minutes. Red-flag/aborted status freezes the message clock until restart.
+An archive's pre-session zero does not establish a normal Qualifying finish;
+zero after a positive segment countdown remains a valid finish. Live late-join
+finish semantics are preserved. Q3 is 13 minutes. Red-flag/aborted status freezes
+the message clock until restart.
 Current timing and completed-lap state reset at segment boundaries; historical
 Q1/Q2 best results remain separately available on the raw and planner models.
 Official empty BestLapTime is not replaced by an untimed out-lap duration.
@@ -115,10 +125,23 @@ Default planning durations are:
 
 The Plan window formats latest-start offsets as minutes and seconds and supports
 multiple arrangements of out, prep, push, cool, in, and turnaround segments.
-**Analyse FP1-FP3** derives operational timing defaults and an initial track prior;
-the timing inputs remain editable and override FP-derived values. The displayed
-countdown advances locally between feed anchors for readability only; it cannot
-change domain state or finish decisions.
+Click **Analyse FP1–FP3** to load the available practice sessions, combine their
+laps for pre-Qualifying analysis, save `lap_roles.csv`, `duration_summary.csv`,
+`track_progression.csv`, and `manifest.json` under the event's
+`woData/wostrategy/pre_quali` artifact directory, and load the result into
+operational Qualifying state. An unavailable individual FP session is skipped;
+if none load, analysis fails.
+Opening Plan alone can read an existing artifact but does not regenerate analysis.
+
+Opening or refreshing Plan only reads current live timing and track state: it
+does not reload different cached values or change existing overrides. Timing
+inputs display to 0.1 s, while calculations retain full precision. An edit is
+an explicit manual override; **Reset / reload** explicitly clears manual timing
+overrides. Effective COOL/PREP priority is manual override, FP-derived estimate,
+FP best/representative lap × 1.30, then unavailable with manual entry required.
+There is no generic fixed 105 s fallback. The displayed countdown advances
+locally between feed anchors for readability only; it cannot change domain
+state or finish decisions.
 
 ### Presentation-clock snapshot contract
 
@@ -132,22 +155,24 @@ decisions from local wall-clock time.
 
 ## Live track evolution and cutoff projection
 
-A completed lap is treated as a push when it is within 2% of the fastest active
-qualifying time known immediately before that lap. Push times are appended in
-observed order. As soon as two pushes exist in the current Q/SQ part, every new
-push refits the established linear `woStrategy` model; calculation no longer
-waits for the segment transition. The source changes from **FP prior** to, for
-example, **Q2 live estimate**, and the Plan window shows the effective live value
-and evidence count.
+A completed operational `FAST` push is eligible for the evolution sample only
+when it also lies within 2% of the current fastest valid qualifying time. These
+quality-filtered times are appended in observed order. As soon as two such
+samples exist in the current Q/SQ part, every new sample refits the established
+linear `woStrategy` model. The source changes from **FP prior** to, for example,
+**Q2 live estimate**, and Plan shows the effective value and evidence count.
 
-The model reports positive seconds per field push as improvement. Projected lap
-time therefore subtracts a positive improvement. The cutoff forecast currently
-uses one future push for every active unfinished driver:
+For Q1/Q2, a negative live slope means improving lap times and a faster
+projected elimination cutoff. The forecast approximates one further field push
+per active unfinished driver:
 
 ```text
-projected correction = -track rate * unfinished driver count
-projected cutoff     = current cutoff + projected correction
+projected correction = track rate * unfinished driver count
+projected cutoff     = min(current valid cutoff, current cutoff + projected correction)
 ```
+
+The published cutoff cannot be slower than the already observed valid cutoff
+at that rank. Q3 targets P1 rather than an elimination rank.
 
 The Plan window's **Use override** value affects the effective projection but
 does not stop or replace automatic fitting. Clearing the override restores the
@@ -179,9 +204,9 @@ behavior.
 
 ## Deliberate compromises and limits
 
-- Push classification is a live 2%-of-field-fastest heuristic. It does not use
-  an official push/prep label and can admit an unusually quick non-push lap or
-  reject a compromised push.
+- FAST/SLOW pace classification uses live/FP reference evidence, not an official
+  push/prep label. The separate 2% quality filter may exclude a valid
+  operational push from the evolution fit.
 - The linear fit orders heterogeneous drivers' push times without driver,
   compound, traffic, wind, or fuel fixed effects. Two points are sufficient for
   responsiveness, so the earliest estimate can be noisy. It is operational

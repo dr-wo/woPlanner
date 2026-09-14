@@ -3,6 +3,8 @@
 > Historical foundation report. The operational-state contract and corrected
 > lap-association evidence supersede its old queue labels and raw completion
 > counts; see [R13 operational-state regression](QUALIFYING_OPERATIONAL_STATE_R13.md).
+> The R14 result, cutoff, effective-finish and COOL/PREP policies are documented
+> in the current [Qualifying Monitor guide](QUALIFYING_MONITOR.md).
 
 Implemented in woData and woPlanner; woStrategy has no changes. No evolution,
 PUSH threshold/classifier, FP estimator, projected-cut equation or release model
@@ -23,10 +25,12 @@ was redesigned. Corrected input scoping can change their outputs.
 | Plan edits/FP analysis and effective finish share the service's operational timing values; artifacts load automatically on authoritative event identity | [widgets.py](../src/woplanner/quali/widgets.py), [service.py](../src/woplanner/quali/service.py) |
 
 Each effective finish records the value, source and remaining time used at its
-transition. COOL/PREP comes from a manual Plan edit, then an FP artifact, then
-the current fastest lap × 1.30; without a current fastest lap it is unavailable.
-Timing policy changes are explicit inputs; identical streams assume identical
-policies and geometry artifacts.
+transition. At the time of this R13 foundation pass, COOL/PREP came from a
+manual Plan edit, then an FP artifact, then current fastest lap × 1.30. R14
+replaced that last fallback with an FP best/representative reference and requires
+manual input when no FP reference is usable; see the current guide. Timing
+policy changes are explicit inputs; identical streams assume identical policies
+and geometry artifacts.
 
 Snapshots no longer extrapolate domain time using the local monotonic clock.
 Message timestamps advance it, including Heartbeat/telemetry between clock
