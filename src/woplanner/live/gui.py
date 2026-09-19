@@ -372,8 +372,15 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         replay_lap = max(leader_laps or all_laps or [0])
         data_lap = int(plot_data["lap"].max()) if not plot_data.empty else 0
         displayed_lap = data_lap
+        timing_unavailable = bool(
+            not plot_data.empty
+            and "timing_available" in plot_data
+            and not plot_data["timing_available"].fillna(False).any()
+        )
+        progress_prefix = "Timing unavailable" if timing_unavailable else "Plot"
         self.plot_progress_status.setText(
-            f"Plot: replay {replay_lap} / data {data_lap} / displayed {displayed_lap}"
+            f"{progress_prefix}: replay {replay_lap} / data {data_lap} / "
+            f"displayed {displayed_lap}"
         )
         signature = (replay_lap, data_lap, displayed_lap)
         if signature != getattr(self, "_plot_progress_signature", None):

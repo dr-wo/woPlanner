@@ -51,6 +51,53 @@ def test_live_window_updates_round_from_received_session_info():
     app.processEvents()
 
 
+def test_unavailable_timing_keeps_displayed_lap_and_surfaces_status():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    service = LivePlannerService()
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        "Started",
+        (
+            LiveDriver("1", "AAA", "Mercedes", "A Driver", 1, None),
+            LiveDriver("2", "BBB", "Ferrari", "B Driver", 2, None),
+        ),
+        (
+            CompletedLap("1", "AAA", "Mercedes", 8, 90.0, None, 1, None),
+            CompletedLap("2", "BBB", "Ferrari", 8, 91.0, None, 2, None),
+        ),
+        MappingProxyType({"1": 1, "2": 2}),
+        None,
+    )
+    window = LivePlannerWindow(service=service)
+    window.reference_driver.addItem("AAA")
+
+    window._redraw()
+
+    assert window.plot_progress_status.text().startswith("Timing unavailable:")
+    assert "data 8" in window.plot_progress_status.text()
+    assert "displayed 8" in window.plot_progress_status.text()
+    assert len(service._last_plot_data) == 2
+    assert not service._last_plot_data["timing_available"].any()
+
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        "Started",
+        service.snapshot.drivers,
+        (
+            CompletedLap("1", "AAA", "Mercedes", 8, 90.0, 800.0, 1, None),
+            CompletedLap("2", "BBB", "Ferrari", 8, 91.0, 802.0, 2, None),
+        ),
+        MappingProxyType({"1": 1, "2": 2}),
+        None,
+    )
+    window._redraw()
+    assert window.plot_progress_status.text().startswith("Plot:")
+    assert service._last_plot_data["timing_available"].all()
+
+    window.close()
+    app.processEvents()
+
+
 def test_replay_browser_accepts_jsonl(monkeypatch):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = LivePlannerWindow()

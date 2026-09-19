@@ -9,7 +9,6 @@ from wodata.live import LiveConfig, LiveSessionSnapshot, LiveTimingController, R
 
 from ..common.driver_styles import assign_driver_styles
 from ..common.formatting import tyre_age_label as _tyre_age_label
-from ..common.timing import collapse_cumulative_time_gaps
 from ..common.reference import (
     REFERENCE_MODE_ACTUAL_PACE,
     REFERENCE_MODE_AVERAGED_PACE,
@@ -119,7 +118,21 @@ class LivePlannerService:
         reference_mode: str = REFERENCE_MODE_AVERAGED_PACE,
     ) -> pd.DataFrame:
         reference_mode = _normalize_reference_mode(reference_mode)
-        rows, sector_fractions, fraction_source = self._plot_rows(reference_driver)
+        sector_laps = {
+            (sector.driver_code, sector.lap_number)
+            for sector in self.snapshot.completed_sectors
+        }
+        has_lap_fallbacks = bool(self.snapshot.completed_sectors) and any(
+            (lap.driver_code, lap.lap_number) not in sector_laps
+            for lap in self.snapshot.completed_laps
+        )
+        rows, sector_fractions, fraction_source = self._plot_rows(
+            reference_driver,
+            force_lap_resolution=(
+                reference_mode == REFERENCE_MODE_AVERAGED_PACE
+                and has_lap_fallbacks
+            ),
+        )
         columns = [
             "driver", "team", "lap", "sector", "segment_index", "x_lap",
             "lap_time_s", "segment_time_s", "cumulative_time_s", "position", "plot_role",
@@ -128,23 +141,22 @@ class LivePlannerService:
         plot_rows = pd.DataFrame(rows, columns=columns)
         if plot_rows.empty:
             return plot_rows.assign(delta_s=pd.Series(dtype="float64"))
-        plot_rows["cumulative_time_s"] = collapse_cumulative_time_gaps(
-            plot_rows,
-            driver_column="driver",
-            order_column="segment_index",
-            cumulative_column="cumulative_time_s",
-            duration_column="segment_time_s",
-            order_step=1 if self.snapshot.completed_sectors else 3,
-            priority_column="position",
-        )
         reference = _reference_cumulative_time(
             plot_rows,
             reference_driver=reference_driver,
             reference_mode=reference_mode,
         )
-        output = plot_rows.merge(reference, on="segment_index", how="inner", validate="many_to_one")
+        output = plot_rows.merge(
+            reference, on="segment_index", how="left", validate="many_to_one"
+        )
         output["delta_s"] = (
             output["cumulative_time_s"] - output["reference_cumulative_time_s"]
+        )
+        output["timing_available"] = (
+            pd.to_numeric(output["cumulative_time_s"], errors="coerce").notna()
+            & pd.to_numeric(
+                output["reference_cumulative_time_s"], errors="coerce"
+            ).notna()
         )
         self._last_plot_data = output.sort_values(
             ["driver", "segment_index"], kind="mergesort"
@@ -154,12 +166,12 @@ class LivePlannerService:
         return self._last_plot_data
 
     def _plot_rows(
-        self, reference_driver: str
+        self, reference_driver: str, *, force_lap_resolution: bool = False
     ) -> tuple[list[dict], dict[str, float], str]:
         fractions, fraction_source = _sector_progress_fractions(
             self.snapshot.completed_sectors, reference_driver
         )
-        if self.snapshot.completed_sectors:
+        if self.snapshot.completed_sectors and not force_lap_resolution:
             rows = [
                 {
                     "driver": sector.driver_code,
@@ -184,11 +196,10 @@ class LivePlannerService:
                 }
                 for sector in self.snapshot.completed_sectors
             ]
-            latest_sector_lap: dict[str, int] = {}
-            for sector in self.snapshot.completed_sectors:
-                latest_sector_lap[sector.driver_code] = max(
-                    latest_sector_lap.get(sector.driver_code, 0), sector.lap_number
-                )
+            laps_with_real_sectors = {
+                (sector.driver_code, sector.lap_number)
+                for sector in self.snapshot.completed_sectors
+            }
             rows.extend(
                 {
                     "driver": lap.driver_code, "team": lap.team,
@@ -201,7 +212,7 @@ class LivePlannerService:
                     "is_simulated": False, "is_faded": False,
                 }
                 for lap in self.snapshot.completed_laps
-                if lap.lap_number > latest_sector_lap.get(lap.driver_code, 0)
+                if (lap.driver_code, lap.lap_number) not in laps_with_real_sectors
             )
             return rows, fractions, fraction_source
         return [

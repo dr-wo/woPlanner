@@ -1,4 +1,5 @@
 import json
+import math
 import time
 from pathlib import Path
 
@@ -347,7 +348,7 @@ def test_averaged_reference_continues_same_definition_after_reference_retires():
     service.shutdown()
 
 
-def test_live_plot_removes_suspension_gap_from_source_cumulative_time():
+def test_live_plot_consumes_canonical_cumulative_time_without_repairing_it():
     service = LivePlannerService()
     service.snapshot = LiveSessionSnapshot(
         MappingProxyType({}),
@@ -365,9 +366,168 @@ def test_live_plot_removes_suspension_gap_from_source_cumulative_time():
 
     plot_data = service.build_plot_data("AAA", reference_mode=REFERENCE_MODE_ACTUAL_PACE)
 
-    assert plot_data.loc[plot_data.driver.eq("AAA"), "cumulative_time_s"].tolist() == [90.0, 185.0]
-    assert plot_data.loc[plot_data.driver.eq("BBB"), "cumulative_time_s"].tolist() == [91.0, 198.0]
+    assert plot_data.loc[plot_data.driver.eq("AAA"), "cumulative_time_s"].tolist() == [90.0, 1985.0]
+    assert plot_data.loc[plot_data.driver.eq("BBB"), "cumulative_time_s"].tolist() == [91.0, 1998.0]
     assert plot_data.loc[plot_data.driver.eq("BBB"), "delta_s"].tolist() == [1.0, 13.0]
+
+
+def test_later_sector_data_only_replaces_its_exact_lap_fallback():
+    service = LivePlannerService()
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        None,
+        (),
+        (
+            CompletedLap("1", "AAA", "Mercedes", 1, 90.0, 90.0, 1, None),
+            CompletedLap("1", "AAA", "Mercedes", 2, 91.0, 181.0, 1, None),
+            CompletedLap("1", "AAA", "Mercedes", 3, 92.0, 273.0, 1, None),
+        ),
+        MappingProxyType({}),
+        None,
+        (
+            CompletedSector("1", "AAA", "Mercedes", 3, "S1", 7, 30.0, 211.0, 1, None),
+            CompletedSector("1", "AAA", "Mercedes", 3, "S2", 8, 31.0, 242.0, 1, None),
+            CompletedSector("1", "AAA", "Mercedes", 3, "S3", 9, 31.0, 273.0, 1, None),
+        ),
+    )
+
+    rows, _fractions, _source = service._plot_rows("AAA")
+
+    assert [(row["lap"], row["sector"], row["segment_index"]) for row in rows] == [
+        (3, "S1", 7),
+        (3, "S2", 8),
+        (3, "S3", 9),
+        (1, "S3", 3),
+        (2, "S3", 6),
+    ]
+
+
+def test_actual_reference_keeps_exact_mixed_resolution_rows_coherent():
+    service = LivePlannerService()
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        None,
+        (),
+        (
+            CompletedLap("1", "AAA", "Mercedes", 1, 90.0, 90.0, 1, None),
+            CompletedLap("1", "AAA", "Mercedes", 2, 91.0, 181.0, 1, None),
+            CompletedLap("1", "AAA", "Mercedes", 3, 93.0, 274.0, 1, None),
+        ),
+        MappingProxyType({}),
+        None,
+        (
+            CompletedSector("1", "AAA", "Mercedes", 3, "S1", 7, 30.0, 211.0, 1, None),
+            CompletedSector("1", "AAA", "Mercedes", 3, "S2", 8, 32.0, 243.0, 1, None),
+            CompletedSector("1", "AAA", "Mercedes", 3, "S3", 9, 31.0, 274.0, 1, None),
+        ),
+    )
+
+    plot = service.build_plot_data("AAA", reference_mode=REFERENCE_MODE_ACTUAL_PACE)
+
+    assert plot["segment_index"].tolist() == [3, 6, 7, 8, 9]
+    assert plot["delta_s"].tolist() == pytest.approx([0.0] * 5)
+
+
+def test_averaged_reference_uses_homogeneous_lap_resolution_with_fallbacks():
+    service = LivePlannerService()
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        None,
+        (),
+        (
+            CompletedLap("1", "AAA", "Mercedes", 1, 90.0, 90.0, 1, None),
+            CompletedLap("1", "AAA", "Mercedes", 2, 91.0, 181.0, 1, None),
+            CompletedLap("1", "AAA", "Mercedes", 3, 93.0, 274.0, 1, None),
+        ),
+        MappingProxyType({}),
+        None,
+        (
+            CompletedSector("1", "AAA", "Mercedes", 3, "S1", 7, 30.0, 211.0, 1, None),
+            CompletedSector("1", "AAA", "Mercedes", 3, "S2", 8, 32.0, 243.0, 1, None),
+            CompletedSector("1", "AAA", "Mercedes", 3, "S3", 9, 31.0, 274.0, 1, None),
+        ),
+    )
+
+    plot = service.build_plot_data("AAA", reference_mode=REFERENCE_MODE_AVERAGED_PACE)
+
+    assert plot["segment_index"].tolist() == [3, 6, 9]
+    assert plot["segment_time_s"].tolist() == pytest.approx([90.0, 91.0, 93.0])
+    assert plot["delta_s"].tolist() == pytest.approx([-4 / 3, -5 / 3, 0.0])
+
+
+def test_unavailable_canonical_rows_survive_without_false_delta_then_recover():
+    service = LivePlannerService()
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        "Started",
+        (),
+        (
+            CompletedLap("1", "AAA", "Mercedes", 8, 90.0, None, 1, None),
+            CompletedLap("2", "BBB", "Ferrari", 8, 91.0, None, 2, None),
+        ),
+        MappingProxyType({"1": 1, "2": 2}),
+        None,
+    )
+
+    unavailable = service.build_plot_data(
+        "AAA", reference_mode=REFERENCE_MODE_ACTUAL_PACE
+    )
+
+    assert unavailable[["driver", "lap"]].to_dict("records") == [
+        {"driver": "AAA", "lap": 8},
+        {"driver": "BBB", "lap": 8},
+    ]
+    assert unavailable["cumulative_time_s"].isna().all()
+    assert unavailable["reference_cumulative_time_s"].isna().all()
+    assert unavailable["delta_s"].isna().all()
+    assert not unavailable["timing_available"].any()
+    assert len(service._last_plot_data) == 2
+
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        "Started",
+        (),
+        (
+            CompletedLap("1", "AAA", "Mercedes", 8, 90.0, 800.0, 1, None),
+            CompletedLap("2", "BBB", "Ferrari", 8, 91.0, 802.0, 2, None),
+        ),
+        MappingProxyType({"1": 1, "2": 2}),
+        None,
+    )
+    recovered = service.build_plot_data(
+        "AAA", reference_mode=REFERENCE_MODE_ACTUAL_PACE
+    )
+
+    assert recovered["timing_available"].all()
+    assert recovered["delta_s"].tolist() == pytest.approx([0.0, 2.0])
+
+
+def test_pending_restart_sector_never_produces_a_finite_planner_delta():
+    service = LivePlannerService()
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}),
+        "Started",
+        (),
+        (),
+        MappingProxyType({}),
+        None,
+        (
+            CompletedSector(
+                "1", "AAA", "Mercedes", 3, "S1", 7, 600.0, None, 1, None
+            ),
+            CompletedSector(
+                "2", "BBB", "Ferrari", 3, "S1", 7, 30.0, 220.0, 2, None
+            ),
+        ),
+    )
+
+    plot = service.build_plot_data("BBB", reference_mode=REFERENCE_MODE_ACTUAL_PACE)
+    pending = plot.loc[plot["driver"].eq("AAA")].iloc[0]
+
+    assert pending["segment_time_s"] == 600.0
+    assert pending["reference_cumulative_time_s"] == pytest.approx(220.0)
+    assert bool(pending["timing_available"]) is False
+    assert math.isnan(float(pending["delta_s"]))
 
 
 def test_driver_styles_and_ranks_are_stable():

@@ -125,7 +125,8 @@ or 20x replay.
 Live mode plots sector-level deltas as soon as S1, S2, or S3 arrives in
 `TimingData.Lines[*].Sectors`; it does not wait for the whole lap to complete. If
 a recording only contains completed-lap timing, or if the app connects late and
-earlier sector timing is unavailable, it falls back to completed-lap S3 points.
+earlier sector timing is unavailable or unreliable, it retains woData's
+canonical completed-lap fallback rather than inventing sector timing.
 After the feed explicitly marks a running driver `Retired`, that driver's curve
 ends at the last completed lap instead of accumulating later placeholder timing.
 Both live and post-race planners default to averaged reference mode; the mode
@@ -153,7 +154,9 @@ uses the selected reference driver's earliest complete lap to derive cumulative
 S1/S2/S3 time fractions; equal thirds are the final fallback. The averaged
 reference uses the selected driver's positive observed mean time for each sector
 and repeats those same three means after that driver retires. It does not switch
-to a surviving-driver population.
+to a surviving-driver population. When completed-lap fallbacks are present,
+averaged-reference mode uses one homogeneous timing resolution rather than
+mixing sector-level and lap-level reference samples.
 
 To replay a completed archive, click **Browse**, select
 `merged_replay_v1.jsonl` from the matching
@@ -161,10 +164,11 @@ To replay a completed archive, click **Browse**, select
 choose Max/1x/5x/20x, and click **Replay**. The same reducers and rendering path are
 used for JSONL archive replay and live SignalR messages.
 
-The live timing plot does not correct measured lap or sector durations. Before
-calculating cumulative deltas, it does remove inactive suspension gaps that may
-be present in source cumulative timing, so a red-flag delay is not plotted as
-race time. The shared **Strategy Prediction** window can consume the same
+The live timing plot consumes woData's canonical racing-time axis and does not
+repair fundamental origin or suspension errors itself. Rows without safely
+anchored canonical timing are preserved, shown as timing unavailable, and
+excluded from false zero/order comparisons until timing becomes available. The
+shared **Strategy Prediction** window can consume the same
 canonical live snapshot: when the leader lap advances it checks for newly
 eligible sector-filtered clean laps. Replay expands batched leader-lap jumps
 into point-in-time snapshots and processes them through a FIFO recalculation

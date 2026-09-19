@@ -23,7 +23,11 @@ from woplanner.analysis.service import (
     leader_lap_snapshots,
 )
 from woplanner.live.gui import LivePlannerWindow
-from woplanner.live.service import LivePlannerService, REFERENCE_MODE_AVERAGED_PACE
+from woplanner.live.service import (
+    LivePlannerService,
+    REFERENCE_MODE_ACTUAL_PACE,
+    REFERENCE_MODE_AVERAGED_PACE,
+)
 
 
 def test_saved_2026_r12_overlap_recovers_full_race_and_retro_clean_laps():
@@ -48,15 +52,71 @@ def test_saved_2026_r12_overlap_recovers_full_race_and_retro_clean_laps():
     snapshot = store.snapshot()
 
     assert max(lap.lap_number for lap in snapshot.completed_laps) == 72
-    assert len(snapshot.completed_laps) == 1343
-    assert len(snapshot.completed_sectors) == 4002
+    assert len(snapshot.completed_laps) == 1344
+    assert len(snapshot.completed_sectors) == 3909
+    nor_restart = [
+        lap
+        for lap in snapshot.completed_laps
+        if lap.driver_code == "NOR" and lap.lap_number in {2, 3, 4}
+    ]
+    assert [lap.lap_number for lap in nor_restart] == [2, 3, 4]
+    assert [lap.lap_time_s for lap in nor_restart] == pytest.approx(
+        [123.197, 134.117, 198.679]
+    )
+    assert [lap.cumulative_time_s for lap in nor_restart] == pytest.approx(
+        [123.197, 257.314, 455.993]
+    )
+    assert all(
+        later.cumulative_time_s > earlier.cumulative_time_s
+        for earlier, later in zip(nor_restart, nor_restart[1:])
+    )
+    assert not [
+        sector
+        for sector in snapshot.completed_sectors
+        if sector.driver_code == "NOR" and sector.lap_number == 3
+    ]
+    nor_l16 = next(
+        lap
+        for lap in snapshot.completed_laps
+        if lap.driver_code == "NOR" and lap.lap_number == 16
+    )
+    assert (nor_l16.driver_number, nor_l16.driver_code, nor_l16.lap_number) == (
+        "1", "NOR", 16
+    )
+    nor_l16_sectors = [
+        sector
+        for sector in snapshot.completed_sectors
+        if sector.driver_code == "NOR" and sector.lap_number == 16
+    ]
+    assert [sector.sector_time_s for sector in nor_l16_sectors] == pytest.approx(
+        [25.908, 28.026, 23.258]
+    )
+    sector_total = sum(sector.sector_time_s for sector in nor_l16_sectors)
+    assert sector_total == pytest.approx(nor_l16.lap_time_s)
+    assert sector_total == pytest.approx(77.192)
+
+    restart_service = LivePlannerService()
+    restart_service.snapshot = snapshot
+    actual = restart_service.build_plot_data(
+        "NOR", reference_mode=REFERENCE_MODE_ACTUAL_PACE
+    )
+    actual_restart = actual.loc[
+        actual["driver"].eq("NOR") & actual["lap"].isin([2, 3, 4])
+    ]
+    assert actual_restart["delta_s"].tolist() == pytest.approx([0.0] * 5)
+    averaged = restart_service.build_plot_data(
+        "NOR", reference_mode=REFERENCE_MODE_AVERAGED_PACE
+    )
+    nor_averaged = averaged.loc[averaged["driver"].eq("NOR")]
+    assert nor_averaged["delta_s"].abs().max() < 500.0
+    restart_service.shutdown()
 
     clean = _live_analysis_laps(
         snapshot, quick_lap_threshold=1.10, min_clean_laps=4
     )
     diagnostics = clean.attrs["exclusion_diagnostics"]
-    assert len(clean) == 188
-    assert diagnostics["selected_clean_laps"] == 188
+    assert len(clean) == 204
+    assert diagnostics["selected_clean_laps"] == 204
     assert diagnostics["traffic"] > 0
     assert diagnostics["pit_lap"] > 0
     assert diagnostics["non_green_track_status"] > 0
@@ -70,11 +130,11 @@ def test_saved_2026_r12_overlap_recovers_full_race_and_retro_clean_laps():
         zip(retro["Driver"], retro["LapNumber"])
     )
     assert len(retro) == 273
-    assert len(overlap) == 174
+    assert len(overlap) == 181
 
-    # STR is marked retired at lap 45. The averaged reference after that cut
-    # must continue with the same selected-driver sector averages, not switch
-    # to another population or stop at the retirement boundary.
+    # STR is marked retired at lap 45. Because the replay contains canonical
+    # lap fallbacks, averaged mode deliberately uses one homogeneous lap
+    # resolution and must continue that same average beyond the retirement.
     service = LivePlannerService()
     service.snapshot = snapshot
     plot = service.build_plot_data("STR", reference_mode=REFERENCE_MODE_AVERAGED_PACE)
@@ -85,9 +145,9 @@ def test_saved_2026_r12_overlap_recovers_full_race_and_retro_clean_laps():
     )
     increments = reference.diff()
     assert int(plot["lap"].max()) == 72
-    assert increments.loc[136] == pytest.approx(increments.loc[133])
-    assert increments.loc[137] == pytest.approx(increments.loc[134])
+    assert set(plot["sector"]) == {"S3"}
     assert increments.loc[138] == pytest.approx(increments.loc[135])
+    assert increments.loc[216] == pytest.approx(increments.loc[135])
     service.shutdown()
 
 
@@ -196,11 +256,11 @@ def test_saved_2026_r12_tyre_markers_survive_every_replay_redraw(monkeypatch):
 
     expected = {
         # leader lap: (completed laps with tyre metadata, marker events)
-        10: (121, 1),
-        20: (320, 8),
-        40: (709, 22),
-        60: (1086, 39),
-        72: (1288, 40),
+        10: (121, 2),
+        20: (321, 9),
+        40: (710, 25),
+        60: (1087, 43),
+        72: (1289, 44),
     }
     first_marker_lap = None
     first_unchanged_marker_redraw = None
@@ -258,10 +318,10 @@ def test_saved_2026_r12_tyre_markers_survive_every_replay_redraw(monkeypatch):
     assert first_marker_lap == 3
     # Under the old signature shortcut, this was the first leader-lap redraw
     # that cleared the overlay and then skipped recreating unchanged markers.
-    assert first_unchanged_marker_redraw == 11
+    assert first_unchanged_marker_redraw == 8
     assert int(service._last_plot_data["lap"].max()) == 72
     final_events = service.build_tyre_event_data()
-    assert len(final_events) == 40
+    assert len(final_events) == 44
     assert not final_events.duplicated(["driver", "lap", "scenario_id"]).any()
 
     window.close()
