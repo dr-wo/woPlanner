@@ -48,6 +48,9 @@ class DriverStrategyScenario:
     comparison_mode: str = COMPARISON_MODE_MODELLED_REAL_STRATEGY
     is_active: bool = True
     use_team_model_data: bool = False
+    green_pit_loss_s: float | None = None
+    sc_pit_loss_s: float | None = None
+    vsc_pit_loss_s: float | None = None
 
 
 PitStopScenario = DriverStrategyScenario

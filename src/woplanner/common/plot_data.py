@@ -8,14 +8,18 @@ from .formatting import tyre_age_label
 def build_pit_window_data(
     selected_driver_delta: pd.DataFrame,
     *,
-    normal_pit_loss_s: float,
-    sc_vsc_pit_loss_s: float,
+    normal_pit_loss_s: float | None,
+    sc_pit_loss_s: float | None = None,
+    vsc_pit_loss_s: float | None = None,
+    sc_vsc_pit_loss_s: float | None = None,
 ) -> pd.DataFrame:
     """Build mode-independent pit-loss boundaries around a driver's delta."""
     result_columns = [
         "lap", "sector", "segment_index", "x_lap",
         "normal_lower_boundary_s", "vsc_lower_boundary_s",
-        "vsc_upper_boundary_s", "normal_upper_boundary_s",
+        "vsc_upper_boundary_s", "sc_lower_boundary_s",
+        "sc_upper_boundary_s", "legacy_sc_vsc_lower_boundary_s",
+        "legacy_sc_vsc_upper_boundary_s", "normal_upper_boundary_s",
     ]
     if selected_driver_delta.empty:
         return pd.DataFrame(columns=result_columns)
@@ -25,10 +29,16 @@ def build_pit_window_data(
         if column in selected_driver_delta.columns
     ]
     output = selected_driver_delta.loc[:, [*source_columns, "delta_s"]].copy()
-    output["normal_lower_boundary_s"] = output["delta_s"] - float(normal_pit_loss_s)
-    output["vsc_lower_boundary_s"] = output["delta_s"] - float(sc_vsc_pit_loss_s)
-    output["vsc_upper_boundary_s"] = output["delta_s"] + float(sc_vsc_pit_loss_s)
-    output["normal_upper_boundary_s"] = output["delta_s"] + float(normal_pit_loss_s)
+    for state, value in (
+        ("normal", normal_pit_loss_s),
+        ("sc", sc_pit_loss_s),
+        ("vsc", vsc_pit_loss_s),
+        ("legacy_sc_vsc", sc_vsc_pit_loss_s),
+    ):
+        if value is None:
+            continue
+        output[f"{state}_lower_boundary_s"] = output["delta_s"] - float(value)
+        output[f"{state}_upper_boundary_s"] = output["delta_s"] + float(value)
     return output.loc[:, [column for column in result_columns if column in output.columns]]
 
 

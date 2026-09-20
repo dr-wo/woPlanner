@@ -1,4 +1,5 @@
 import os
+import json
 from types import MappingProxyType
 
 import pandas as pd
@@ -8,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtWidgets
 
+from wodata.event_operational import read_event_operational_inputs
 from wodata.live import CompletedLap, LiveDriver, LiveSessionSnapshot
 
 from woplanner.live.service import LivePlannerService, REFERENCE_MODE_AVERAGED_PACE
@@ -38,7 +40,12 @@ def test_live_window_updates_round_from_received_session_info():
 
     window._sync_session_context(
         {
-            "Meeting": {"Name": "British Grand Prix", "Number": 12},
+            "Meeting": {
+                "Name": "British Grand Prix", "Number": 12,
+                "Country": {"Name": "Great Britain"},
+                "Location": "Silverstone",
+                "Circuit": {"Key": 2, "ShortName": "Silverstone"},
+            },
             "Name": "Race",
             "StartDate": "2026-07-05T14:00:00Z",
         }
@@ -47,6 +54,14 @@ def test_live_window_updates_round_from_received_session_info():
     assert window.year_input.value() == 2026
     assert window.round_input.value() == 12
     assert "British Grand Prix" in window.windowTitle()
+    assert window._event_identity == {
+        "event_name": "British Grand Prix",
+        "country": "Great Britain",
+        "location": "Silverstone",
+        "circuit": "Silverstone",
+        "circuit_id": "2",
+    }
+    assert window._event_identity_event_key == (2026, 12)
     window.close()
     app.processEvents()
 
@@ -383,10 +398,23 @@ def test_live_and_replay_reconcile_corrected_tyre_history_without_duplicates():
     app.processEvents()
 
 
-def test_live_uses_shared_axis_controls_and_renders_shared_pit_window():
+def test_live_uses_persisted_values_and_renders_selected_driver_pit_window(tmp_path):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    window = LivePlannerWindow()
+    config = tmp_path / "race.json"
+    config.write_text(json.dumps({
+        "season": 2026, "round_number": 14,
+        "race": {"total_laps": 57},
+        "pit_loss": {
+            "green": {"total": 24.2},
+            "sc": {"total": 16.0},
+            "vsc": {"total": 13.0},
+        },
+    }))
+    window = LivePlannerWindow(event_config_path=config)
     assert isinstance(window.axis_controls, AxisRangeControls)
+    assert window.normal_pit_loss.value() == pytest.approx(24.2)
+    assert window.sc_pit_loss.value() == pytest.approx(16.0)
+    assert window.vsc_pit_loss.value() == pytest.approx(13.0)
     window.service._last_plot_data = pd.DataFrame(
         [
             {
@@ -404,10 +432,265 @@ def test_live_uses_shared_axis_controls_and_renders_shared_pit_window():
 
     window._select_driver("AAA")
 
-    assert len(window.pit_window.items) == 7
+    assert len(window.pit_window.items) == 12
+    assert [window.pit_window.items[index].toPlainText() for index in (3, 7, 11)] == [
+        "GREEN pit window", "SC pit window", "VSC pit window",
+    ]
     first_curve_x, _ = window.pit_window.items[0].getData()
     assert first_curve_x.tolist() == pytest.approx([2.0 - 1.0 / 3.0, 2.0])
     window._clear_selection()
     assert window.pit_window.items == []
+    window.close()
+    app.processEvents()
+
+
+def test_vsc_edit_does_not_persist_until_apply_and_then_survives_reload(tmp_path):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    config = tmp_path / "race.json"
+    history_root = tmp_path / "data"
+    config.write_text(json.dumps({
+        "season": 2026, "round_number": 14,
+        "race": {"total_laps": 57},
+        "pit_loss": {
+            "green": {"total": 24.2},
+            "sc": {"total": 16.0},
+            "vsc": {"total": 13.0},
+            "sc_vsc": {"total": 12.5},
+        },
+    }))
+    window = LivePlannerWindow(
+        event_config_path=config,
+        operational_history_data_root=history_root,
+    )
+    window._apply_operational_pit_losses()
+    assert read_event_operational_inputs(
+        season=2026, round_number=14, data_root=history_root,
+    )["operational"]["pit_loss"]["vsc"]["total"] == 13.0
+
+    resolved_snapshot = tmp_path / "runs" / "pre-race" / "config.resolved.json"
+    resolved_snapshot.parent.mkdir(parents=True)
+    resolved_snapshot.write_text(config.read_text())
+    window.vsc_pit_loss.setValue(12.0)
+    assert json.loads(config.read_text())["pit_loss"]["vsc"]["total"] == 13.0
+
+    unsaved_reload = LivePlannerWindow(
+        event_config_path=config,
+        operational_history_data_root=history_root,
+    )
+    assert unsaved_reload.vsc_pit_loss.value() == pytest.approx(13.0)
+    unsaved_reload.close()
+
+    window._apply_operational_pit_losses()
+    saved = json.loads(config.read_text())
+    assert saved["pit_loss"]["vsc"]["total"] == 12.0
+    assert saved["pit_loss"]["vsc"]["_provenance"]["updated_via"] == "woPlanner"
+    assert saved["pit_loss"]["sc_vsc"]["total"] == 12.5
+    assert read_event_operational_inputs(
+        season=2026, round_number=14, data_root=history_root,
+    )["operational"]["pit_loss"]["vsc"]["total"] == 12.0
+    assert json.loads(resolved_snapshot.read_text())["pit_loss"]["vsc"]["total"] == 13.0
+    reopened = LivePlannerWindow(
+        event_config_path=config,
+        operational_history_data_root=history_root,
+    )
+    assert reopened.vsc_pit_loss.value() == pytest.approx(12.0)
+    reopened.close()
+
+    next_event = json.loads(config.read_text())
+    next_event["round_number"] = 15
+    next_event["pit_loss"]["vsc"]["total"] = None
+    config.write_text(json.dumps(next_event))
+    assert read_event_operational_inputs(
+        season=2026, round_number=14, data_root=history_root,
+    )["operational"]["pit_loss"]["vsc"]["total"] == 12.0
+    next_event_window = LivePlannerWindow(
+        event_config_path=config,
+        operational_history_data_root=history_root,
+    )
+    assert next_event_window.round_input.value() == 15
+    assert next_event_window.vsc_pit_loss.value() == -1.0
+    next_event_window.close()
+    window.close()
+    app.processEvents()
+
+
+def test_same_window_event_transition_invalidates_identity_and_resolves_requested_event(
+    tmp_path,
+):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    config = tmp_path / "race.json"
+    history_root = tmp_path / "data"
+    config.write_text(json.dumps({
+        "season": 2026, "round_number": 14,
+        "race": {"total_laps": 57},
+        "pit_loss": {
+            "green": {"total": 24.2},
+            "sc": {"total": None},
+            "vsc": {"total": 13.0},
+        },
+    }))
+    resolver_calls = []
+
+    class R15Metadata:
+        event_name = "British Grand Prix"
+        official_event_name = None
+        country = "Great Britain"
+        location = "Silverstone"
+        circuit = "Silverstone"
+        circuit_id = "2"
+
+    def resolver(event, *, include_race_distance):
+        resolver_calls.append((event, include_race_distance))
+        return R15Metadata()
+
+    window = LivePlannerWindow(
+        event_config_path=config,
+        operational_history_data_root=history_root,
+        event_resolver=resolver,
+    )
+    window._sync_session_context({
+        "Meeting": {
+            "Name": "Spanish Grand Prix", "Number": 14,
+            "Country": {"Name": "Spain"}, "Location": "Madrid",
+        },
+        "Name": "Race", "StartDate": "2026-09-13T14:00:00Z",
+    })
+    assert window._event_identity_event_key == (2026, 14)
+    window._apply_operational_pit_losses()
+    window._apply_operational_pit_losses()
+    assert resolver_calls == []
+
+    next_event = json.loads(config.read_text())
+    next_event["round_number"] = 15
+    next_event["pit_loss"]["vsc"]["total"] = 12.0
+    config.write_text(json.dumps(next_event))
+    window._load_operational_inputs()
+
+    assert window.round_input.value() == 15
+    assert window._event_identity == {}
+    assert window._event_identity_event_key is None
+    window._apply_operational_pit_losses()
+
+    assert resolver_calls == [("2026-15", False)]
+    r15 = read_event_operational_inputs(
+        season=2026, round_number=15, data_root=history_root,
+    )
+    assert r15["event_identity"] == {
+        "event_name": "British Grand Prix",
+        "country": "Great Britain",
+        "location": "Silverstone",
+        "circuit": "Silverstone",
+        "circuit_id": "2",
+    }
+    assert "Spain" not in r15["event_identity"].values()
+    r14 = read_event_operational_inputs(
+        season=2026, round_number=14, data_root=history_root,
+    )
+    assert r14["event_identity"]["country"] == "Spain"
+    assert r14["operational"]["pit_loss"]["vsc"]["total"] == 13.0
+    window.close()
+    app.processEvents()
+
+
+def test_year_and_conflicting_meeting_metadata_invalidate_identity_ownership(tmp_path):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    config = tmp_path / "race.json"
+    config.write_text(json.dumps({
+        "season": 2026, "round_number": 14,
+        "pit_loss": {"green": {"total": 24.2}},
+    }))
+    window = LivePlannerWindow(event_config_path=config)
+    r14 = {
+        "Meeting": {
+            "Name": "Spanish Grand Prix", "Number": 14,
+            "Country": {"Name": "Spain"}, "Location": "Madrid",
+        },
+        "Name": "Race", "StartDate": "2026-09-13T14:00:00Z",
+    }
+    window._sync_session_context(r14)
+    assert window._event_identity_event_key == (2026, 14)
+
+    window.year_input.setValue(2027)
+    assert window._event_identity == {}
+    assert window._event_identity_event_key is None
+
+    window.year_input.setValue(2026)
+    refreshed_r14 = dict(r14)
+    refreshed_r14["Type"] = "Race"
+    window._sync_session_context(refreshed_r14)
+    assert window._event_identity_event_key == (2026, 14)
+    conflicting = {
+        "Meeting": {
+            "Name": "Different Grand Prix", "Number": 14,
+            "Country": {"Name": "Different Country"},
+            "Location": "Different Circuit",
+        },
+        "Name": "Race", "StartDate": "2026-09-14T14:00:00Z",
+    }
+    window._sync_session_context(conflicting)
+
+    assert window._event_identity_event_key is None
+    assert window._event_identity["country"] == "Different Country"
+    window.close()
+    app.processEvents()
+
+
+def test_apply_reports_invalid_untouched_config_without_mutating_config_or_history(
+    tmp_path, monkeypatch,
+):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    config = tmp_path / "race.json"
+    history_root = tmp_path / "data"
+    config.write_text(json.dumps({
+        "season": 2026, "round_number": 14,
+        "race": {"total_laps": -1},
+        "pit_loss": {
+            "green": {"total": 24.2},
+            "sc": {"total": None},
+            "vsc": {"total": 13.0},
+        },
+    }))
+    original_config = config.read_bytes()
+    warnings = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        lambda _parent, title, message: warnings.append((title, message)),
+    )
+    window = LivePlannerWindow(
+        event_config_path=config,
+        operational_history_data_root=history_root,
+    )
+    window.year_input.setValue(2026)
+    window.round_input.setValue(14)
+    window.vsc_pit_loss.setValue(12.0)
+
+    window._apply_operational_pit_losses()
+
+    assert config.read_bytes() == original_config
+    assert not history_root.exists()
+    assert warnings
+    assert warnings[-1][0] == "Current-event pit loss"
+    assert "Prospective race.json is invalid; no changes were saved" in warnings[-1][1]
+    assert "total_laps" in warnings[-1][1]
+    window.close()
+    app.processEvents()
+
+
+def test_different_event_does_not_reuse_current_event_values(tmp_path):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    config = tmp_path / "race.json"
+    config.write_text(json.dumps({
+        "season": 2026, "round_number": 14,
+        "pit_loss": {"green": {"total": 24.2}, "vsc": {"total": 13.0}},
+    }))
+    window = LivePlannerWindow(event_config_path=config)
+
+    window.round_input.setValue(15)
+
+    assert window.normal_pit_loss.specialValueText() == "Unresolved"
+    assert window.normal_pit_loss.value() == -1.0
+    assert window.vsc_pit_loss.value() == -1.0
+    assert "config is 2026-14" in window.pit_loss_status.text()
     window.close()
     app.processEvents()

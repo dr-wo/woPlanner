@@ -30,7 +30,8 @@ from woplanner.analysis.service import (
     _resolve_scheduled_total_laps,
 )
 from woplanner.analysis.gui import (
-    StrategyPredictionWindow, format_history_hover_text,
+    StrategyPredictionMode, StrategyPredictionWindow as _StrategyPredictionWindow,
+    format_history_hover_text,
     tyre_history_source_segments,
 )
 from woplanner.analysis.worker import (
@@ -40,6 +41,13 @@ from woplanner.analysis.worker import (
 from wostrategy.core.race_performance_settings import (
     write_resolved_race_performance_settings,
 )
+
+
+def StrategyPredictionWindow(**kwargs):
+    """All direct analysis-service GUI tests are explicit historical what-ifs."""
+    return _StrategyPredictionWindow(
+        mode=StrategyPredictionMode.HISTORICAL_WHAT_IF, **kwargs
+    )
 
 
 def model_snapshot():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
+import woplanner.standard.service as service_module
 
 from woplanner.standard.models import (
     COMPARISON_MODE_MODELLED_REAL_STRATEGY,
@@ -30,6 +32,7 @@ from woplanner.standard.service import (
     estimate_actual_pit_loss_by_lap,
     track_status_type,
     _actual_pit_loss_with_remove_edit_overrides,
+    _pit_loss_for_row,
     _simulated_display_laps,
 )
 from woplanner.standard.strategy_model import (
@@ -196,8 +199,9 @@ def test_pit_window_boundary_calculation():
     )
 
     assert pit_window["normal_lower_boundary_s"].tolist() == [-20.0, -18.5]
-    assert pit_window["vsc_lower_boundary_s"].tolist() == [-10.0, -8.5]
-    assert pit_window["vsc_upper_boundary_s"].tolist() == [10.0, 11.5]
+    assert "vsc_lower_boundary_s" not in pit_window
+    assert pit_window["legacy_sc_vsc_lower_boundary_s"].tolist() == [-10.0, -8.5]
+    assert pit_window["legacy_sc_vsc_upper_boundary_s"].tolist() == [10.0, 11.5]
     assert pit_window["normal_upper_boundary_s"].tolist() == [20.0, 21.5]
 
 
@@ -225,8 +229,9 @@ def test_service_pit_window_uses_current_reference_delta():
     )
 
     assert pit_window["normal_lower_boundary_s"].tolist() == [-19.0, -17.5]
-    assert pit_window["vsc_lower_boundary_s"].tolist() == [-9.0, -7.5]
-    assert pit_window["vsc_upper_boundary_s"].tolist() == [11.0, 12.5]
+    assert "vsc_lower_boundary_s" not in pit_window
+    assert pit_window["legacy_sc_vsc_lower_boundary_s"].tolist() == [-9.0, -7.5]
+    assert pit_window["legacy_sc_vsc_upper_boundary_s"].tolist() == [11.0, 12.5]
     assert pit_window["normal_upper_boundary_s"].tolist() == [21.0, 22.5]
 
 
@@ -445,6 +450,7 @@ def test_remove_observed_pit_override_keeps_pit_in_and_out_on_physical_laps():
 
 def test_service_defaults_pit_loss_from_first_lap_after_stop_status():
     service = RacePlannerService()
+    service.strategy_model = object()
     service.session = normalize_race_laps(
         pd.DataFrame(
             {
@@ -463,13 +469,153 @@ def test_service_defaults_pit_loss_from_first_lap_after_stop_status():
     assert service.pit_loss_default_for_stop(
         stop_after_lap=1,
         normal_pit_loss_s=20.0,
-        sc_vsc_pit_loss_s=10.0,
-    ) == 10.0
+        sc_pit_loss_s=8.0,
+        vsc_pit_loss_s=12.0,
+    ) == 12.0
+    assert service.pit_loss_default_for_stop(
+        stop_after_lap=2,
+        normal_pit_loss_s=20.0,
+        sc_pit_loss_s=8.0,
+        vsc_pit_loss_s=12.0,
+    ) == 8.0
     assert service.pit_loss_default_for_stop(
         stop_after_lap=0,
         normal_pit_loss_s=20.0,
-        sc_vsc_pit_loss_s=10.0,
+        sc_pit_loss_s=8.0,
+        vsc_pit_loss_s=12.0,
     ) == 20.0
+    with pytest.raises(ValueError, match="VSC pit loss is unresolved"):
+        service.pit_loss_default_for_stop(
+            stop_after_lap=1,
+            normal_pit_loss_s=20.0,
+            sc_vsc_pit_loss_s=13.0,
+        )
+    with pytest.raises(ValueError, match="SC pit loss is unresolved"):
+        service.pit_loss_default_for_stop(
+            stop_after_lap=2,
+            normal_pit_loss_s=20.0,
+            sc_pit_loss_s=None,
+        )
+
+
+def test_green_scenario_succeeds_with_sc_and_vsc_unresolved():
+    class FakeStrategyModel:
+        def predict_strategy_plan(self, **kwargs):
+            plan = kwargs["strategy_plan"]
+            rows = []
+            for segment in plan.segments:
+                for offset, lap in enumerate(range(segment.start_lap, segment.end_lap + 1)):
+                    rows.append({
+                        "driver": plan.driver,
+                        "team": plan.team,
+                        "lap": lap,
+                        "compound": segment.compound,
+                        "tyre_age": segment.initial_tyre_age + offset,
+                        "predicted_clean_lap_time_s": 90.0,
+                        "pit_loss_s": next(
+                            (
+                                stop.pit_loss_s for stop in plan.pit_stops
+                                if stop.first_lap_after_stop == lap
+                            ),
+                            0.0,
+                        ),
+                        "predicted_total_lap_time_s": 90.0,
+                    })
+            return pd.DataFrame(rows)
+
+    service = RacePlannerService()
+    service.strategy_model = FakeStrategyModel()
+    service.session = normalize_race_laps(
+        pd.DataFrame({
+            "Driver": ["AAA", "AAA", "AAA"],
+            "Team": ["Team A", "Team A", "Team A"],
+            "LapNumber": [1, 2, 3],
+            "LapTime": [90.0, 90.0, 90.0],
+            "Compound": ["MEDIUM", "MEDIUM", "MEDIUM"],
+            "TyreLife": [1, 2, 3],
+            "TrackStatus": ["1", "1", "1"],
+        }),
+        year=2026,
+        round_number=14,
+        session_name="R",
+    )
+    applicable_loss = service.pit_loss_default_for_stop(
+        stop_after_lap=1,
+        normal_pit_loss_s=24.0,
+        sc_pit_loss_s=None,
+        vsc_pit_loss_s=None,
+    )
+
+    scenario = service.create_pit_stop_simulation(
+        driver="AAA",
+        stop_after_lap=1,
+        compound="HARD",
+        initial_tyre_age=0,
+        pit_loss_s=applicable_loss,
+        normal_pit_loss_s=24.0,
+        sc_pit_loss_s=None,
+        vsc_pit_loss_s=None,
+    )
+
+    assert scenario.green_pit_loss_s == 24.0
+    assert scenario.sc_pit_loss_s is None
+    assert scenario.vsc_pit_loss_s is None
+    assert scenario.edits[0].pit_loss_s == 24.0
+
+
+def test_service_requests_separate_vsc_split_not_legacy_combined():
+    requested_states = []
+
+    class FakeStrategyModel:
+        def pit_loss_split(self, **kwargs):
+            requested_states.append(kwargs["track_status_type"])
+            return 4.0, 8.0
+
+    service = RacePlannerService()
+    service.strategy_model = FakeStrategyModel()
+    service.session = normalize_race_laps(
+        pd.DataFrame(
+            {
+                "Driver": ["AAA", "AAA"],
+                "LapNumber": [1, 2],
+                "LapTime": [90.0, 90.0],
+                "TrackStatus": ["1", "6"],
+            }
+        ),
+        year=2026,
+        round_number=1,
+        session_name="R",
+    )
+
+    assert service._pit_loss_split_for_stop(stop_after_lap=1) == (4.0, 8.0)
+    assert requested_states == ["vsc"]
+
+
+def test_strategy_adapter_does_not_promote_legacy_combined_split_to_vsc(tmp_path):
+    adapter = WoStrategyRaceModelAdapter(source_cache_dir=tmp_path)
+    path = adapter._source_paths(2026, 14, "R")["pit_loss_summary"]
+    pd.DataFrame(
+        [
+            {
+                "TrackStatusType": "sc_vsc",
+                "PitInS3LossMedianSeconds": 5.0,
+                "PitOutS1LossMedianSeconds": 8.0,
+            }
+        ]
+    ).to_csv(path, index=False)
+
+    assert adapter.pit_loss_split(
+        year=2026,
+        round_number=14,
+        session_name="R",
+        track_status_type="vsc",
+    ) is None
+    assert adapter.pit_loss_split(
+        year=2026,
+        round_number=14,
+        session_name="R",
+        track_status_type="sc_vsc",
+    ) == (5.0, 8.0)
 
 
 def test_tyre_event_data_marks_stint_changes_but_not_starting_tyres():
@@ -1121,6 +1267,127 @@ def test_service_adds_multiple_edits_to_one_driver_scenario_and_rebuilds_from_ea
     ]
 
 
+def test_scenario_rebuild_and_reference_preserve_distinct_operational_pit_losses(monkeypatch):
+    class FakeStrategyModel:
+        def predict_strategy_plan(self, **kwargs):
+            plan = kwargs["strategy_plan"]
+            pit_losses = {
+                pit_stop.first_lap_after_stop: pit_stop.pit_loss_s
+                for pit_stop in plan.pit_stops
+            }
+            rows = []
+            for segment in plan.segments:
+                for offset, lap in enumerate(range(segment.start_lap, segment.end_lap + 1)):
+                    pit_loss = pit_losses.get(lap, 0.0)
+                    rows.append(
+                        {
+                            "driver": plan.driver,
+                            "team": plan.team,
+                            "lap": lap,
+                            "compound": segment.compound,
+                            "tyre_age": segment.initial_tyre_age + offset,
+                            "predicted_clean_lap_time_s": 90.0,
+                            "pit_loss_s": pit_loss,
+                            "predicted_total_lap_time_s": 90.0 + pit_loss,
+                        }
+                    )
+            return pd.DataFrame(rows)
+
+    service = RacePlannerService()
+    service.strategy_model = FakeStrategyModel()
+    service.session = normalize_race_laps(
+        pd.DataFrame(
+            {
+                "Driver": ["AAA"] * 5 + ["BBB"] * 5,
+                "Team": ["Team A"] * 5 + ["Team B"] * 5,
+                "LapNumber": [1, 2, 3, 4, 5, 1, 2, 3, 4, 5],
+                "LapTime": [100.0] * 10,
+                "Compound": ["MEDIUM"] * 5 + ["HARD"] * 5,
+                "TyreLife": [1, 2, 3, 4, 5, 1, 2, 3, 4, 5],
+                "TrackStatus": ["1"] * 10,
+            }
+        ),
+        year=2026,
+        round_number=1,
+        session_name="R",
+    )
+
+    first = service.create_pit_stop_simulation(
+        driver="AAA",
+        stop_after_lap=1,
+        compound="HARD",
+        initial_tyre_age=0,
+        pit_loss_s=24.0,
+        normal_pit_loss_s=24.0,
+        sc_pit_loss_s=15.0,
+        vsc_pit_loss_s=12.0,
+        comparison_mode=COMPARISON_MODE_PURE_SIM,
+    )
+    second = service.create_pit_stop_simulation(
+        driver="AAA",
+        stop_after_lap=3,
+        compound="SOFT",
+        initial_tyre_age=0,
+        pit_loss_s=24.0,
+        normal_pit_loss_s=24.0,
+        sc_pit_loss_s=15.0,
+        vsc_pit_loss_s=12.0,
+        comparison_mode=COMPARISON_MODE_PURE_SIM,
+    )
+    assert first.scenario_id == second.scenario_id
+    assert (
+        second.green_pit_loss_s,
+        second.sc_pit_loss_s,
+        second.vsc_pit_loss_s,
+    ) == (24.0, 15.0, 12.0)
+
+    service.remove_strategy_edit(second.scenario_id, 3)
+    rebuilt = service.scenarios.get(second.scenario_id)
+    assert rebuilt is not None
+    assert (
+        rebuilt.green_pit_loss_s,
+        rebuilt.sc_pit_loss_s,
+        rebuilt.vsc_pit_loss_s,
+    ) == (24.0, 15.0, 12.0)
+
+    original_estimator = service_module.estimate_actual_pit_loss_by_lap
+    estimator_calls = []
+
+    def recording_estimator(laps, **kwargs):
+        estimator_calls.append(kwargs.copy())
+        return original_estimator(laps, **kwargs)
+
+    monkeypatch.setattr(
+        service_module,
+        "estimate_actual_pit_loss_by_lap",
+        recording_estimator,
+    )
+    comparison = service.scenarios.active_comparisons()[0]
+    reference = service._modelled_reference_for_comparison(
+        comparison,
+        reference_driver="BBB",
+        reference_mode="actual_pace",
+    )
+    assert not reference.empty
+    assert estimator_calls[-1]["normal_pit_loss_s"] == 24.0
+    assert estimator_calls[-1]["sc_pit_loss_s"] == 15.0
+    assert estimator_calls[-1]["vsc_pit_loss_s"] == 12.0
+    assert "sc_vsc_pit_loss_s" not in estimator_calls[-1]
+
+    status_rows = pd.DataFrame({"track_status": ["1", "4", "6"]})
+    looked_up = [
+        _pit_loss_for_row(
+            row,
+            status_rows,
+            normal_pit_loss_s=24.0,
+            sc_pit_loss_s=15.0,
+            vsc_pit_loss_s=12.0,
+        )[0]
+        for _, row in status_rows.iterrows()
+    ]
+    assert looked_up == [24.0, 15.0, 12.0]
+
+
 def test_service_remove_strategy_edit_rebuilds_then_deletes_empty_scenario():
     class FakeStrategyModel:
         def predict_strategy_plan(self, **kwargs):
@@ -1600,7 +1867,8 @@ def test_actual_pit_loss_estimation_uses_track_status_and_warns_on_missing_statu
     actual_pit_loss = estimate_actual_pit_loss_by_lap(
         laps,
         normal_pit_loss_s=20.0,
-        sc_vsc_pit_loss_s=10.0,
+        sc_pit_loss_s=9.0,
+        vsc_pit_loss_s=10.0,
         warnings=warnings,
     )
 
@@ -1624,7 +1892,8 @@ def test_actual_pit_loss_estimation_splits_adjacent_pit_in_and_pit_out_laps():
     actual_pit_loss = estimate_actual_pit_loss_by_lap(
         laps,
         normal_pit_loss_s=20.0,
-        sc_vsc_pit_loss_s=10.0,
+        sc_pit_loss_s=10.0,
+        vsc_pit_loss_s=8.0,
     )
 
     assert actual_pit_loss["actual_pit_loss_s"].tolist() == [0.0, 10.0, 10.0]
@@ -1644,7 +1913,8 @@ def test_actual_pit_loss_estimation_accumulates_overlapping_pit_out_and_pit_in_l
     actual_pit_loss = estimate_actual_pit_loss_by_lap(
         laps,
         normal_pit_loss_s=20.0,
-        sc_vsc_pit_loss_s=10.0,
+        sc_pit_loss_s=10.0,
+        vsc_pit_loss_s=8.0,
     )
 
     assert actual_pit_loss["actual_pit_in_loss_s"].tolist() == [5.0, 5.0, 0.0]

@@ -274,10 +274,8 @@ class WoStrategyRaceModelAdapter:
             return None
         status = str(track_status_type or "normal")
         rows = summary.loc[summary["TrackStatusType"].astype(str) == status]
-        if rows.empty and status != "normal":
-            rows = summary.loc[summary["TrackStatusType"].astype(str) == "normal"]
         if rows.empty:
-            rows = summary
+            return None
         row = rows.iloc[0]
         pit_in = pd.to_numeric(
             pd.Series([row.get("PitInS3LossMedianSeconds")]),

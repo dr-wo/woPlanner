@@ -23,6 +23,11 @@ from ..common.axis_controls import AxisRangeControls
 from ..common.pit_window import PitWindowOverlay
 from ..common.session_info import resolve_session_identity
 from ..analysis.service import OfflineAnalysisService
+from ..operational_inputs import (
+    DEFAULT_EVENT_CONFIG_PATH,
+    load_operational_race_inputs,
+    save_operational_pit_losses,
+)
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
@@ -31,10 +36,51 @@ PLANNER_VISUAL_CHANGES = frozenset(
 )
 
 
+def _metadata_text(value, *keys: str) -> str | None:
+    if isinstance(value, Mapping):
+        for key in keys:
+            text = str(value.get(key) or "").strip()
+            if text:
+                return text
+        return None
+    text = str(value or "").strip()
+    return text or None
+
+
+def _stable_identity_conflicts(left: object, right: object) -> bool:
+    if not isinstance(left, Mapping) or not isinstance(right, Mapping):
+        return False
+
+    def normalized(value: object) -> str:
+        return " ".join(str(value or "").casefold().split())
+
+    for key in ("circuit_id", "circuit"):
+        left_value = normalized(left.get(key))
+        right_value = normalized(right.get(key))
+        if left_value and right_value and left_value != right_value:
+            return True
+    left_pair = (normalized(left.get("country")), normalized(left.get("location")))
+    right_pair = (normalized(right.get("country")), normalized(right.get("location")))
+    return bool(all((*left_pair, *right_pair)) and left_pair != right_pair)
+
+
 class LivePlannerWindow(QtWidgets.QMainWindow):
-    def __init__(self, service: LivePlannerService | None = None) -> None:
+    def __init__(
+        self,
+        service: LivePlannerService | None = None,
+        *,
+        event_config_path: str | Path = DEFAULT_EVENT_CONFIG_PATH,
+        operational_history_data_root: str | Path | None = None,
+        event_resolver=None,
+    ) -> None:
         super().__init__()
         self.service = service or LivePlannerService()
+        self.event_config_path = Path(event_config_path)
+        self.operational_history_data_root = operational_history_data_root
+        self.event_resolver = event_resolver
+        self._event_identity: dict[str, str] = {}
+        self._event_identity_event_key: tuple[int, int] | None = None
+        self._current_operational_inputs = None
         self._driver_signature: tuple = ()
         self._metadata_warning_shown = False
         self._session_metadata_signature: tuple[object, ...] | None = None
@@ -56,6 +102,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.year_input.setValue(datetime.now().year)
         self.round_input = QtWidgets.QSpinBox()
         self.round_input.setRange(1, 30)
+        self._effective_event_key = (
+            self.year_input.value(), self.round_input.value()
+        )
         self.session_input = QtWidgets.QLineEdit("R")
         self.session_input.setMaximumWidth(50)
         self.connect_button = QtWidgets.QPushButton("Connect")
@@ -80,20 +129,18 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.line_width.setRange(0.5, 8.0)
         self.line_width.setSingleStep(0.5)
         self.line_width.setValue(3.0)
-        self.normal_pit_loss = QtWidgets.QDoubleSpinBox()
-        self.normal_pit_loss.setRange(0.0, 120.0)
-        self.normal_pit_loss.setValue(20.0)
-        self.normal_pit_loss.setSuffix(" s")
-        self.sc_pit_loss = QtWidgets.QDoubleSpinBox()
-        self.sc_pit_loss.setRange(0.0, 120.0)
-        self.sc_pit_loss.setValue(10.0)
-        self.sc_pit_loss.setSuffix(" s")
+        self.normal_pit_loss = self._pit_loss_input()
+        self.sc_pit_loss = self._pit_loss_input()
+        self.vsc_pit_loss = self._pit_loss_input()
+        self.apply_pit_loss_button = QtWidgets.QPushButton("Apply pit losses")
+        self.pit_loss_status = QtWidgets.QLabel("Event inputs: not loaded")
         for label, widget in (
             ("Year", self.year_input), ("Round", self.round_input),
             ("Session", self.session_input), ("Replay", self.replay_path),
             ("Speed", self.replay_speed), ("Reference", self.reference_driver),
             ("Mode", self.reference_mode), ("Width", self.line_width),
-            ("Pit", self.normal_pit_loss), ("SC/VSC", self.sc_pit_loss),
+            ("Pit", self.normal_pit_loss), ("SC", self.sc_pit_loss),
+            ("VSC", self.vsc_pit_loss),
         ):
             controls.addWidget(QtWidgets.QLabel(label))
             controls.addWidget(widget)
@@ -103,6 +150,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         controls.addWidget(self.replay_button)
         controls.addWidget(self.disconnect_button)
         controls.addWidget(self.strategy_prediction_button)
+        controls.addWidget(self.apply_pit_loss_button)
         self.axis_controls = AxisRangeControls()
         self.x_min_input = self.axis_controls.x_min_input
         self.x_max_input = self.axis_controls.x_max_input
@@ -118,6 +166,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         status_row.addWidget(self.connection_status)
         status_row.addStretch(1)
         status_row.addWidget(self.session_status)
+        status_row.addWidget(self.pit_loss_status)
         status_row.addWidget(self.plot_progress_status)
         status_row.addWidget(self.last_message_status)
         self.relative_plot = RelativeDeltaPlotWidget()
@@ -146,10 +195,116 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.relative_plot.selection_cleared.connect(self._clear_selection)
         self.normal_pit_loss.valueChanged.connect(self._update_pit_window)
         self.sc_pit_loss.valueChanged.connect(self._update_pit_window)
+        self.vsc_pit_loss.valueChanged.connect(self._update_pit_window)
+        self.year_input.valueChanged.connect(self._sync_operational_inputs_for_event)
+        self.round_input.valueChanged.connect(self._sync_operational_inputs_for_event)
+        self.apply_pit_loss_button.clicked.connect(self._apply_operational_pit_losses)
         self.apply_range_button.clicked.connect(self._apply_custom_ranges)
         self.auto_range_button.clicked.connect(self._reset_auto_ranges)
         self.strategy_prediction_button.clicked.connect(
             self._show_strategy_prediction_window
+        )
+        self._load_operational_inputs()
+
+    @staticmethod
+    def _pit_loss_input() -> QtWidgets.QDoubleSpinBox:
+        field = QtWidgets.QDoubleSpinBox()
+        field.setRange(-1.0, 120.0)
+        field.setDecimals(1)
+        field.setSingleStep(0.1)
+        field.setSpecialValueText("Unresolved")
+        field.setSuffix(" s")
+        field.setValue(-1.0)
+        return field
+
+    @staticmethod
+    def _pit_loss_value(field: QtWidgets.QDoubleSpinBox) -> float | None:
+        value = field.value()
+        return None if value < 0.0 else float(value)
+
+    def _load_operational_inputs(self) -> None:
+        try:
+            inputs = load_operational_race_inputs(self.event_config_path)
+        except Exception as exc:
+            self.pit_loss_status.setText(f"Event inputs unavailable: {exc}")
+            return
+        self._current_operational_inputs = inputs
+        for field, value in (
+            (self.normal_pit_loss, inputs.green_pit_loss),
+            (self.sc_pit_loss, inputs.sc_pit_loss),
+            (self.vsc_pit_loss, inputs.vsc_pit_loss),
+        ):
+            field.blockSignals(True)
+            field.setValue(-1.0 if value is None else value)
+            field.blockSignals(False)
+        if inputs.season is not None:
+            self.year_input.setValue(inputs.season)
+        if inputs.round_number is not None:
+            self.round_input.setValue(inputs.round_number)
+        legacy = (
+            f"; legacy combined SC/VSC {inputs.legacy_sc_vsc_pit_loss:.1f} s is context only"
+            if inputs.legacy_sc_vsc_pit_loss is not None
+            else ""
+        )
+        self.pit_loss_status.setText(
+            f"Event inputs: {inputs.event_id or 'identity unresolved'}, "
+            f"race laps {inputs.total_laps if inputs.total_laps is not None else 'unresolved'}"
+            f"{legacy}"
+        )
+        self._update_pit_window()
+
+    def _sync_operational_inputs_for_event(self, *_args) -> None:
+        requested_key = (self.year_input.value(), self.round_input.value())
+        if self._effective_event_key != requested_key:
+            self._event_identity = {}
+            self._event_identity_event_key = None
+            self._effective_event_key = requested_key
+        inputs = self._current_operational_inputs
+        if inputs is None:
+            return
+        if (
+            inputs.season == self.year_input.value()
+            and inputs.round_number == self.round_input.value()
+        ):
+            values = (
+                inputs.green_pit_loss, inputs.sc_pit_loss, inputs.vsc_pit_loss,
+            )
+            message = f"Event inputs: {inputs.event_id}"
+        else:
+            values = (None, None, None)
+            message = (
+                f"Event inputs unresolved: config is {inputs.event_id}, Planner is "
+                f"{self.year_input.value():04d}-{self.round_input.value():02d}"
+            )
+        for field, value in zip(
+            (self.normal_pit_loss, self.sc_pit_loss, self.vsc_pit_loss), values
+        ):
+            field.blockSignals(True)
+            field.setValue(-1.0 if value is None else value)
+            field.blockSignals(False)
+        self.pit_loss_status.setText(message)
+        self._update_pit_window()
+
+    def _apply_operational_pit_losses(self) -> None:
+        try:
+            inputs = save_operational_pit_losses(
+                self.event_config_path,
+                green=self._pit_loss_value(self.normal_pit_loss),
+                sc=self._pit_loss_value(self.sc_pit_loss),
+                vsc=self._pit_loss_value(self.vsc_pit_loss),
+                season=self.year_input.value(),
+                round_number=self.round_input.value(),
+                event_identity=self._event_identity,
+                event_identity_event_key=self._event_identity_event_key,
+                history_data_root=self.operational_history_data_root,
+                event_resolver=self.event_resolver,
+            )
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, "Current-event pit loss", str(exc))
+            return
+        self._current_operational_inputs = inputs
+        self.pit_loss_status.setText(
+            f"Saved manual event inputs for {inputs.event_id or 'current event'}"
         )
 
     def _connect(self) -> None:
@@ -339,8 +494,38 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             self.year_input.setValue(identity.year)
         if identity.round_number is not None:
             self.round_input.setValue(identity.round_number)
+        incoming_identity = {}
         if identity.event_name:
+            incoming_identity["event_name"] = identity.event_name
             self.setWindowTitle(f"woPlanner Live — {identity.event_name}")
+        for key, value in (
+            ("official_event_name", _metadata_text(meeting.get("OfficialName"))),
+            ("country", _metadata_text(meeting.get("Country"), "Name", "Code")),
+            ("location", _metadata_text(meeting.get("Location"), "Name")),
+            ("circuit", _metadata_text(meeting.get("Circuit"), "ShortName", "Name")),
+            ("circuit_id", _metadata_text(meeting.get("Circuit"), "Key")),
+        ):
+            if value:
+                incoming_identity[key] = value
+        metadata_key = (
+            (identity.year, identity.round_number)
+            if identity.year is not None and identity.round_number is not None
+            else None
+        )
+        if (
+            metadata_key is not None
+            and self._event_identity_event_key == metadata_key
+            and not _stable_identity_conflicts(self._event_identity, incoming_identity)
+        ):
+            self._event_identity.update(incoming_identity)
+        else:
+            conflict = (
+                metadata_key is not None
+                and self._event_identity_event_key == metadata_key
+                and _stable_identity_conflicts(self._event_identity, incoming_identity)
+            )
+            self._event_identity = incoming_identity
+            self._event_identity_event_key = None if conflict else metadata_key
 
     def _redraw(self) -> None:
         started = time.perf_counter()
@@ -448,8 +633,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.pit_window.update(
             self.service._last_plot_data,
             self.relative_plot.selected_driver,
-            normal_pit_loss_s=self.normal_pit_loss.value(),
-            sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+            normal_pit_loss_s=self._pit_loss_value(self.normal_pit_loss),
+            sc_pit_loss_s=self._pit_loss_value(self.sc_pit_loss),
+            vsc_pit_loss_s=self._pit_loss_value(self.vsc_pit_loss),
             x_column="x_lap",
         )
 
@@ -504,7 +690,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.connection_status.setText("Disconnected by user")
 
     def _show_strategy_prediction_window(self) -> None:
-        from ..analysis.gui import StrategyPredictionWindow
+        from ..analysis.gui import StrategyPredictionMode, StrategyPredictionWindow
 
         if self.strategy_prediction_window is not None:
             try:
@@ -517,6 +703,11 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.strategy_prediction_window = StrategyPredictionWindow(
             year=self.year_input.value(),
             round_number=self.round_input.value(),
+            mode=(
+                StrategyPredictionMode.HISTORICAL_WHAT_IF
+                if self._active_source_mode == "replay"
+                else StrategyPredictionMode.CURRENT_EVENT
+            ),
             state_directory=self._strategy_state_directory(),
             persistence_mode=(
                 "temporary" if self._active_source_mode == "replay" else "durable"

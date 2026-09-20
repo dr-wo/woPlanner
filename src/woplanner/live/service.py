@@ -293,8 +293,10 @@ class LivePlannerService:
     def build_pit_window_data(
         self,
         selected_driver: str,
-        normal_pit_loss_s: float,
-        sc_vsc_pit_loss_s: float,
+        normal_pit_loss_s: float | None,
+        sc_vsc_pit_loss_s: float | None = None,
+        sc_pit_loss_s: float | None = None,
+        vsc_pit_loss_s: float | None = None,
     ) -> pd.DataFrame:
         if self._last_plot_data is None:
             return pd.DataFrame()
@@ -304,6 +306,8 @@ class LivePlannerService:
         return build_pit_window_data(
             selected,
             normal_pit_loss_s=normal_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
             sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
         )
 

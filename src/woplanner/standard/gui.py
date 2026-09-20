@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from ..common.visual_styles import COMPOUND_COLOURS
+from ..operational_inputs import load_operational_race_inputs
 
 from .models import (
     COMPARISON_MODE_LABELS,
@@ -198,13 +199,41 @@ def main() -> int:
             self.line_width.setSingleStep(0.5)
             self.line_width.setValue(3.0)
             self.normal_pit_loss = QtWidgets.QDoubleSpinBox()
-            self.normal_pit_loss.setRange(0.0, 120.0)
-            self.normal_pit_loss.setValue(20.0)
+            self.normal_pit_loss.setRange(-1.0, 120.0)
+            self.normal_pit_loss.setSpecialValueText("Unresolved")
+            self.normal_pit_loss.setValue(-1.0)
             self.normal_pit_loss.setSuffix(" s")
             self.sc_pit_loss = QtWidgets.QDoubleSpinBox()
-            self.sc_pit_loss.setRange(0.0, 120.0)
-            self.sc_pit_loss.setValue(10.0)
+            self.sc_pit_loss.setRange(-1.0, 120.0)
+            self.sc_pit_loss.setSpecialValueText("Unresolved")
+            self.sc_pit_loss.setValue(-1.0)
             self.sc_pit_loss.setSuffix(" s")
+            self.vsc_pit_loss = QtWidgets.QDoubleSpinBox()
+            self.vsc_pit_loss.setRange(-1.0, 120.0)
+            self.vsc_pit_loss.setSpecialValueText("Unresolved")
+            self.vsc_pit_loss.setValue(-1.0)
+            self.vsc_pit_loss.setSuffix(" s")
+            for field in (self.normal_pit_loss, self.sc_pit_loss, self.vsc_pit_loss):
+                field.setReadOnly(True)
+                field.setButtonSymbols(
+                    QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons
+                )
+            try:
+                event_inputs = load_operational_race_inputs()
+            except Exception:
+                event_inputs = None
+            self._current_operational_inputs = event_inputs
+            if event_inputs is not None:
+                if event_inputs.season is not None:
+                    self.year_input.setValue(event_inputs.season)
+                if event_inputs.round_number is not None:
+                    self.round_input.setValue(event_inputs.round_number)
+                for field, value in (
+                    (self.normal_pit_loss, event_inputs.green_pit_loss),
+                    (self.sc_pit_loss, event_inputs.sc_pit_loss),
+                    (self.vsc_pit_loss, event_inputs.vsc_pit_loss),
+                ):
+                    field.setValue(-1.0 if value is None else value)
 
             for label, widget in (
                 ("Year", self.year_input),
@@ -214,7 +243,8 @@ def main() -> int:
                 ("Mode", self.reference_mode),
                 ("Width", self.line_width),
                 ("Pit", self.normal_pit_loss),
-                ("SC/VSC", self.sc_pit_loss),
+                ("SC", self.sc_pit_loss),
+                ("VSC", self.vsc_pit_loss),
             ):
                 controls.addWidget(QtWidgets.QLabel(label))
                 controls.addWidget(widget)
@@ -276,6 +306,9 @@ def main() -> int:
             self.line_width.valueChanged.connect(self._redraw)
             self.normal_pit_loss.valueChanged.connect(self._update_pit_window)
             self.sc_pit_loss.valueChanged.connect(self._update_pit_window)
+            self.vsc_pit_loss.valueChanged.connect(self._update_pit_window)
+            self.year_input.valueChanged.connect(self._sync_operational_inputs_for_event)
+            self.round_input.valueChanged.connect(self._sync_operational_inputs_for_event)
             self.retro_assumptions_action.triggered.connect(self._show_assumptions)
             self.strategy_prediction_button.clicked.connect(
                 self._show_strategy_prediction_window
@@ -286,6 +319,25 @@ def main() -> int:
             self.clear_sims_button.clicked.connect(self._clear_all_simulations)
             self.apply_range_button.clicked.connect(self._apply_custom_ranges)
             self.auto_range_button.clicked.connect(self._reset_auto_ranges)
+
+        @staticmethod
+        def _pit_optional(field) -> float | None:
+            value = float(field.value())
+            return None if value < 0.0 else value
+
+        def _sync_operational_inputs_for_event(self, *_args) -> None:
+            inputs = self._current_operational_inputs
+            matches = (
+                inputs is not None
+                and inputs.season == self.year_input.value()
+                and inputs.round_number == self.round_input.value()
+            )
+            for field, value in (
+                (self.normal_pit_loss, inputs.green_pit_loss if matches else None),
+                (self.sc_pit_loss, inputs.sc_pit_loss if matches else None),
+                (self.vsc_pit_loss, inputs.vsc_pit_loss if matches else None),
+            ):
+                field.setValue(-1.0 if value is None else value)
 
         def keyReleaseEvent(self, event) -> None:
             super().keyReleaseEvent(event)
@@ -535,11 +587,13 @@ def main() -> int:
             try:
                 default_pit_loss = self.service.pit_loss_default_for_stop(
                     stop_after_lap=stop_after_lap,
-                    normal_pit_loss_s=self.normal_pit_loss.value(),
-                    sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+                    normal_pit_loss_s=self._pit_optional(self.normal_pit_loss),
+                    sc_pit_loss_s=self._pit_optional(self.sc_pit_loss),
+                    vsc_pit_loss_s=self._pit_optional(self.vsc_pit_loss),
                 )
-            except Exception:
-                default_pit_loss = self.normal_pit_loss.value()
+            except Exception as exc:
+                QtWidgets.QMessageBox.warning(self, "Current-event pit loss", str(exc))
+                return
             pit_loss.setValue(default_pit_loss)
             comparison_mode = QtWidgets.QComboBox()
             comparison_mode.addItem(
@@ -579,8 +633,9 @@ def main() -> int:
                     "initial_tyre_age": tyre_age.value(),
                     "pit_loss_s": pit_loss.value(),
                     "comparison_mode": str(comparison_mode.currentData()),
-                    "normal_pit_loss_s": self.normal_pit_loss.value(),
-                    "sc_vsc_pit_loss_s": self.sc_pit_loss.value(),
+                    "normal_pit_loss_s": self._pit_optional(self.normal_pit_loss),
+                    "sc_pit_loss_s": self._pit_optional(self.sc_pit_loss),
+                    "vsc_pit_loss_s": self._pit_optional(self.vsc_pit_loss),
                 }
                 try:
                     self.service.create_pit_stop_simulation(**simulation_kwargs)
@@ -972,8 +1027,9 @@ def main() -> int:
             self.pit_window.update(
                 self.service._last_plot_data,
                 self.selected_driver,
-                normal_pit_loss_s=self.normal_pit_loss.value(),
-                sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+                normal_pit_loss_s=(None if self.normal_pit_loss.value() < 0 else self.normal_pit_loss.value()),
+                sc_pit_loss_s=(None if self.sc_pit_loss.value() < 0 else self.sc_pit_loss.value()),
+                vsc_pit_loss_s=(None if self.vsc_pit_loss.value() < 0 else self.vsc_pit_loss.value()),
                 x_column="segment_index",
             )
             self.pit_items = self.pit_window.items
@@ -1159,7 +1215,16 @@ def main() -> int:
             try:
                 loss.setValue(float(data.get("removed_pit_loss_s")))
             except (TypeError, ValueError):
-                loss.setValue(self.normal_pit_loss.value())
+                try:
+                    loss.setValue(self.service.pit_loss_default_for_stop(
+                        stop_after_lap=stop_after_lap,
+                        normal_pit_loss_s=self._pit_optional(self.normal_pit_loss),
+                        sc_pit_loss_s=self._pit_optional(self.sc_pit_loss),
+                        vsc_pit_loss_s=self._pit_optional(self.vsc_pit_loss),
+                    ))
+                except Exception as exc:
+                    QtWidgets.QMessageBox.warning(self, "Current-event pit loss", str(exc))
+                    return
             layout.addRow("Driver", QtWidgets.QLabel(driver))
             layout.addRow("Removed pit after lap", QtWidgets.QLabel(str(stop_after_lap)))
             layout.addRow("First affected lap", QtWidgets.QLabel(str(first_lap)))
@@ -1194,8 +1259,9 @@ def main() -> int:
                         pit_loss_s=loss.value(),
                         pit_loss_source="manual",
                         comparison_mode=comparison_mode,
-                        normal_pit_loss_s=self.normal_pit_loss.value(),
-                        sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+                        normal_pit_loss_s=self._pit_optional(self.normal_pit_loss),
+                        sc_pit_loss_s=self._pit_optional(self.sc_pit_loss),
+                        vsc_pit_loss_s=self._pit_optional(self.vsc_pit_loss),
                     )
                 except Exception as exc:
                     QtWidgets.QMessageBox.warning(self, "Strategy simulation", str(exc))
@@ -1222,12 +1288,14 @@ def main() -> int:
                 loss.setValue(
                     self.service.pit_loss_default_for_stop(
                         stop_after_lap=stop_after_lap,
-                        normal_pit_loss_s=self.normal_pit_loss.value(),
-                        sc_vsc_pit_loss_s=self.sc_pit_loss.value(),
+                        normal_pit_loss_s=self._pit_optional(self.normal_pit_loss),
+                        sc_pit_loss_s=self._pit_optional(self.sc_pit_loss),
+                        vsc_pit_loss_s=self._pit_optional(self.vsc_pit_loss),
                     )
                 )
-            except Exception:
-                loss.setValue(self.normal_pit_loss.value())
+            except Exception as exc:
+                QtWidgets.QMessageBox.warning(self, "Current-event pit loss", str(exc))
+                return
             comparison_mode = QtWidgets.QComboBox()
             comparison_mode.addItem(
                 COMPARISON_MODE_LABELS[COMPARISON_MODE_PURE_SIM],
@@ -1261,8 +1329,9 @@ def main() -> int:
                     "pit_loss_s": loss.value(),
                     "pit_loss_source": "manual",
                     "comparison_mode": str(comparison_mode.currentData()),
-                    "normal_pit_loss_s": self.normal_pit_loss.value(),
-                    "sc_vsc_pit_loss_s": self.sc_pit_loss.value(),
+                    "normal_pit_loss_s": self._pit_optional(self.normal_pit_loss),
+                    "sc_pit_loss_s": self._pit_optional(self.sc_pit_loss),
+                    "vsc_pit_loss_s": self._pit_optional(self.vsc_pit_loss),
                 }
                 try:
                     self.service.create_remove_observed_pit_simulation(**simulation_kwargs)
@@ -1296,11 +1365,12 @@ def main() -> int:
             self._redraw()
 
         def _show_strategy_prediction_window(self) -> None:
-            from ..analysis.gui import StrategyPredictionWindow
+            from ..analysis.gui import StrategyPredictionMode, StrategyPredictionWindow
 
             self.strategy_prediction_window = StrategyPredictionWindow(
                 year=self.year_input.value(),
                 round_number=self.round_input.value(),
+                mode=StrategyPredictionMode.HISTORICAL_WHAT_IF,
                 parent=self,
             )
             self.strategy_prediction_window.show()

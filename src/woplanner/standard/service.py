@@ -135,8 +135,10 @@ class RacePlannerService:
     def build_pit_window_data(
         self,
         selected_driver: str,
-        normal_pit_loss_s: float,
-        sc_vsc_pit_loss_s: float,
+        normal_pit_loss_s: float | None,
+        sc_vsc_pit_loss_s: float | None = None,
+        sc_pit_loss_s: float | None = None,
+        vsc_pit_loss_s: float | None = None,
     ) -> pd.DataFrame:
         self._require_session()
         plot_data = (
@@ -150,6 +152,8 @@ class RacePlannerService:
         return build_pit_window_data(
             selected,
             normal_pit_loss_s=normal_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
             sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
         )
 
@@ -168,23 +172,30 @@ class RacePlannerService:
         self,
         *,
         stop_after_lap: int,
-        normal_pit_loss_s: float,
-        sc_vsc_pit_loss_s: float,
+        normal_pit_loss_s: float | None,
+        sc_vsc_pit_loss_s: float | None = None,
+        sc_pit_loss_s: float | None = None,
+        vsc_pit_loss_s: float | None = None,
     ) -> float:
         session = self._require_session()
-        split = self._pit_loss_split_for_stop(
-            stop_after_lap=stop_after_lap,
-        )
-        if split is not None:
-            return float(split[0] + split[1])
+        # Retained only for legacy caller compatibility; never promoted.
+        _ = sc_vsc_pit_loss_s
         first_lap_after_stop = int(stop_after_lap) + 1
         status_events = build_track_status_event_data(session.laps)
         status = status_events.loc[
             pd.to_numeric(status_events["lap"], errors="coerce") == first_lap_after_stop,
             "track_status_type",
         ]
-        if not status.empty and str(status.iloc[0]) in {TRACK_STATUS_SC, TRACK_STATUS_VSC}:
-            return float(sc_vsc_pit_loss_s)
+        if not status.empty and str(status.iloc[0]) == TRACK_STATUS_SC:
+            if sc_pit_loss_s is None:
+                raise ValueError("Current-event SC pit loss is unresolved")
+            return float(sc_pit_loss_s)
+        if not status.empty and str(status.iloc[0]) == TRACK_STATUS_VSC:
+            if vsc_pit_loss_s is None:
+                raise ValueError("Current-event VSC pit loss is unresolved")
+            return float(vsc_pit_loss_s)
+        if normal_pit_loss_s is None:
+            raise ValueError("Current-event GREEN pit loss is unresolved")
         return float(normal_pit_loss_s)
 
     def create_pit_stop_simulation(
@@ -198,14 +209,20 @@ class RacePlannerService:
         comparison_mode: str = COMPARISON_MODE_MODELLED_REAL_STRATEGY,
         normal_pit_loss_s: float | None = None,
         sc_vsc_pit_loss_s: float | None = None,
+        sc_pit_loss_s: float | None = None,
+        vsc_pit_loss_s: float | None = None,
         use_team_model_data: bool = False,
     ) -> DriverStrategyScenario:
         session = self._require_session()
         comparison_mode = _normalize_comparison_mode(comparison_mode)
-        normal_pit_loss_s = float(pit_loss_s if normal_pit_loss_s is None else normal_pit_loss_s)
-        sc_vsc_pit_loss_s = float(
-            normal_pit_loss_s if sc_vsc_pit_loss_s is None else sc_vsc_pit_loss_s
-        )
+        # Retained only for legacy caller compatibility; never promoted.
+        _ = sc_vsc_pit_loss_s
+        # The edit's explicit loss may supply a GREEN-only historical what-if.
+        # It never supplies or promotes separate SC/VSC operational values.
+        normal_pit_loss_s = pit_loss_s if normal_pit_loss_s is None else normal_pit_loss_s
+        normal_pit_loss_s = float(normal_pit_loss_s)
+        sc_pit_loss_s = None if sc_pit_loss_s is None else float(sc_pit_loss_s)
+        vsc_pit_loss_s = None if vsc_pit_loss_s is None else float(vsc_pit_loss_s)
         driver_laps = session.laps.loc[session.laps["driver"] == driver]
         if driver_laps.empty:
             raise ValueError(f"Driver not found in loaded session: {driver}")
@@ -224,6 +241,9 @@ class RacePlannerService:
                 edits=[],
                 comparison_mode=comparison_mode,
                 use_team_model_data=bool(use_team_model_data),
+                green_pit_loss_s=normal_pit_loss_s,
+                sc_pit_loss_s=sc_pit_loss_s,
+                vsc_pit_loss_s=vsc_pit_loss_s,
             )
         else:
             scenario = DriverStrategyScenario(
@@ -235,6 +255,9 @@ class RacePlannerService:
                 use_team_model_data=(
                     existing_scenario.use_team_model_data or bool(use_team_model_data)
                 ),
+                green_pit_loss_s=normal_pit_loss_s,
+                sc_pit_loss_s=sc_pit_loss_s,
+                vsc_pit_loss_s=vsc_pit_loss_s,
             )
 
         pit_split = self._pit_loss_split_for_stop(stop_after_lap=stop_after_lap)
@@ -264,7 +287,8 @@ class RacePlannerService:
         actual_pit_loss = estimate_actual_pit_loss_by_lap(
             session.laps,
             normal_pit_loss_s=normal_pit_loss_s,
-            sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
             warnings=[],
         )
         what_if_plan = build_what_if_strategy_plan(
@@ -278,7 +302,8 @@ class RacePlannerService:
         actual_pit_loss = estimate_actual_pit_loss_by_lap(
             session.laps,
             normal_pit_loss_s=normal_pit_loss_s,
-            sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
             warnings=warnings,
         )
         what_if_laps = self._predict_strategy_plan(
@@ -338,7 +363,10 @@ class RacePlannerService:
                 )
             ]
             if not relevant.empty:
-                track_status_type = "sc_vsc"
+                states = set(relevant["track_status_type"].dropna().astype(str))
+                if len(states) != 1:
+                    return None
+                track_status_type = states.pop()
         try:
             split = self.strategy_model.pit_loss_split(
                 year=session.year,
@@ -366,12 +394,21 @@ class RacePlannerService:
         comparison_mode: str = COMPARISON_MODE_MODELLED_REAL_STRATEGY,
         normal_pit_loss_s: float | None = None,
         sc_vsc_pit_loss_s: float | None = None,
+        sc_pit_loss_s: float | None = None,
+        vsc_pit_loss_s: float | None = None,
         use_team_model_data: bool = False,
     ) -> DriverStrategyScenario:
         session = self._require_session()
         comparison_mode = _normalize_comparison_mode(comparison_mode)
-        normal_pit_loss_s = float(20.0 if normal_pit_loss_s is None else normal_pit_loss_s)
-        sc_vsc_pit_loss_s = float(10.0 if sc_vsc_pit_loss_s is None else sc_vsc_pit_loss_s)
+        # Retained only for legacy caller compatibility; never promoted.
+        _ = sc_vsc_pit_loss_s
+        if normal_pit_loss_s is None:
+            if pit_loss_s is None:
+                raise ValueError("Current-event GREEN pit loss is unresolved")
+            normal_pit_loss_s = pit_loss_s
+        normal_pit_loss_s = float(normal_pit_loss_s)
+        sc_pit_loss_s = None if sc_pit_loss_s is None else float(sc_pit_loss_s)
+        vsc_pit_loss_s = None if vsc_pit_loss_s is None else float(vsc_pit_loss_s)
         driver_laps = session.laps.loc[session.laps["driver"] == driver].copy()
         if driver_laps.empty:
             raise ValueError(f"Driver not found in loaded session: {driver}")
@@ -392,7 +429,8 @@ class RacePlannerService:
         actual_pit_loss = estimate_actual_pit_loss_by_lap(
             session.laps,
             normal_pit_loss_s=normal_pit_loss_s,
-            sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
             warnings=warnings,
         )
         estimated_loss, estimated_source = _removed_pit_loss_estimate(
@@ -414,6 +452,9 @@ class RacePlannerService:
                 edits=[],
                 comparison_mode=comparison_mode,
                 use_team_model_data=bool(use_team_model_data),
+                green_pit_loss_s=normal_pit_loss_s,
+                sc_pit_loss_s=sc_pit_loss_s,
+                vsc_pit_loss_s=vsc_pit_loss_s,
             )
         else:
             scenario = DriverStrategyScenario(
@@ -425,6 +466,9 @@ class RacePlannerService:
                 use_team_model_data=(
                     existing_scenario.use_team_model_data or bool(use_team_model_data)
                 ),
+                green_pit_loss_s=normal_pit_loss_s,
+                sc_pit_loss_s=sc_pit_loss_s,
+                vsc_pit_loss_s=vsc_pit_loss_s,
             )
 
         continued_compound = str(previous_lap.iloc[0].get("compound", "")).upper()
@@ -558,6 +602,9 @@ class RacePlannerService:
             comparison_mode=scenario.comparison_mode,
             is_active=scenario.is_active,
             use_team_model_data=scenario.use_team_model_data,
+            green_pit_loss_s=scenario.green_pit_loss_s,
+            sc_pit_loss_s=scenario.sc_pit_loss_s,
+            vsc_pit_loss_s=scenario.vsc_pit_loss_s,
         )
         self._rebuild_scenario(session, rebuilt)
         self._last_plot_data = None
@@ -579,6 +626,9 @@ class RacePlannerService:
             comparison_mode=scenario.comparison_mode,
             is_active=scenario.is_active,
             use_team_model_data=scenario.use_team_model_data,
+            green_pit_loss_s=scenario.green_pit_loss_s,
+            sc_pit_loss_s=scenario.sc_pit_loss_s,
+            vsc_pit_loss_s=scenario.vsc_pit_loss_s,
         )
         self._rebuild_scenario(session, rebuilt)
         self._last_plot_data = None
@@ -769,10 +819,14 @@ class RacePlannerService:
         max_lap = int(pd.to_numeric(driver_laps["lap"], errors="coerce").max())
         team = str(driver_laps["team"].dropna().iloc[0]) if driver_laps["team"].notna().any() else ""
         warnings: list[str] = []
+        green_pit_loss_s, sc_pit_loss_s, vsc_pit_loss_s = (
+            _scenario_operational_pit_losses(scenario)
+        )
         actual_pit_loss = estimate_actual_pit_loss_by_lap(
             session.laps,
-            normal_pit_loss_s=_first_edit_pit_loss(scenario),
-            sc_vsc_pit_loss_s=_first_edit_pit_loss(scenario),
+            normal_pit_loss_s=green_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
             warnings=warnings,
         )
         actual_pit_loss = _actual_pit_loss_with_remove_edit_overrides(actual_pit_loss, scenario)
@@ -894,10 +948,17 @@ class RacePlannerService:
             if reference_laps["team"].notna().any()
             else ""
         )
+        scenario = self.scenarios.get(comparison.scenario_id)
+        if scenario is None:
+            raise ValueError("Active scenario is unavailable for modelled reference")
+        green_pit_loss_s, sc_pit_loss_s, vsc_pit_loss_s = (
+            _scenario_operational_pit_losses(scenario)
+        )
         actual_pit_loss = estimate_actual_pit_loss_by_lap(
             session.laps,
-            normal_pit_loss_s=20.0,
-            sc_vsc_pit_loss_s=10.0,
+            normal_pit_loss_s=green_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
             warnings=[],
         )
         plan = build_modelled_real_strategy_plan(
@@ -905,7 +966,7 @@ class RacePlannerService:
             driver=reference_driver,
             team=reference_team,
             stop_after_lap=start_after_lap,
-            default_pit_loss_s=20.0,
+            default_pit_loss_s=green_pit_loss_s,
             actual_pit_loss_by_lap=actual_pit_loss,
         )
         if not plan.segments:
@@ -1031,6 +1092,20 @@ def _first_edit_pit_loss(scenario: DriverStrategyScenario) -> float:
         return 0.0
     first = min(scenario.edits, key=lambda edit: int(edit.stop_after_lap))
     return float(first.pit_loss_s or 0.0)
+
+
+def _scenario_operational_pit_losses(
+    scenario: DriverStrategyScenario,
+) -> tuple[float, float | None, float | None]:
+    if scenario.green_pit_loss_s is None:
+        raise ValueError(
+            "Scenario is missing its GREEN operational pit-loss snapshot"
+        )
+    return (
+        float(scenario.green_pit_loss_s),
+        None if scenario.sc_pit_loss_s is None else float(scenario.sc_pit_loss_s),
+        None if scenario.vsc_pit_loss_s is None else float(scenario.vsc_pit_loss_s),
+    )
 
 
 def build_what_if_strategy_plan(
@@ -1634,9 +1709,13 @@ def estimate_actual_pit_loss_by_lap(
     laps: pd.DataFrame,
     *,
     normal_pit_loss_s: float,
-    sc_vsc_pit_loss_s: float,
+    sc_vsc_pit_loss_s: float | None = None,
+    sc_pit_loss_s: float | None = None,
+    vsc_pit_loss_s: float | None = None,
     warnings: list[str] | None = None,
 ) -> pd.DataFrame:
+    # Retained only for legacy caller compatibility; never promoted.
+    _ = sc_vsc_pit_loss_s
     output = laps.loc[:, ["driver", "lap"]].copy()
     output["actual_pit_loss_s"] = 0.0
     output["actual_pit_in_loss_s"] = 0.0
@@ -1664,7 +1743,8 @@ def estimate_actual_pit_loss_by_lap(
             row,
             laps,
             normal_pit_loss_s=normal_pit_loss_s,
-            sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
         )
         if status_missing:
             missing_status_count += 1
@@ -1710,7 +1790,8 @@ def estimate_actual_pit_loss_by_lap(
             row,
             laps,
             normal_pit_loss_s=normal_pit_loss_s,
-            sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
         )
         if status_missing:
             missing_status_count += 1
@@ -1753,16 +1834,21 @@ def _pit_loss_for_row(
     laps: pd.DataFrame,
     *,
     normal_pit_loss_s: float,
-    sc_vsc_pit_loss_s: float,
+    sc_pit_loss_s: float | None = None,
+    vsc_pit_loss_s: float | None = None,
 ) -> tuple[float, bool, str]:
     if "track_status" not in laps.columns or pd.isna(row.get("track_status")):
         return float(normal_pit_loss_s), True, "normal default"
     status = track_status_type(row.get("track_status"))
     if status == TRACK_STATUS_SC:
-        return float(sc_vsc_pit_loss_s), False, "SC default"
+        if sc_pit_loss_s is None:
+            raise ValueError("Current-event SC pit loss is unresolved")
+        return float(sc_pit_loss_s), False, "current-event SC input"
     if status == TRACK_STATUS_VSC:
-        return float(sc_vsc_pit_loss_s), False, "VSC default"
-    return float(normal_pit_loss_s), False, "normal default"
+        if vsc_pit_loss_s is None:
+            raise ValueError("Current-event VSC pit loss is unresolved")
+        return float(vsc_pit_loss_s), False, "current-event VSC input"
+    return float(normal_pit_loss_s), False, "current-event GREEN input"
 
 
 def build_track_status_event_data(laps: pd.DataFrame) -> pd.DataFrame:

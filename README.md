@@ -200,6 +200,34 @@ history plots, supports editable degradation/delta overrides, and allows up to
 three pinned comparisons. In live mode, selecting a driver fills the current lap,
 compound, and tyre age from the feed.
 
+### Current-event inputs and historical what-if mode
+
+`CURRENT_EVENT` uses the canonical editable event configuration in
+`woWeekend/configs/race.json`. Missing configuration, a season/round mismatch,
+or a required unresolved value is displayed as **Unresolved** and blocks the
+affected calculation. Failure to load current-event configuration does not
+silently select another mode, and local 57-lap or 20-second assumptions are not
+current-event fallbacks. Scheduled/live lap counts may be displayed but do not
+overwrite the canonical configured current-event distance.
+
+`HISTORICAL_WHAT_IF` is an explicit replay/offline mode in which hypothetical
+assumptions remain editable. Its values are not promoted into current-event
+configuration merely because a current configuration is unavailable.
+
+Editing a pit-loss field changes only the UI draft. **Apply pit losses** validates
+the complete prospective race configuration, atomically updates the editable
+configuration, and mirrors the accepted event state into woData's durable
+season/round operational record. A failed validation, identity resolution, or
+history mirror does not leave configuration and history at different accepted
+states. GREEN, SC, and VSC remain separate; unresolved values remain unresolved,
+and legacy combined `sc_vsc` is context-only rather than a substitute for either
+SC or VSC.
+
+Live meeting identity is cached with its `(season, round)` owner. A year, round,
+or conflicting meeting transition invalidates that ownership and requires
+canonical identity for the requested event before durable persistence. Compatible
+same-event metadata may be reused without repeated resolution.
+
 The shared **Tyre Inputs** tab and the live/replay worker architecture are
 documented in
 [`doc/FP_TYRE_LIVE_INTEGRATION.md`](doc/FP_TYRE_LIVE_INTEGRATION.md). In
@@ -454,7 +482,7 @@ still labelled as the selected driver and continues to use that driver's
 observed race scaffold. It is therefore an explicit approximation, not an
 inference that the two teammates have identical pace.
 
-### SC/VSC and pit loss
+### Track status and pit-loss windows
 
 Track status is classified at sector level when the planner lap cache includes
 `Sector1TrackStatus`, `Sector2TrackStatus`, and `Sector3TrackStatus`:
@@ -462,14 +490,17 @@ Track status is classified at sector level when the planner lap cache includes
 - Safety Car: light yellow plot band;
 - Virtual Safety Car: light orange plot band.
 
-The same status classification is used to choose normal versus SC/VSC pit-loss
-defaults for actual pit-loss removal and for the initial value in the what-if
-pit dialog. When `race_performance_review` has produced `pit_loss_summary`, the
-planner uses the median woStrategy split for pit-in S3 loss and pit-out S1 loss
-as the dialog default and split ratio. If the user enters a different pit-loss
-total, the manual total is preserved and the woStrategy split is scaled to that
-total. Manual pit-loss settings remain the fallback when no split summary is
-available.
+The same classification chooses the applicable GREEN, SC, or VSC operational
+value for a stop. Only that state is required; an unresolved applicable state
+blocks the calculation instead of borrowing another state, legacy combined data,
+zero, or a local default. When `race_performance_review` has produced a supported
+state-specific split, it can provide the pit-in S3 / pit-out S1 ratio while a
+manually entered total remains the total used by the scenario.
+
+The selected-driver pit window is the existing cumulative delta plus/minus each
+resolved pit-loss value. GREEN, SC, and VSC envelopes are labelled separately;
+an unresolved state produces no fabricated band. This is a timing envelope, not
+a position-aware projected-rejoin calculation.
 
 ### Visual conventions
 

@@ -11,8 +11,10 @@ import pytest
 
 from wodata.artifacts import weekend_model_root, write_model_snapshot
 from wodata.contracts import ModelSnapshot, ParameterEstimate
-from woplanner.analysis.gui import StrategyPredictionWindow
+import woplanner.analysis.gui as analysis_gui
+from woplanner.analysis.gui import StrategyPredictionMode, StrategyPredictionWindow
 from woplanner.analysis.service import OfflineAnalysisService
+from woplanner.operational_inputs import OperationalRaceInputs
 from woplanner.live.gui import LivePlannerWindow
 from woplanner.analysis.tyre_inputs import TyreInputService
 from wostrategy.analysis.fp_tyre_evidence import write_fp_tyre_evidence
@@ -72,6 +74,112 @@ def app():
     return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
 
+def test_current_event_strategy_inputs_stay_canonical_when_live_snapshot_arrives(
+    tmp_path, monkeypatch,
+):
+    write_event(tmp_path, year=2026, round_number=14)
+    monkeypatch.setattr(
+        analysis_gui,
+        "load_operational_race_inputs",
+        lambda: OperationalRaceInputs(
+            tmp_path / "race.json", 2026, 14, 57, 24.2, 16.0, 13.0, None
+        ),
+    )
+    qt = app()
+    window = StrategyPredictionWindow(
+        year=2026, round_number=14,
+        mode=StrategyPredictionMode.CURRENT_EVENT,
+        service=OfflineAnalysisService(tmp_path),
+    )
+
+    assert window.total_laps.value() == 57
+    assert window.pit_loss.value() == pytest.approx(24.2)
+    assert window.total_laps.isReadOnly()
+    assert window.pit_loss.isReadOnly()
+
+    window._live_snapshot = type(
+        "Snapshot", (), {"completed_laps": (), "scheduled_total_laps": 70}
+    )()
+    window._apply_latest_race_state()
+    assert window.total_laps.value() == 57
+
+    window.close()
+    qt.processEvents()
+
+
+def test_current_event_config_failure_stays_unresolved_and_ignores_stale_state(
+    tmp_path, monkeypatch,
+):
+    write_event(tmp_path, year=2026, round_number=14)
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "strategy_prediction_state.json").write_text(json.dumps({
+        "year": 2026, "round_number": 14,
+        "controls": {"total_laps": 66, "pit_loss": 18.0},
+    }))
+    monkeypatch.setattr(
+        analysis_gui, "load_operational_race_inputs",
+        lambda: (_ for _ in ()).throw(OSError("missing race config")),
+    )
+    qt = app()
+    window = StrategyPredictionWindow(
+        year=2026, round_number=14,
+        mode=StrategyPredictionMode.CURRENT_EVENT,
+        service=OfflineAnalysisService(tmp_path), state_directory=state_dir,
+    )
+
+    assert window.total_laps.value() == 0
+    assert window.pit_loss.value() == -1.0
+    assert not window.generate_button.isEnabled()
+    assert "could not be read" in window.operational_status_label.text()
+    window._start_search()
+    assert window._future is None
+    assert "calculation blocked" in window.status_label.text()
+    window._live_snapshot = type(
+        "Snapshot", (), {"completed_laps": (), "scheduled_total_laps": 70}
+    )()
+    window._apply_latest_race_state()
+    assert window.total_laps.value() == 0
+
+    window.close()
+    qt.processEvents()
+
+
+def test_strategy_mode_controls_defaults_instead_of_config_mismatch(tmp_path, monkeypatch):
+    write_event(tmp_path, year=2026, round_number=14)
+    monkeypatch.setattr(
+        analysis_gui,
+        "load_operational_race_inputs",
+        lambda: OperationalRaceInputs(
+            tmp_path / "race.json", 2026, 13, 57, 24.2, 15.0, 12.0, None
+        ),
+    )
+    qt = app()
+    current = StrategyPredictionWindow(
+        year=2026, round_number=14,
+        mode=StrategyPredictionMode.CURRENT_EVENT,
+        service=OfflineAnalysisService(tmp_path),
+    )
+    historical = StrategyPredictionWindow(
+        year=2026, round_number=14,
+        mode=StrategyPredictionMode.HISTORICAL_WHAT_IF,
+        service=OfflineAnalysisService(tmp_path),
+    )
+
+    assert current.total_laps.value() == 0
+    assert current.pit_loss.value() == -1.0
+    assert not current.generate_button.isEnabled()
+    assert "config is 2026-13" in current.operational_status_label.text()
+    assert historical.total_laps.value() == 57
+    assert historical.pit_loss.value() == pytest.approx(20.0)
+    assert not historical.total_laps.isReadOnly()
+    assert not historical.pit_loss.isReadOnly()
+
+    current.close()
+    historical.close()
+    qt.processEvents()
+
+
 def test_strategy_window_and_tyre_tab_never_auto_calculate(tmp_path):
     write_event(tmp_path)
     calls = []
@@ -81,7 +189,8 @@ def test_strategy_window_and_tyre_tab_never_auto_calculate(tmp_path):
     }
     qt = app()
     window = StrategyPredictionWindow(
-        year=2026, round_number=11, service=service
+        year=2026, round_number=11,
+        mode=StrategyPredictionMode.HISTORICAL_WHAT_IF, service=service
     )
 
     assert window.tabs.indexOf(window.tyre_inputs_tab) >= 0
@@ -111,7 +220,10 @@ def test_explicit_buttons_make_exactly_one_request_and_cached_display_is_read_on
         "analysis_id": "explicit"
     }
     qt = app()
-    window = StrategyPredictionWindow(year=2026, round_number=11, service=service)
+    window = StrategyPredictionWindow(
+        year=2026, round_number=11,
+        mode=StrategyPredictionMode.HISTORICAL_WHAT_IF, service=service,
+    )
 
     window._start_fp_evidence_calculation(force_refresh=False)
     window._fp_future.result(timeout=5)
@@ -160,10 +272,13 @@ def test_selected_table_equals_pre_race_strategy_handoff_and_state_is_shared(tmp
     first_service.set_manual_tyre_input(2026, 11, "Deg_HARD", 0.071)
     qt = app()
     planner = StrategyPredictionWindow(
-        year=2026, round_number=11, service=first_service
+        year=2026, round_number=11,
+        mode=StrategyPredictionMode.HISTORICAL_WHAT_IF, service=first_service
     )
     live = StrategyPredictionWindow(
-        year=2026, round_number=11, service=OfflineAnalysisService(tmp_path)
+        year=2026, round_number=11,
+        mode=StrategyPredictionMode.HISTORICAL_WHAT_IF,
+        service=OfflineAnalysisService(tmp_path),
     )
 
     resolved = first_service.resolve_tyre_inputs(2026, 11)

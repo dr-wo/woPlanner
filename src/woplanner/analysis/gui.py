@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
+from enum import Enum
 import json
 import logging
 import time
@@ -15,6 +16,7 @@ from wodata.contracts import StrategySearchState
 from wodata.artifacts import weekend_model_root
 
 from ..common.visual_styles import COMPOUND_COLOURS
+from ..operational_inputs import load_operational_race_inputs
 from .service import OfflineAnalysisService, leader_lap_snapshots
 from .worker import AnalysisQueuePolicy, LiveAnalysisProcessService
 from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
@@ -22,6 +24,11 @@ from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
 LIVE_DEFAULT_SAMPLE_COUNT = 5000
+
+
+class StrategyPredictionMode(str, Enum):
+    CURRENT_EVENT = "current_event"
+    HISTORICAL_WHAT_IF = "historical_what_if"
 
 
 def _version_text(version: int | None) -> str:
@@ -239,6 +246,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         *,
         year: int,
         round_number: int,
+        mode: StrategyPredictionMode,
         service: OfflineAnalysisService | None = None,
         state_directory: str | Path | None = None,
         persistence_mode: str = "durable",
@@ -249,6 +257,29 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         super().__init__(parent)
         self.year = int(year)
         self.round_number = int(round_number)
+        self.strategy_mode = StrategyPredictionMode(mode)
+        self._operational_input_error: str | None = None
+        self._operational_race_inputs = None
+        if self.strategy_mode is StrategyPredictionMode.CURRENT_EVENT:
+            try:
+                operational = load_operational_race_inputs()
+            except Exception as exc:
+                self._operational_input_error = (
+                    f"Current-event operational config could not be read: {exc}. "
+                    "Restore a readable race.json and reopen Strategy Prediction."
+                )
+            else:
+                if (
+                    operational.season != self.year
+                    or operational.round_number != self.round_number
+                ):
+                    self._operational_input_error = (
+                        f"Current-event config is {operational.event_id or 'unidentified'}, "
+                        f"but Strategy Prediction is {self.year:04d}-{self.round_number:02d}. "
+                        "Select the matching event or update race.json, then reopen this window."
+                    )
+                else:
+                    self._operational_race_inputs = operational
         self.service = service or OfflineAnalysisService(
             WORKSPACE_DATA_ROOT if WORKSPACE_DATA_ROOT.is_dir() else None
         )
@@ -345,6 +376,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._load_saved_state()
         self._state_ready = True
         self._connect_state_persistence()
+        self._apply_operational_availability()
         if self.persistence_mode == "temporary":
             self._append_log(
                 "Replay persistence: settings only; calculations, results, and new "
@@ -706,20 +738,51 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             "Edit event-specific engineering values in the Tyre Inputs tab. "
             "This table shows the exact current values used by Strategy search."
         )
+        self.operational_status_label = QtWidgets.QLabel()
+        self.operational_status_label.setWordWrap(True)
         controls = QtWidgets.QHBoxLayout()
         self.completed_lap = QtWidgets.QSpinBox()
         self.completed_lap.setRange(0, 200)
         self.total_laps = QtWidgets.QSpinBox()
-        self.total_laps.setRange(1, 200)
-        self.total_laps.setValue(57)
+        if self.strategy_mode is StrategyPredictionMode.CURRENT_EVENT:
+            self.total_laps.setRange(0, 200)
+            self.total_laps.setSpecialValueText("Unresolved")
+            self.total_laps.setValue(
+                self._operational_race_inputs.total_laps
+                if self._operational_race_inputs is not None
+                and self._operational_race_inputs.total_laps is not None
+                else 0
+            )
+            self.total_laps.setReadOnly(True)
+            self.total_laps.setButtonSymbols(
+                QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons
+            )
+        else:
+            # Historical analysis retains its established editable what-if.
+            self.total_laps.setRange(1, 200)
+            self.total_laps.setValue(57)
         self.compound = QtWidgets.QComboBox()
         self.compound.addItems(["SOFT", "MEDIUM", "HARD"])
         self.compound.setCurrentText("MEDIUM")
         self.tyre_age = QtWidgets.QSpinBox()
         self.tyre_age.setRange(0, 100)
         self.pit_loss = QtWidgets.QDoubleSpinBox()
-        self.pit_loss.setRange(0, 120)
-        self.pit_loss.setValue(20)
+        if self.strategy_mode is StrategyPredictionMode.CURRENT_EVENT:
+            self.pit_loss.setRange(-1, 120)
+            self.pit_loss.setSpecialValueText("Unresolved")
+            self.pit_loss.setValue(
+                self._operational_race_inputs.green_pit_loss
+                if self._operational_race_inputs is not None
+                and self._operational_race_inputs.green_pit_loss is not None
+                else -1
+            )
+            self.pit_loss.setReadOnly(True)
+            self.pit_loss.setButtonSymbols(
+                QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons
+            )
+        else:
+            self.pit_loss.setRange(0, 120)
+            self.pit_loss.setValue(20)
         self.pit_loss.setSuffix(" s")
         self.max_stops = QtWidgets.QSpinBox()
         self.max_stops.setRange(0, 5)
@@ -762,6 +825,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.pinned_label = QtWidgets.QLabel("Pinned: —")
         layout.addLayout(assumptions_header)
         layout.addWidget(input_help)
+        layout.addWidget(self.operational_status_label)
         layout.addWidget(self.strategy_input_table)
         layout.addLayout(controls)
         layout.addWidget(self.strategy_table)
@@ -778,6 +842,37 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.manual_override.toggled.connect(self._manual_override_changed)
         self.load_tyre_file_button.clicked.connect(self._load_tyre_information_from_file)
         return widget
+
+    def _current_operational_block_reason(self) -> str | None:
+        if self.strategy_mode is not StrategyPredictionMode.CURRENT_EVENT:
+            return None
+        if self._operational_input_error:
+            return self._operational_input_error
+        if self._operational_race_inputs is None:
+            return "Current-event operational inputs are unavailable."
+        missing = []
+        if self._operational_race_inputs.total_laps is None:
+            missing.append("race distance")
+        if self._operational_race_inputs.green_pit_loss is None:
+            missing.append("GREEN pit loss")
+        if missing:
+            return "Resolve the current-event " + " and ".join(missing) + " in race.json."
+        return None
+
+    def _apply_operational_availability(self) -> None:
+        reason = self._current_operational_block_reason()
+        if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
+            self.operational_status_label.setText(
+                "Mode: Historical / what-if — race distance and pit loss are editable assumptions."
+            )
+            return
+        if reason is None:
+            self.operational_status_label.setText(
+                "Mode: Current event — race distance and GREEN pit loss come from race.json."
+            )
+            return
+        self.operational_status_label.setText(f"Mode: Current event — unavailable: {reason}")
+        self.generate_button.setEnabled(False)
 
     def _manual_override_changed(self, _checked: bool) -> None:
         if self._current_model_summary is not None:
@@ -1083,6 +1178,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def _start_search(self) -> None:
         if self._future is not None:
             return
+        operational_block = self._current_operational_block_reason()
+        if operational_block is not None:
+            self.status_label.setText(
+                f"Strategy calculation blocked: {operational_block}"
+            )
+            return
         # Consume any MC result that completed since the last timer tick before
         # freezing the model/input context for this search.
         self._poll_telemetry_inputs()
@@ -1098,6 +1199,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._apply_latest_race_state()
         if self.total_laps.value() <= self.completed_lap.value():
             QtWidgets.QMessageBox.warning(self, "Strategy", "Total laps must exceed completed lap.")
+            return
+        if self.pit_loss.value() < 0.0:
+            QtWidgets.QMessageBox.warning(
+                self, "Strategy", "Current-event GREEN pit loss is unresolved."
+            )
             return
         self._sync_strategy_overrides()
         tyre_input_snapshot = tyre_snapshot_from_overrides(
@@ -1139,7 +1245,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             else 0.0
         )
         self._strategy_started_at = None
-        self.generate_button.setEnabled(True)
+        self.generate_button.setEnabled(self._current_operational_block_reason() is None)
         try:
             results = future.result()
         except Exception as exc:
@@ -1523,7 +1629,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             if latest.tyre_life is not None:
                 self.tyre_age.setValue(max(int(round(float(latest.tyre_life))) - 1, 0))
         scheduled = getattr(self._live_snapshot, "scheduled_total_laps", None)
-        if scheduled is not None and int(scheduled) > 0:
+        if (
+            self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF
+            and scheduled is not None
+            and int(scheduled) > 0
+        ):
             self.total_laps.setValue(int(scheduled))
 
     def _current_strategy_context(self) -> tuple[object, ...]:
@@ -1631,7 +1741,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self._degradation_values[compound] = float(row["degradation"])
         self._manual_overrides = effective
         self._render_strategy_inputs()
-        self.generate_button.setEnabled(True)
+        self.generate_button.setEnabled(self._current_operational_block_reason() is None)
 
     def _load_tyre_information_from_file(self) -> None:
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
@@ -2288,16 +2398,19 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._show_plot_rows(parameter_rows)
 
     def _connect_state_persistence(self) -> None:
-        for control in (
-            self.completed_lap, self.total_laps, self.compound, self.tyre_age,
-            self.pit_loss, self.max_stops, self.driver, self.result_count,
+        controls = [
+            self.completed_lap, self.compound, self.tyre_age,
+            self.max_stops, self.driver, self.result_count,
             self.rules_compliant, self.manual_override,
             self.enforce_compound_order, self.auto_recalculate, self.sample_count,
             self.quick_threshold, self.min_clean_laps,
             self.exclude_stint_start_laps, self.exclude_stint_end_laps,
             self.traffic_source, self.min_gap_ahead, self.min_gap_behind,
             *self.clean_compound_checks.values(), self.tabs,
-        ):
+        ]
+        if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
+            controls.extend((self.total_laps, self.pit_loss))
+        for control in controls:
             if isinstance(control, QtWidgets.QAbstractButton):
                 control.toggled.connect(self._save_state)
             elif isinstance(control, QtWidgets.QComboBox):
@@ -2318,10 +2431,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 raise ValueError("state belongs to a different event")
             controls = state.get("controls", {})
             self.completed_lap.setValue(int(controls.get("completed_lap", self.completed_lap.value())))
-            self.total_laps.setValue(int(controls.get("total_laps", self.total_laps.value())))
+            if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
+                self.total_laps.setValue(int(controls.get("total_laps", self.total_laps.value())))
             self.compound.setCurrentText(str(controls.get("compound", self.compound.currentText())).upper())
             self.tyre_age.setValue(int(controls.get("tyre_age", self.tyre_age.value())))
-            self.pit_loss.setValue(float(controls.get("pit_loss", self.pit_loss.value())))
+            if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
+                self.pit_loss.setValue(float(controls.get("pit_loss", self.pit_loss.value())))
             self.max_stops.setValue(int(controls.get("max_stops", self.max_stops.value())))
             self.result_count.setValue(int(controls.get("result_count", self.result_count.value())))
             self.rules_compliant.setChecked(bool(controls.get("rules_compliant", False)))
@@ -2391,10 +2506,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "controls": {
                 "completed_lap": self.completed_lap.value(),
-                "total_laps": self.total_laps.value(),
                 "compound": self.compound.currentText(),
                 "tyre_age": self.tyre_age.value(),
-                "pit_loss": self.pit_loss.value(),
                 "max_stops": self.max_stops.value(),
                 "driver": self.driver.currentData(),
                 "result_count": self.result_count.value(),
@@ -2415,6 +2528,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             },
             "external_tyre_sources": dict(self._external_tyre_sources),
         }
+        if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
+            state["controls"].update({
+                "total_laps": self.total_laps.value(),
+                "pit_loss": self.pit_loss.value(),
+            })
         if self.persistence_mode == "durable":
             state["last_strategy_results"] = self._last_strategy_rows
         try:

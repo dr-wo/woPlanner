@@ -9,7 +9,7 @@ from .plot_data import build_pit_window_data
 
 
 class PitWindowOverlay:
-    """Own and render the shared grey normal/SC-VSC pit-loss bands."""
+    """Own and render separate current-event GREEN, SC and VSC bands."""
 
     def __init__(self, plot) -> None:
         self.plot = plot
@@ -28,8 +28,10 @@ class PitWindowOverlay:
         plot_data: pd.DataFrame | None,
         selected_driver: str | None,
         *,
-        normal_pit_loss_s: float,
-        sc_vsc_pit_loss_s: float,
+        normal_pit_loss_s: float | None,
+        sc_pit_loss_s: float | None = None,
+        vsc_pit_loss_s: float | None = None,
+        sc_vsc_pit_loss_s: float | None = None,
         x_column: str | None = None,
     ) -> None:
         self.clear()
@@ -41,6 +43,8 @@ class PitWindowOverlay:
         data = build_pit_window_data(
             selected,
             normal_pit_loss_s=normal_pit_loss_s,
+            sc_pit_loss_s=sc_pit_loss_s,
+            vsc_pit_loss_s=vsc_pit_loss_s,
             sc_vsc_pit_loss_s=sc_vsc_pit_loss_s,
         )
         if x_column not in data.columns:
@@ -48,28 +52,53 @@ class PitWindowOverlay:
                 (column for column in ("x_lap", "segment_index", "lap") if column in data.columns),
                 None,
             )
-        boundaries = [
-            "normal_lower_boundary_s", "vsc_lower_boundary_s",
-            "vsc_upper_boundary_s", "normal_upper_boundary_s",
-        ]
         if x_column is None or data.empty:
             return
-        numeric = data.loc[:, [x_column, *boundaries]].apply(pd.to_numeric, errors="coerce")
-        valid = np.isfinite(numeric).all(axis=1)
-        if not valid.any():
-            return
-        x = numeric.loc[valid, x_column].to_numpy(dtype="float64")
-        values = [numeric.loc[valid, column].to_numpy(dtype="float64") for column in boundaries]
-        pen = pg.mkPen("#666666", width=1.2, style=QtCore.Qt.PenStyle.DashDotLine)
-        curves = [self.plot.plot(x, y, pen=pen) for y in values]
-        for curve in curves:
-            curve.setZValue(5)
-        fills = [
-            pg.FillBetweenItem(curves[0], curves[1], brush=QtGui.QBrush(QtGui.QColor(95, 95, 95, 55))),
-            pg.FillBetweenItem(curves[2], curves[3], brush=QtGui.QBrush(QtGui.QColor(95, 95, 95, 55))),
-            pg.FillBetweenItem(curves[1], curves[2], brush=QtGui.QBrush(QtGui.QColor(185, 185, 185, 60))),
-        ]
-        for index, fill in enumerate(fills):
-            fill.setZValue(-19 if index == 2 else -20)
+        colours = {
+            "normal": QtGui.QColor(95, 95, 95),
+            "sc": QtGui.QColor(244, 180, 0),
+            "vsc": QtGui.QColor(155, 89, 182),
+            "legacy_sc_vsc": QtGui.QColor(70, 130, 180),
+        }
+        labels = {
+            "normal": "GREEN pit window",
+            "sc": "SC pit window",
+            "vsc": "VSC pit window",
+            "legacy_sc_vsc": "SC/VSC combined (legacy)",
+        }
+        for index, state in enumerate(("normal", "sc", "vsc", "legacy_sc_vsc")):
+            lower = f"{state}_lower_boundary_s"
+            upper = f"{state}_upper_boundary_s"
+            if lower not in data.columns or upper not in data.columns:
+                continue
+            numeric = data.loc[:, [x_column, lower, upper]].apply(pd.to_numeric, errors="coerce")
+            valid = np.isfinite(numeric).all(axis=1)
+            if not valid.any():
+                continue
+            x = numeric.loc[valid, x_column].to_numpy(dtype="float64")
+            pen = pg.mkPen(colours[state].darker(180), width=1.2,
+                           style=QtCore.Qt.PenStyle.DashDotLine)
+            lower_curve = self.plot.plot(
+                x, numeric.loc[valid, lower].to_numpy(dtype="float64"), pen=pen
+            )
+            upper_curve = self.plot.plot(
+                x, numeric.loc[valid, upper].to_numpy(dtype="float64"),
+                pen=pen, name=labels[state],
+            )
+            lower_curve.setZValue(5)
+            upper_curve.setZValue(5)
+            brush_colour = QtGui.QColor(colours[state])
+            brush_colour.setAlpha(40)
+            fill = pg.FillBetweenItem(
+                lower_curve, upper_curve, brush=QtGui.QBrush(brush_colour)
+            )
+            fill.setZValue(-20 + index)
             self.plot.addItem(fill)
-        self.items = [*curves, *fills]
+            upper_values = numeric.loc[valid, upper].to_numpy(dtype="float64")
+            label = pg.TextItem(
+                text=labels[state], color=colours[state].darker(220), anchor=(1, 1)
+            )
+            label.setPos(float(x[-1]), float(upper_values[-1]))
+            label.setZValue(6)
+            self.plot.addItem(label)
+            self.items.extend([lower_curve, upper_curve, fill, label])

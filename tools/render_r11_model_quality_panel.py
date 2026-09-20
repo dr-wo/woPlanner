@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pandas as pd
 from PySide6 import QtCore, QtWidgets
 
-from woplanner.analysis.gui import StrategyPredictionWindow
+from woplanner.analysis.gui import StrategyPredictionMode, StrategyPredictionWindow
 
 
 def main():
@@ -44,7 +44,12 @@ def main():
             "compound_evidence": evidence, "numerical_quality_status": "adequate",
         })
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    window = StrategyPredictionWindow(year=2026, round_number=11, persistence_mode="temporary")
+    window = StrategyPredictionWindow(
+        year=2026,
+        round_number=11,
+        mode=StrategyPredictionMode.HISTORICAL_WHAT_IF,
+        persistence_mode="temporary",
+    )
     window.tabs.setCurrentWidget(window.history_tab)
     window._show_plot_rows(rows)
     window.resize(1500, 1000)
