@@ -524,6 +524,10 @@ also be clicked to update or delete that specific edit.
 
 ## Development notes
 
+Pace and tyre inputs follow the shared
+[`../woData/CANONICAL_PACE_CONTRACT.md`](../woData/CANONICAL_PACE_CONTRACT.md),
+including MEDIUM operational normalization and legacy provenance compatibility.
+
 See [doc/CODE_STATUS_QUO.md](doc/CODE_STATUS_QUO.md) for the current package
 map, cache discipline, strategy simulation data flow, and future coding-agent
 orientation notes.

@@ -830,6 +830,16 @@ def test_live_recalculation_runs_once_for_new_clean_laps(tmp_path):
     assert first.previous_clean_lap_count == 0
     assert dict(first.clean_lap_sources)["R"] == 4
     assert dict(first.sampler_quality)["architecture"] == "live-retro-v1"
+    consumed = service.last_live_calculation_inputs
+    assert consumed["architecture"] == "retro"
+    assert consumed["analysis_options"]["sample_count"] == 100
+    assert consumed["analysis_options"]["quick_lap_threshold"] == 1.1
+    assert consumed["event_context"]["scheduled_total_laps"] == 4
+    assert consumed["input_provenance"]["scheduled_total_laps_source"] == (
+        "current_leader_lap_fallback"
+    )
+    assert "settings_path" not in consumed["model_config"]
+    assert consumed["model_config"]["sample_count"] == 100
     assert second.status == "no-new-clean-laps"
     assert second.previous_clean_lap_count == 4
 

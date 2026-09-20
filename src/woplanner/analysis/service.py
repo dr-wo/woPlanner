@@ -103,6 +103,19 @@ class OfflineAnalysisService:
         self._ephemeral_parameter_rows: list[dict[str, object]] = []
         self._ephemeral_run_rows: list[dict[str, object]] = []
         self._last_strategy_search = None
+        self._last_live_calculation_inputs: dict[str, object] | None = None
+
+    @property
+    def last_live_calculation_inputs(self) -> dict[str, object] | None:
+        """Resolved values consumed by the most recent live calculation.
+
+        This deliberately excludes lookup paths and timestamps. It is captured
+        at construction of the objects passed to the model, rather than rebuilt
+        from files after the calculation.
+        """
+        if self._last_live_calculation_inputs is None:
+            return None
+        return dict(self._last_live_calculation_inputs)
 
     def get_cached_fp_tyre_evidence(self, year: int, round_number: int):
         """Read/cache-check FP evidence without ever invoking calculation."""
@@ -931,6 +944,27 @@ class OfflineAnalysisService:
                 else bool(enforce_compound_order)
             ),
         )
+        analysis_options = {
+            "sample_count": int(sample_count),
+            "quick_lap_threshold": float(quick_lap_threshold),
+            "min_clean_laps": int(min_clean_laps),
+            "allowed_compounds": tuple(str(value).upper() for value in allowed_compounds),
+            "exclude_stint_start_laps": int(exclude_stint_start_laps),
+            "exclude_stint_end_laps": int(exclude_stint_end_laps),
+            "use_sector_boundary_traffic": bool(use_sector_boundary_traffic),
+            "min_gap_ahead_seconds": float(min_gap_ahead_seconds),
+            "min_gap_behind_seconds": float(min_gap_behind_seconds),
+            "enforce_compound_order": bool(config.enforce_compound_order),
+            "race_baseline_architecture": str(race_baseline_architecture),
+        }
+        event_context = {
+            "year": int(year),
+            "round_number": int(round_number),
+            "scheduled_total_laps": int(scheduled_total_laps),
+        }
+        input_provenance = {
+            "scheduled_total_laps_source": str(scheduled_total_laps_source),
+        }
         prior_started = time.perf_counter()
         if race_baseline_architecture == "retro":
             resolved = resolve_race_performance_settings(
@@ -992,6 +1026,13 @@ class OfflineAnalysisService:
                 evaluator_backend=str(retro_settings.get("evaluator_backend", "accelerated")),
                 candidate_chunk_size=int(retro_settings.get("candidate_chunk_size", 2_000)),
             )
+            self._last_live_calculation_inputs = {
+                "architecture": "retro",
+                "event_context": event_context,
+                "input_provenance": input_provenance,
+                "analysis_options": analysis_options,
+                "model_config": asdict(retro_config),
+            }
             result = run_live_retro_model(
                 race_laps, retro_config, as_of_leader_lap=leader_lap,
                 race_lap_count=scheduled_total_laps,
@@ -1001,6 +1042,14 @@ class OfflineAnalysisService:
             prior_loaded = time.perf_counter()
         else:
             prior = self.frozen_pre_race_prior(year, round_number)
+            self._last_live_calculation_inputs = {
+                "architecture": str(race_baseline_architecture),
+                "event_context": event_context,
+                "input_provenance": input_provenance,
+                "analysis_options": analysis_options,
+                "model_config": asdict(config),
+                "prior": asdict(prior),
+            }
             prior_loaded = time.perf_counter()
             result = run_race_specific_model(
                 race_laps, prior, config, as_of_leader_lap=leader_lap,
@@ -1376,6 +1425,7 @@ def _model_summary_from_snapshot(snapshot) -> ModelSummary:
         "contributing_sessions": list(snapshot.contributing_sessions),
         "excluded_sessions": dict(snapshot.excluded_sessions),
         "sampler_quality": dict(getattr(snapshot, "sampler_quality", ())),
+        "semantics": dict(getattr(snapshot, "semantics", ())),
     }
     return ModelSummary(manifest, tuple(asdict(row) for row in snapshot.parameters))
 

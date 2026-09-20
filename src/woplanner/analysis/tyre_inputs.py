@@ -66,6 +66,7 @@ class ResolvedTyreInputs:
     legacy_artifact: str | None
     fp_evidence_analysis_id: str | None
     parameters: tuple[ResolvedTyreInput, ...]
+    semantics: Mapping[str, object]
     content_hash: str
 
     def by_parameter(self) -> dict[str, ResolvedTyreInput]:
@@ -98,6 +99,7 @@ class ResolvedTyreInputs:
             "legacy_artifact": self.legacy_artifact,
             "fp_evidence_analysis_id": self.fp_evidence_analysis_id,
             "parameters": [asdict(row) for row in self.parameters],
+            "semantics": dict(self.semantics),
             "content_hash": self.content_hash,
         }
 
@@ -230,7 +232,7 @@ class TyreInputService:
 
     def resolve(self, year: int, round_number: int) -> ResolvedTyreInputs:
         manual = self.load_manual_inputs(year, round_number)
-        defaults, default_sources, source_id, default_path = self._default_values(
+        defaults, default_sources, source_id, default_path, source_semantics = self._default_values(
             year, round_number
         )
         cache = self.get_cached_fp_tyre_evidence(year, round_number)
@@ -303,6 +305,7 @@ class TyreInputService:
             "legacy_source_analysis_id": source_id,
             "fp_evidence_analysis_id": evidence.get("analysis_id"),
             "parameters": [asdict(row) for row in rows],
+            "semantics": source_semantics,
         }
         return ResolvedTyreInputs(
             schema_version=1,
@@ -315,6 +318,7 @@ class TyreInputService:
                 str(evidence.get("analysis_id")) if evidence.get("analysis_id") else None
             ),
             parameters=tuple(rows),
+            semantics=source_semantics,
             content_hash=canonical_hash(content),
         )
 
@@ -336,6 +340,25 @@ class TyreInputService:
         sources = {parameter: "missing" for parameter in TYRE_PARAMETERS}
         source_id = None
         source_path = None
+        semantics: dict[str, object] = {
+            "contract": "planner_tyre_inputs_v1",
+            "performance": {
+                "unit": "s",
+                "independent_variable": "dry_compound_choice",
+                "positive_sign": "compound is slower than MEDIUM",
+                "frame": "relative_to_compound",
+                "reference_compound": "MEDIUM",
+                "reference_value": 0.0,
+            },
+            "degradation": {
+                "unit": "s/tyre-age-lap",
+                "independent_variable": "tyre_age_laps",
+                "positive_sign": "greater tyre age increases modelled lap time",
+                "frame": "absolute_rate",
+            },
+            "uncertainty": "not_carried_by_resolved_strategy_scalar_inputs",
+            "source_contract": "unavailable",
+        }
         try:
             prediction = get_pre_race_tyre_prediction(
                 season=year,
@@ -345,6 +368,7 @@ class TyreInputService:
         except MissingPreRaceTyrePrediction:
             prediction = None
         if prediction is not None:
+            prediction_provenance = dict(prediction.provenance)
             for compound, item in prediction.compounds.items():
                 compound = str(compound).upper()
                 if compound in {"HARD", "MEDIUM", "SOFT"}:
@@ -357,7 +381,14 @@ class TyreInputService:
                     values["Perf_SOFT_vs_MEDIUM"] = float(item.performance_delta_to_medium)
                     sources["Perf_SOFT_vs_MEDIUM"] = "pre_race_prediction"
             source_id = prediction.artifact_id
-            source_path = dict(prediction.provenance).get("path")
+            source_path = prediction_provenance.get("path")
+            semantics["source_contract"] = "canonical_pre_race_tyre_prediction"
+            semantics["source_performance"] = dict(
+                prediction_provenance.get("performance_semantics", {})
+            )
+            semantics["source_degradation"] = dict(
+                prediction_provenance.get("degradation_semantics", {})
+            )
         legacy, legacy_id, legacy_path = self._legacy_values(year, round_number)
         for parameter, value in legacy.items():
             if values[parameter] is None:
@@ -365,7 +396,12 @@ class TyreInputService:
                 sources[parameter] = "legacy_fp_derived"
         if source_id is None:
             source_id, source_path = legacy_id, legacy_path
-        return values, sources, source_id, source_path
+            if legacy_id is not None:
+                semantics["source_contract"] = "legacy_fp_derived"
+                semantics["legacy_uncertainty"] = (
+                    "marginal summaries; cross-compound joint covariance unavailable"
+                )
+        return values, sources, source_id, source_path, semantics
 
     def _legacy_values(self, year: int, round_number: int):
         path = weekend_model_root(year, round_number, self.data_root) / "pre_race_prior_v1.json"
@@ -417,7 +453,14 @@ def tyre_snapshot_from_overrides(
         "resolved_content_hash": resolved.content_hash,
         "values": actual,
         "selected_sources": source,
-        "content_hash": canonical_hash({"values": actual, "selected_sources": source}),
+        "semantics": dict(resolved.semantics),
+        "content_hash": canonical_hash(
+            {
+                "values": actual,
+                "selected_sources": source,
+                "semantics": dict(resolved.semantics),
+            }
+        ),
     }
 
 

@@ -300,6 +300,9 @@ def test_provider_only_prediction_maps_to_five_planner_coordinates(tmp_path, mon
         ("compound_delta", "HARD"): .42,
         ("compound_delta", "SOFT"): -.36,
     })
+    assert resolved.semantics["performance"]["reference_compound"] == "MEDIUM"
+    snapshot = tyre_snapshot_from_overrides(resolved.strategy_overrides(), resolved)
+    assert snapshot["semantics"] == resolved.semantics
 
 
 def test_no_pre_race_artifact_supports_manual_only_and_reports_partial_missing(tmp_path):
