@@ -139,18 +139,33 @@ class OfflineAnalysisService:
             year, round_number, force_refresh=force_refresh
         )
 
-    def resolve_tyre_inputs(self, year: int, round_number: int) -> ResolvedTyreInputs:
-        return self.tyre_inputs.resolve(year, round_number)
+    def resolve_tyre_inputs(
+        self, year: int, round_number: int, *, team: str | None = None
+    ) -> ResolvedTyreInputs:
+        return self.tyre_inputs.resolve(year, round_number, team=team)
 
     def set_manual_tyre_input(
-        self, year: int, round_number: int, parameter: str, value: float
+        self, year: int, round_number: int, parameter: str, value: float,
+        *, team: str | None = None,
     ) -> Path:
-        return self.tyre_inputs.set_manual_value(year, round_number, parameter, value)
+        return self.tyre_inputs.set_manual_value(
+            year, round_number, parameter, value, team=team
+        )
 
     def clear_manual_tyre_input(
-        self, year: int, round_number: int, parameter: str
+        self, year: int, round_number: int, parameter: str, *, team: str | None = None
     ) -> Path:
-        return self.tyre_inputs.clear_manual_value(year, round_number, parameter)
+        return self.tyre_inputs.clear_manual_value(
+            year, round_number, parameter, team=team
+        )
+
+    @staticmethod
+    def strategy_teams(summary: ModelSummary) -> tuple[str, ...]:
+        """Teams supplied by the existing live-retro degradation snapshot."""
+        return tuple(sorted({
+            str(row["team"]) for row in summary.parameters
+            if row.get("parameter") == "team_degradation" and row.get("team")
+        }))
 
     def load_model(
         self, year: int, round_number: int, source_scope: str = "aggregate"
@@ -228,7 +243,9 @@ class OfflineAnalysisService:
         }
         ratio_degradation = {
             str(compound).upper(): float(value)
-            for compound, value in (initial_degradation or base_degradation).items()
+            for compound, value in (
+                base_degradation if initial_degradation is None else initial_degradation
+            ).items()
         }
         degradation_sources = {
             str(compound).upper(): str(value)
@@ -342,9 +359,45 @@ class OfflineAnalysisService:
         *,
         manual_override: bool,
         initial_degradation: Mapping[str, float] | None = None,
+        team: str | None = None,
+        manual_values: Mapping[tuple[str, str], float] | None = None,
     ) -> tuple[dict[tuple[str, str], float], list[dict[str, object]]]:
-        """Resolve the one authoritative tyre state handed to Strategy Prediction."""
+        """Resolve Strategy inputs with performance relative to fixed MEDIUM=0.
+
+        Both persisted and active manual H/S performance values are differences
+        against MEDIUM, applied after rebasing the automatic model coordinates.
+        """
+        team = resolved.team if team is None else team
+        if team != resolved.team:
+            raise ValueError("Resolve tyre inputs for the selected team before calculating.")
         base = resolved.strategy_overrides()
+        resolved_rows = resolved.by_parameter()
+        scoped_manual = {}
+        if team is not None:
+            for name, item in resolved_rows.items():
+                coordinate = (
+                    ("degradation", name.removeprefix("Deg_"))
+                    if name.startswith("Deg_")
+                    else ("compound_delta", name.split("_")[1])
+                )
+                if item.legacy_value is not None:
+                    base[coordinate] = float(item.legacy_value)
+                if item.manual_value is not None:
+                    scoped_manual[coordinate] = float(item.manual_value)
+            if initial_degradation is None:
+                initial_degradation = {
+                    compound: float(resolved_rows[f"Deg_{compound}"].legacy_value)
+                    for compound in ("HARD", "MEDIUM", "SOFT")
+                    if resolved_rows[f"Deg_{compound}"].legacy_value is not None
+                }
+        for coordinate, value in (manual_values or {}).items():
+            if coordinate not in base or not np.isfinite(float(value)):
+                raise ValueError(f"Invalid manual tyre input: {coordinate}")
+            if coordinate == ("compound_delta", "MEDIUM"):
+                if float(value) != 0.0:
+                    raise ValueError("MEDIUM performance is the fixed reference and must be 0.")
+                continue
+            scoped_manual[coordinate] = float(value)
         base_degradation = {
             compound: value
             for (parameter, compound), value in base.items()
@@ -356,9 +409,26 @@ class OfflineAnalysisService:
             if parameter == "compound_delta"
         }
         base_degradation_sources = {
-            compound: resolved.by_parameter()[f"Deg_{compound}"].selected_source
+            compound: resolved_rows[f"Deg_{compound}"].selected_source
             for compound in base_degradation
         }
+        if team is not None:
+            # Team baselines exclude every Global manual value. The model's
+            # team_degradation is already an absolute rate, not a delta.
+            base_degradation_sources = {
+                compound: resolved_rows[f"Deg_{compound}"].default_source
+                for compound in base_degradation
+            }
+            parameters = tuple(
+                dict(row, parameter="degradation")
+                for row in summary.parameters
+                if row.get("parameter") == "team_degradation" and row.get("team") == team
+            ) + tuple(
+                row for row in summary.parameters if row.get("parameter") == "compound_delta"
+            )
+            effective_summary = ModelSummary(summary.manifest, parameters)
+        else:
+            effective_summary = summary
         if (
             manual_override
             or int(float(summary.manifest.get("as_of_leader_lap") or 0)) == 0
@@ -370,17 +440,64 @@ class OfflineAnalysisService:
             )
         else:
             assumptions = self.strategy_assumptions(
-                summary,
+                effective_summary,
                 baseline_degradation=base_degradation,
                 baseline_compound_delta=base_deltas,
                 initial_degradation=initial_degradation,
                 baseline_degradation_sources=base_degradation_sources,
             )
+        # The live model may use HARD (or another compound) as its reference.
+        # Strategy and manual H/S inputs use MEDIUM, so rebase automatic values
+        # once, before applying any manual differences relative to MEDIUM.
+        medium_delta = next(
+            (float(row["compound_delta"]) for row in assumptions
+             if str(row["compound"]).upper() == "MEDIUM"),
+            None,
+        )
+        if medium_delta is None:
+            raise ValueError("Missing required effective tyre input: compound_delta:MEDIUM")
+        for row in assumptions:
+            row["compound_delta_model_reference_offset"] = medium_delta
+            row["compound_delta"] = float(row["compound_delta"]) - medium_delta
         effective: dict[tuple[str, str], float] = {}
         for row in assumptions:
             compound = str(row["compound"]).upper()
+            delta_item = resolved_rows.get(f"Perf_{compound}_vs_MEDIUM")
+            delta_source = (
+                "reference" if delta_item is None
+                else delta_item.default_source if team is not None
+                else delta_item.selected_source
+            )
+            if row["compound_delta_source"] == "race_evidence":
+                delta_source = "race_evidence"
+            row["team"] = team
+            row["performance_model_scope"] = "global"
+            row["degradation_value_source"] = (
+                base_degradation_sources[compound]
+                if row["degradation_source"] == "base"
+                else ("team_" if team is not None else "") + str(row["degradation_source"])
+            )
+            row["compound_delta_source"] = (
+                "global_" + delta_source
+                if team is not None and delta_source != "reference" else delta_source
+            )
+            for parameter in ("degradation", "compound_delta"):
+                coordinate = (parameter, compound)
+                if coordinate not in scoped_manual:
+                    continue
+                row[parameter] = scoped_manual[coordinate]
+                row[f"{parameter}_source"] = "manual"
+                if parameter == "degradation":
+                    row["degradation_value_source"] = "manual"
+                    row["degradation_support_status"] = "manual"
+                    row["degradation_race_informed"] = False
+                    row["degradation_anchor_compound"] = None
+                    row["aggregation"] = "manual"
             effective[("degradation", compound)] = float(row["degradation"])
             effective[("compound_delta", compound)] = float(row["compound_delta"])
+        fastest = min((float(row["compound_delta"]) for row in assumptions), default=0.0)
+        for row in assumptions:
+            row["baseline_pace"] = float(row["compound_delta"]) - fastest
         missing = set(base).difference(effective)
         if missing:
             names = [f"{parameter}:{compound}" for parameter, compound in sorted(missing)]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Sequence
 import json
 import math
 
@@ -54,6 +54,7 @@ class ResolvedTyreInput:
     unit: str
     limitations: str
     independent_of_current_fp: bool
+    default_source: str = "missing"
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class ResolvedTyreInputs:
     parameters: tuple[ResolvedTyreInput, ...]
     semantics: Mapping[str, object]
     content_hash: str
+    team: str | None = None
 
     def by_parameter(self) -> dict[str, ResolvedTyreInput]:
         return {row.parameter: row for row in self.parameters}
@@ -101,6 +103,7 @@ class ResolvedTyreInputs:
             "parameters": [asdict(row) for row in self.parameters],
             "semantics": dict(self.semantics),
             "content_hash": self.content_hash,
+            "team": self.team,
         }
 
 
@@ -130,17 +133,25 @@ class TyreInputService:
             / MANUAL_TYRE_INPUT_FILENAME
         )
 
-    def load_manual_inputs(self, year: int, round_number: int) -> dict[str, float | None]:
+    def _load_manual_payload(self, year: int, round_number: int) -> dict[str, object]:
         path = self.manual_path(year, round_number)
         if not path.is_file():
-            return {parameter: None for parameter in TYRE_PARAMETERS}
+            return {}
         with path.open(encoding="utf-8") as handle:
             payload = json.load(handle)
         if int(payload.get("schema_version", 0)) != MANUAL_TYRE_INPUT_SCHEMA_VERSION:
             raise ValueError(f"Unsupported manual tyre-input schema in {path}.")
         if int(payload.get("year")) != int(year) or int(payload.get("round_number")) != int(round_number):
             raise ValueError(f"Manual tyre inputs in {path} belong to another event.")
-        raw_values = dict(payload.get("values") or {})
+        return payload
+
+    def load_manual_inputs(
+        self, year: int, round_number: int, *, team: str | None = None
+    ) -> dict[str, float | None]:
+        payload = self._load_manual_payload(year, round_number)
+        raw_values = dict(payload.get("values") or {}) if team is None else dict(
+            dict(payload.get("team_values") or {}).get(team) or {}
+        )
         values = {}
         for parameter in TYRE_PARAMETERS:
             value = raw_values.get(parameter)
@@ -152,6 +163,8 @@ class TyreInputService:
         year: int,
         round_number: int,
         values: Mapping[str, float | None],
+        *,
+        team: str | None = None,
     ) -> Path:
         unknown = set(values).difference(TYRE_PARAMETERS)
         if unknown:
@@ -162,13 +175,19 @@ class TyreInputService:
             )
             for parameter in TYRE_PARAMETERS
         }
-        payload = {
+        payload = self._load_manual_payload(year, round_number)
+        payload.update({
             "schema_version": MANUAL_TYRE_INPUT_SCHEMA_VERSION,
             "year": int(year),
             "round_number": int(round_number),
             "updated_at": datetime.now(timezone.utc).isoformat(),
-            "values": normalized,
-        }
+        })
+        if team is None:
+            payload["values"] = normalized
+        else:
+            team_values = dict(payload.get("team_values") or {})
+            team_values[team] = normalized
+            payload["team_values"] = team_values
         path = self.manual_path(year, round_number)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".json.tmp")
@@ -179,24 +198,29 @@ class TyreInputService:
         return path
 
     def set_manual_value(
-        self, year: int, round_number: int, parameter: str, value: float
+        self, year: int, round_number: int, parameter: str, value: float,
+        *, team: str | None = None,
     ) -> Path:
         if parameter not in TYRE_PARAMETERS:
             raise ValueError(f"Unknown manual tyre parameter: {parameter}")
-        values = self.load_manual_inputs(year, round_number)
+        values = self.load_manual_inputs(year, round_number, team=team)
         values[parameter] = _finite(value, parameter)
-        return self.save_manual_inputs(year, round_number, values)
+        return self.save_manual_inputs(year, round_number, values, team=team)
 
-    def clear_manual_value(self, year: int, round_number: int, parameter: str) -> Path:
+    def clear_manual_value(
+        self, year: int, round_number: int, parameter: str, *, team: str | None = None
+    ) -> Path:
         if parameter not in TYRE_PARAMETERS:
             raise ValueError(f"Unknown manual tyre parameter: {parameter}")
-        values = self.load_manual_inputs(year, round_number)
+        values = self.load_manual_inputs(year, round_number, team=team)
         values[parameter] = None
-        return self.save_manual_inputs(year, round_number, values)
+        return self.save_manual_inputs(year, round_number, values, team=team)
 
-    def clear_all_manual_values(self, year: int, round_number: int) -> Path:
+    def clear_all_manual_values(
+        self, year: int, round_number: int, *, team: str | None = None
+    ) -> Path:
         return self.save_manual_inputs(
-            year, round_number, {parameter: None for parameter in TYRE_PARAMETERS}
+            year, round_number, {parameter: None for parameter in TYRE_PARAMETERS}, team=team
         )
 
     def get_cached_fp_tyre_evidence(
@@ -230,11 +254,21 @@ class TyreInputService:
             force_refresh=force_refresh,
         )
 
-    def resolve(self, year: int, round_number: int) -> ResolvedTyreInputs:
-        manual = self.load_manual_inputs(year, round_number)
+    def resolve(
+        self, year: int, round_number: int, *, team: str | None = None
+    ) -> ResolvedTyreInputs:
+        manual = self.load_manual_inputs(year, round_number, team=team)
         defaults, default_sources, source_id, default_path, source_semantics = self._default_values(
             year, round_number
         )
+        if team is not None:
+            source_semantics = {
+                **source_semantics,
+                "team": team,
+                "manual_scope": "team",
+                "performance_model_scope": "global",
+                "global_manual_inherited": False,
+            }
         cache = self.get_cached_fp_tyre_evidence(year, round_number)
         evidence = cache.evidence or {}
         direct = {
@@ -298,6 +332,7 @@ class TyreInputService:
                     unit=PARAMETER_UNITS[parameter],
                     limitations=limitation,
                     independent_of_current_fp=(selected_source == "manual"),
+                    default_source=default_sources[parameter],
                 )
             )
         content = {
@@ -320,6 +355,7 @@ class TyreInputService:
             parameters=tuple(rows),
             semantics=source_semantics,
             content_hash=canonical_hash(content),
+            team=team,
         )
 
     def physical_order_warnings(self, resolved: ResolvedTyreInputs) -> tuple[str, ...]:
@@ -436,9 +472,20 @@ class TyreInputService:
 def tyre_snapshot_from_overrides(
     overrides: Mapping[tuple[str, str], float],
     resolved: ResolvedTyreInputs,
+    *,
+    assumptions: Sequence[Mapping[str, object]] | None = None,
+    manual_values: Mapping[tuple[str, str], float] | None = None,
 ) -> dict[str, object]:
-    """Freeze the exact five values actually handed to one Strategy search."""
+    """Freeze actual values with provenance from the same effective resolution.
+
+    Callers with live inputs must pass its assumption rows. A legacy caller
+    changing a value without supplying provenance gets an explicit unattributed
+    source, never the stale pre-race source of a different value.
+    """
     medium = float(overrides[("compound_delta", "MEDIUM")])
+    manual = manual_values or {}
+    if float(manual.get(("compound_delta", "MEDIUM"), 0.0)) != 0.0:
+        raise ValueError("MEDIUM performance is the fixed reference and must be 0.")
     actual = {
         "Deg_HARD": float(overrides[("degradation", "HARD")]),
         "Deg_MEDIUM": float(overrides[("degradation", "MEDIUM")]),
@@ -446,21 +493,50 @@ def tyre_snapshot_from_overrides(
         "Perf_HARD_vs_MEDIUM": float(overrides[("compound_delta", "HARD")]) - medium,
         "Perf_SOFT_vs_MEDIUM": float(overrides[("compound_delta", "SOFT")]) - medium,
     }
-    source = {row.parameter: row.selected_source for row in resolved.parameters}
+    rows = {str(row["compound"]).upper(): row for row in assumptions or ()}
+    resolved_rows = resolved.by_parameter()
+    source = {}
+    for name, value in actual.items():
+        degradation = name.startswith("Deg_")
+        compound = name.split("_")[1]
+        parameter = "degradation" if degradation else "compound_delta"
+        coordinate = (parameter, compound)
+        if coordinate in manual and float(manual[coordinate]) == value:
+            source[name] = "manual"
+            continue
+        row = rows.get(compound)
+        if row is not None:
+            reference = rows.get("MEDIUM")
+            expected = float(row[parameter])
+            if not degradation:
+                if reference is None:
+                    source[name] = "unattributed_override"
+                    continue
+                expected -= float(reference[parameter])
+            if value == expected:
+                source[name] = str(
+                    row.get("degradation_value_source", row.get("degradation_source"))
+                    if degradation else row.get("compound_delta_source")
+                )
+                continue
+        item = resolved_rows[name]
+        source[name] = (
+            item.selected_source
+            if not rows and value == item.selected_value
+            else "unattributed_override"
+        )
+    content = {
+        "values": actual,
+        "selected_sources": source,
+        "semantics": dict(resolved.semantics),
+        "team": resolved.team,
+    }
     return {
         "schema_version": 1,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "resolved_content_hash": resolved.content_hash,
-        "values": actual,
-        "selected_sources": source,
-        "semantics": dict(resolved.semantics),
-        "content_hash": canonical_hash(
-            {
-                "values": actual,
-                "selected_sources": source,
-                "semantics": dict(resolved.semantics),
-            }
-        ),
+        **content,
+        "content_hash": canonical_hash(content),
     }
 
 

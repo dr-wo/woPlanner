@@ -1099,3 +1099,33 @@ def test_rank_name_click_uses_shared_selection_and_survives_refresh(list_name):
     ) == "BBB"
     widget.close()
     app.processEvents()
+
+
+@pytest.mark.parametrize("source_mode", ["live", "replay"])
+def test_live_strategy_entry_explicitly_enables_team_scope(monkeypatch, source_mode):
+    from woplanner.analysis import gui as analysis_gui
+
+    captured = {}
+
+    class StrategyDialog(QtWidgets.QDialog):
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            super().__init__(kwargs.get("parent"))
+
+        def consume_live_snapshot(self, snapshot):
+            captured["snapshot"] = snapshot
+
+    monkeypatch.setattr(analysis_gui, "StrategyPredictionWindow", StrategyDialog)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = LivePlannerWindow()
+    try:
+        window._active_source_mode = source_mode
+        window._show_strategy_prediction_window()
+        assert captured["team_scope_enabled"] is True
+        assert captured["mode"] is (
+            analysis_gui.StrategyPredictionMode.HISTORICAL_WHAT_IF
+            if source_mode == "replay" else analysis_gui.StrategyPredictionMode.CURRENT_EVENT
+        )
+    finally:
+        window.close()
+        app.processEvents()

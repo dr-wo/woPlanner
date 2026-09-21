@@ -13,7 +13,9 @@ import numpy as np
 import pyqtgraph as pg
 
 from wodata.contracts import StrategySearchState
+from wodata import get_data_root
 from wodata.artifacts import weekend_model_root
+from wodata.colours import TEAM_COLOURS, get_team_colour
 
 from ..common.visual_styles import COMPOUND_COLOURS
 from ..operational_inputs import load_operational_race_inputs
@@ -24,6 +26,67 @@ from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
 LIVE_DEFAULT_SAMPLE_COUNT = 5000
+STRATEGY_UNAVAILABLE_TEAM_COLOUR = "#9CA3AF"
+
+
+def strategy_team_roster(data_root: Path, year: int, round_number: int) -> tuple[tuple[str, ...], str]:
+    """Read local pre-event WCC order for display; never supply model inputs."""
+    roster = tuple(TEAM_COLOURS)
+    previous_round = int(round_number) - 1
+    event = f"{int(year):04d}-{previous_round:02d}"
+    runs = Path(data_root) / "woweekend" / "runs" / "schema_v1" / f"event={event}" / "workflow=post_race" / "runs"
+    candidates = []
+    for manifest_path in runs.glob("*/manifest.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(manifest, dict)
+                or not isinstance(manifest.get("outputs"), dict)
+                or manifest["outputs"].get("standings") != "SUCCESS"
+                or manifest.get("event", event) != event
+            ):
+                continue
+            generated = datetime.fromisoformat(str(manifest["generated_at"]).replace("Z", "+00:00"))
+            if generated.tzinfo is None:
+                generated = generated.replace(tzinfo=timezone.utc)
+            candidates.append((generated.timestamp(), manifest_path.parent.name, manifest_path.parent))
+        except (OSError, KeyError, TypeError, ValueError):
+            continue
+    for _generated, _run_id, run in sorted(candidates, reverse=True):
+        standings_path = run / "standings.json"
+        try:
+            payload = json.loads(standings_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or not isinstance(payload.get("constructors"), dict):
+                continue
+            rows = payload["constructors"].get("actual")
+            if not isinstance(rows, list) or not rows:
+                continue
+            latest_round = max(int(row["RoundNumber"]) for row in rows)
+            if latest_round != previous_round:
+                continue
+            points = {}
+            for row in rows:
+                if int(row["RoundNumber"]) != latest_round:
+                    continue
+                team = row["Team"]
+                value = float(row["CumulativePoints"])
+                if not isinstance(team, str) or not team.strip() or not np.isfinite(value):
+                    raise ValueError("Invalid constructors standings row")
+                points[team.strip()] = value
+            if not points:
+                continue
+            ordered = tuple(sorted(points, key=lambda team: -points[team]))
+            ordered += tuple(team for team in roster if team not in points)
+            return ordered, (
+                f"Pre-race constructors standings: {year} round {previous_round}. "
+                f"Source: {standings_path}. Unlisted teams follow roster order; display only."
+            )
+        except (OSError, KeyError, TypeError, ValueError, OverflowError):
+            continue
+    return roster, (
+        f"Prior-round constructors standings unavailable for {year} round {previous_round}; "
+        "using TEAM_COLOURS roster order (display only)."
+    )
 
 
 class StrategyPredictionMode(str, Enum):
@@ -251,6 +314,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         state_directory: str | Path | None = None,
         persistence_mode: str = "durable",
         auto_save_history: bool = False,
+        team_scope_enabled: bool = False,
         telemetry_worker=None,
         parent=None,
     ) -> None:
@@ -258,6 +322,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.year = int(year)
         self.round_number = int(round_number)
         self.strategy_mode = StrategyPredictionMode(mode)
+        self.team_scope_enabled = bool(team_scope_enabled)
         self._operational_input_error: str | None = None
         self._operational_race_inputs = None
         if self.strategy_mode is StrategyPredictionMode.CURRENT_EVENT:
@@ -283,6 +348,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.service = service or OfflineAnalysisService(
             WORKSPACE_DATA_ROOT if WORKSPACE_DATA_ROOT.is_dir() else None
         )
+        self._team_roster, self.team_standings_source = (
+            strategy_team_roster(get_data_root(self.service.data_root), self.year, self.round_number)
+            if self.team_scope_enabled else ((), "")
+        )
+        self._available_strategy_teams: set[str] = set()
         if persistence_mode not in {"temporary", "durable"}:
             raise ValueError("persistence_mode must be 'temporary' or 'durable'.")
         self.persistence_mode = persistence_mode
@@ -316,6 +386,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._live_snapshot = None
         self._last_seen_leader_lap = 0
         self._manual_overrides: dict[tuple[str, str], float] = {}
+        self._selected_team: str | None = None
+        self._scope_manual_values: dict[str, dict[tuple[str, str], float]] = {}
+        self._inactive_scope_state: dict[str, object] = {}
+        self._scope_initial_inputs: dict[str, dict[str, dict[str, object]]] = {}
+        self._scope_initial_degradation: dict[str, dict[str, float]] = {}
         self._loading_model = False
         self._strategy_input_loading = False
         self._manual_baseline_compounds: set[str] = set()
@@ -361,6 +436,27 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.tabs.addTab(self.history_info_tab, "History Info")
         self.tabs.currentChanged.connect(self._strategy_tab_changed)
         layout.addWidget(self.status_label)
+        self.team_scope_widget = QtWidgets.QWidget(self)
+        self.team_scope_widget.setToolTip(self.team_standings_source)
+        scope_layout = QtWidgets.QVBoxLayout(self.team_scope_widget)
+        scope_layout.setContentsMargins(0, 0, 0, 0)
+        scope_row = QtWidgets.QHBoxLayout()
+        scope_row.addWidget(QtWidgets.QLabel("Strategy tyre scope"))
+        self.team_scope_label = QtWidgets.QLabel("Performance model: Global")
+        scope_row.addWidget(self.team_scope_label)
+        scope_row.addStretch(1)
+        scope_layout.addLayout(scope_row)
+        self.team_scope_grid = QtWidgets.QGridLayout()
+        self.team_button_group = QtWidgets.QButtonGroup(self)
+        self.team_button_group.setExclusive(True)
+        self.team_button_group.buttonClicked.connect(
+            lambda button: self._team_scope_changed(button.property("team"))
+        )
+        self.team_buttons: dict[str | None, QtWidgets.QPushButton] = {}
+        self._build_team_scope_buttons(())
+        scope_layout.addLayout(self.team_scope_grid)
+        self.team_scope_widget.setVisible(self.team_scope_enabled)
+        layout.addWidget(self.team_scope_widget)
         layout.addWidget(self.tabs)
         self._poll_timer = QtCore.QTimer(self)
         self._poll_timer.setInterval(100)
@@ -443,7 +539,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         input_group = QtWidgets.QGroupBox("Strategy tyre inputs")
         input_layout = QtWidgets.QVBoxLayout(input_group)
         input_help = QtWidgets.QLabel(
-            "Manual values are event-specific and authoritative. Blank means no override; "
+            "Manual values apply to the selected Strategy tyre scope for this event. "
+            "Blank means no override; "
             "use Clear to return a field to the loaded pre-race/default value."
         )
         input_help.setWordWrap(True)
@@ -453,7 +550,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             ["Parameter", "Selected", "Source", "Manual", "Default", "Clear"]
         )
         self.tyre_input_table.itemChanged.connect(self._manual_tyre_input_changed)
-        self.clear_all_tyre_inputs_button = QtWidgets.QPushButton("Clear all manual overrides")
+        self.clear_all_tyre_inputs_button = QtWidgets.QPushButton("Clear all Global manual overrides")
         self.clear_all_tyre_inputs_button.clicked.connect(self._clear_all_manual_tyre_inputs)
         self.tyre_warning_label = QtWidgets.QLabel("")
         self.tyre_warning_label.setWordWrap(True)
@@ -520,7 +617,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
 
     def _refresh_tyre_inputs(self, *, apply_to_strategy: bool = False) -> None:
         try:
-            resolved = self.service.resolve_tyre_inputs(self.year, self.round_number)
+            resolved = self.service.resolve_tyre_inputs(
+                self.year, self.round_number, team=self._selected_team
+            )
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             self._resolved_tyre_inputs = None
             self.tyre_input_table.setRowCount(0)
@@ -533,8 +632,6 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             "Advisory: " + " ".join(warnings) if warnings else "No physical-order warning."
         )
         if apply_to_strategy and self._current_model_summary is not None:
-            self._manual_baseline_compounds.clear()
-            self._manual_degradation_compounds.clear()
             self._load_strategy_inputs(self._current_model_summary, resolved=resolved)
 
     def _render_tyre_input_table(self) -> None:
@@ -590,36 +687,44 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             return
         try:
             self.service.set_manual_tyre_input(
-                self.year, self.round_number, str(parameter), float(text)
+                self.year, self.round_number, str(parameter), float(text),
+                team=self._selected_team,
             )
         except (OSError, TypeError, ValueError) as exc:
             self.tyre_warning_label.setText(str(exc))
             self._render_tyre_input_table()
             return
         self._append_log(f"Manual tyre input saved: {parameter} = {text}")
+        self._discard_local_manual(str(parameter))
         self._refresh_tyre_inputs(apply_to_strategy=True)
+        self._save_state()
 
     def _clear_manual_tyre_input(self, parameter: str) -> None:
         try:
             self.service.clear_manual_tyre_input(
-                self.year, self.round_number, parameter
+                self.year, self.round_number, parameter, team=self._selected_team
             )
         except (OSError, TypeError, ValueError) as exc:
             self.tyre_warning_label.setText(str(exc))
             return
         self._append_log(f"Manual tyre input cleared: {parameter}; loaded default restored")
+        self._discard_local_manual(parameter)
         self._refresh_tyre_inputs(apply_to_strategy=True)
+        self._save_state()
 
     def _clear_all_manual_tyre_inputs(self) -> None:
         try:
             self.service.tyre_inputs.clear_all_manual_values(
-                self.year, self.round_number
+                self.year, self.round_number, team=self._selected_team
             )
         except (OSError, TypeError, ValueError) as exc:
             self.tyre_warning_label.setText(str(exc))
             return
         self._append_log("All manual tyre inputs cleared; loaded defaults restored")
+        self._active_manual_values().clear()
+        self._restore_scope_manual_sets()
         self._refresh_tyre_inputs(apply_to_strategy=True)
+        self._save_state()
 
     def _refresh_fp_evidence(self) -> None:
         try:
@@ -782,16 +887,25 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             ]
         )
         self.strategy_input_table.setEditTriggers(
-            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
+            (
+                QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked
+                | QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed
+            ) if self.team_scope_enabled
+            else QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
         )
         self.strategy_input_table.setMaximumHeight(170)
         input_help = QtWidgets.QLabel(
-            "Edit event-specific engineering values in the Tyre Inputs tab. "
-            "This table shows the exact current values used by Strategy search."
+            (
+                "Edit persistent values in Tyre Inputs, or edit Used values for this scope. "
+                "Used values are the exact Strategy search inputs. Performance model: Global."
+            ) if self.team_scope_enabled else (
+                "Edit event-specific engineering values in the Tyre Inputs tab. "
+                "This table shows the exact current values used by Strategy search."
+            )
         )
         self.operational_status_label = QtWidgets.QLabel()
         self.operational_status_label.setWordWrap(True)
-        controls = QtWidgets.QHBoxLayout()
+        controls = QtWidgets.QGridLayout()
         self.completed_lap = QtWidgets.QSpinBox()
         self.completed_lap.setRange(0, 200)
         self.completed_lap_override_enabled = QtWidgets.QCheckBox("Use override")
@@ -858,19 +972,19 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.result_count.setRange(1, 100)
         self.result_count.setValue(10)
         self.generate_button = QtWidgets.QPushButton("Calculate top 10")
-        for label, control in (
+        for index, (label, control) in enumerate((
             ("Completed lap", self.completed_lap), ("Total laps", self.total_laps),
             ("Compound", self.compound), ("Tyre age", self.tyre_age),
             ("Pit loss", self.pit_loss), ("Max stops", self.max_stops),
             ("Driver", self.driver), ("Results", self.result_count),
-        ):
-            controls.addWidget(QtWidgets.QLabel(label))
-            controls.addWidget(control)
-            if control is self.completed_lap:
-                controls.addWidget(self.completed_lap_override_enabled)
-        controls.addWidget(self.rules_compliant)
-        controls.addWidget(self.manual_override)
-        controls.addWidget(self.generate_button)
+        )):
+            row, column = divmod(index, 4)
+            controls.addWidget(QtWidgets.QLabel(label), row, column * 2)
+            controls.addWidget(control, row, column * 2 + 1)
+        controls.addWidget(self.completed_lap_override_enabled, 0, 9)
+        controls.addWidget(self.rules_compliant, 0, 8)
+        controls.addWidget(self.manual_override, 1, 8)
+        controls.addWidget(self.generate_button, 1, 9)
         self.strategy_table = QtWidgets.QTableWidget()
         self.strategy_table.setColumnCount(5)
         self.strategy_table.setHorizontalHeaderLabels(
@@ -940,6 +1054,99 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         if self._current_model_summary is not None:
             self._load_strategy_inputs(self._current_model_summary)
         self._save_state()
+
+    def _scope_key(self) -> str:
+        return self._selected_team or "Global"
+
+    def _active_manual_values(self) -> dict[tuple[str, str], float]:
+        return self._scope_manual_values.setdefault(self._scope_key(), {})
+
+    def _restore_scope_manual_sets(self) -> None:
+        manual = self._active_manual_values()
+        self._manual_baseline_compounds = {
+            compound for parameter, compound in manual if parameter == "compound_delta"
+        }
+        self._manual_degradation_compounds = {
+            compound for parameter, compound in manual if parameter == "degradation"
+        }
+
+    def _discard_local_manual(self, parameter: str) -> None:
+        coordinate = (
+            ("degradation", parameter.removeprefix("Deg_"))
+            if parameter.startswith("Deg_") else ("compound_delta", parameter.split("_")[1])
+        )
+        self._active_manual_values().pop(coordinate, None)
+        self._restore_scope_manual_sets()
+
+    def _team_scope_changed(self, team: str | None) -> None:
+        if self.team_scope_enabled and team is not None and team not in self._available_strategy_teams:
+            return
+        self._selected_team = team if self.team_scope_enabled else None
+        if self._selected_team in self.team_buttons:
+            self.team_buttons[self._selected_team].setChecked(True)
+        self.clear_all_tyre_inputs_button.setText(f"Clear all {self._scope_key()} manual overrides")
+        self._restore_scope_manual_sets()
+        self._external_tyre_sources = {}
+        self._refresh_tyre_inputs(apply_to_strategy=True)
+        self._append_log(f"Strategy tyre scope: {self._scope_key()}; performance model: Global")
+        self._save_state()
+
+    def _build_team_scope_buttons(self, teams: tuple[str, ...]) -> None:
+        if not self.team_scope_enabled:
+            return
+        while self.team_scope_grid.count():
+            button = self.team_scope_grid.takeAt(0).widget()
+            self.team_button_group.removeButton(button)
+            button.deleteLater()
+        self.team_buttons = {}
+        self._available_strategy_teams = set(teams)
+        ordered_teams = self._team_roster + tuple(sorted(set(teams).difference(self._team_roster)))
+        scopes = (None, *ordered_teams)
+        columns = (len(scopes) + 1) // 2
+        for index, team in enumerate(scopes):
+            button = QtWidgets.QPushButton(team or "Global")
+            button.setCheckable(True)
+            button.setProperty("team", team)
+            button.setChecked(team == self._selected_team)
+            available = team is None or team in self._available_strategy_teams
+            button.setEnabled(available)
+            colour = (
+                (get_team_colour(team) if team is not None else "#475569") or "#475569"
+                if available else STRATEGY_UNAVAILABLE_TEAM_COLOUR
+            )
+            tint = QtGui.QColor(colour)
+            button.setStyleSheet(
+                f"QPushButton {{ color: {colour}; border: {2 if available else 1}px solid {colour}; "
+                "border-radius: 4px; padding: 6px 10px; } "
+                f"QPushButton:checked {{ border: 3px solid {colour}; font-weight: bold; "
+                f"background-color: rgba({tint.red()}, {tint.green()}, {tint.blue()}, 35); }}"
+            )
+            availability = (
+                "Global is always available." if team is None else
+                "Available: this snapshot contains team_degradation." if available else
+                "Unavailable: this snapshot has no team_degradation; no team calculation is available."
+            )
+            button.setToolTip(f"{availability}\n{self.team_standings_source}")
+            self.team_button_group.addButton(button)
+            self.team_buttons[team] = button
+            row, column = divmod(index, columns)
+            self.team_scope_grid.addWidget(button, row, column)
+
+    def _refresh_strategy_teams(self, summary) -> None:
+        if not self.team_scope_enabled:
+            return
+        teams = self.service.strategy_teams(summary)
+        selected = self._selected_team
+        if selected is not None and selected not in teams:
+            self._selected_team = None
+            self.clear_all_tyre_inputs_button.setText("Clear all Global manual overrides")
+            self._restore_scope_manual_sets()
+            self._external_tyre_sources = {}
+            self._append_log(
+                f"Team {selected} is absent from the current model; Strategy scope reset to Global."
+            )
+            self._save_state()
+        self._build_team_scope_buttons(teams)
 
     def _build_history_tab(self):
         widget = QtWidgets.QWidget()
@@ -1173,6 +1380,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.generate_button.setEnabled(False)
             return
         self._current_model_summary = summary
+        self._refresh_strategy_teams(summary)
         columns = [
             "parameter", "compound", "session", "median", "p10", "p90",
             "unit", "ess", "source_scope",
@@ -1270,7 +1478,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             return
         self._sync_strategy_overrides()
         tyre_input_snapshot = tyre_snapshot_from_overrides(
-            self._manual_overrides, self._resolved_tyre_inputs
+            self._manual_overrides, self._resolved_tyre_inputs,
+            assumptions=list(self._estimated_strategy_inputs.values()),
+            manual_values=self._active_manual_values(),
         )
         state = StrategySearchState(
             effective_completed_lap, self.total_laps.value(), self.compound.currentText(),
@@ -1772,6 +1982,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             # optimisation input.
             None,
             selected_driver,
+            self._selected_team,
             manifest.get("analysis_id"),
             manifest.get("as_of_leader_lap"),
             bool(self.manual_override.isChecked()),
@@ -1819,7 +2030,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def _load_strategy_inputs(self, summary, *, resolved=None) -> None:
         if resolved is None:
             try:
-                resolved = self.service.resolve_tyre_inputs(self.year, self.round_number)
+                resolved = self.service.resolve_tyre_inputs(
+                    self.year, self.round_number, team=self._selected_team
+                )
             except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 self._append_log(f"Resolved tyre inputs unavailable: {exc}")
                 # Keep the model visible for diagnosis, but do not invent a
@@ -1827,6 +2040,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 self.generate_button.setEnabled(False)
                 return
         self._resolved_tyre_inputs = resolved
+        self._render_tyre_input_table()
         try:
             resolved.strategy_overrides()
         except ValueError as exc:
@@ -1835,20 +2049,34 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             return
         self._reference_compound = "MEDIUM"
         initial = self._resolved_assumption_rows(resolved)
-        if not self._initial_strategy_inputs:
-            self._initial_strategy_inputs = {
+        scope = self._scope_key()
+        if scope not in self._scope_initial_inputs:
+            self._scope_initial_inputs[scope] = {
                 str(row["compound"]): dict(row) for row in initial
             }
-            self._initial_degradation = {
-                str(row["compound"]): float(row["degradation"])
-                for row in initial
-                if row.get("degradation") is not None
+            ratio_values = {
+                str(row["compound"]): row["degradation"] for row in initial
             }
+            if self._selected_team is not None:
+                ratio_values = {
+                    name.removeprefix("Deg_"): item.legacy_value
+                    for name, item in resolved.by_parameter().items()
+                    if name.startswith("Deg_")
+                }
+            self._scope_initial_degradation[scope] = {
+                compound: float(value) for compound, value in ratio_values.items()
+                if value is not None
+            }
+        self._initial_strategy_inputs = self._scope_initial_inputs[scope]
+        self._initial_degradation = self._scope_initial_degradation[scope]
         effective, assumptions = self.service.effective_tyre_inputs(
             summary,
             resolved,
             manual_override=self.manual_override.isChecked(),
+            # Team ratios must use the automatic baseline, never Global manual.
             initial_degradation=self._initial_degradation,
+            team=self._selected_team,
+            manual_values=self._active_manual_values(),
         )
         self._estimated_strategy_inputs = {
             str(row["compound"]): dict(row) for row in assumptions
@@ -1911,6 +2139,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             return
         try:
             value = float(item.text())
+            if not np.isfinite(value):
+                raise ValueError("non-finite tyre input")
         except ValueError:
             self.status_label.setText("Tyre input must be numeric.")
             self._render_strategy_inputs()
@@ -1919,6 +2149,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         if field == "baseline":
             self._baseline_values[compound] = value
             self._manual_baseline_compounds.add(compound)
+            if compound == self._reference_compound:
+                self._manual_baseline_compounds.update(self._baseline_values)
         elif field == "delta":
             reference_baseline = self._baseline_values.get(
                 self._reference_compound,
@@ -1952,13 +2184,15 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         reference_baseline = self._baseline_values.get(reference)
         if reference_baseline is None:
             reference_baseline = max(self._baseline_values.values())
-        self._manual_overrides = {}
-        for compound, baseline in self._baseline_values.items():
-            self._manual_overrides[("compound_delta", compound)] = (
-                float(baseline) - float(reference_baseline)
+        manual = self._active_manual_values()
+        for compound in self._manual_baseline_compounds:
+            manual[("compound_delta", compound)] = (
+                float(self._baseline_values[compound]) - float(reference_baseline)
             )
-        for compound, degradation in self._degradation_values.items():
-            self._manual_overrides[("degradation", compound)] = float(degradation)
+        for compound in self._manual_degradation_compounds:
+            manual[("degradation", compound)] = float(self._degradation_values[compound])
+        if self._current_model_summary is not None:
+            self._load_strategy_inputs(self._current_model_summary, resolved=self._resolved_tyre_inputs)
 
     def _render_strategy_inputs(self) -> None:
         if not hasattr(self, "strategy_input_table"):
@@ -1987,15 +2221,20 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "—" if initial_degradation is None else f"{float(initial_degradation):.4f}",
                 f"{float(estimated['degradation']):.4f}",
                 f"{self._degradation_values[compound]:.4f}",
-                self._external_tyre_sources.get(
-                    compound,
-                    f"{estimated.get('degradation_source', 'base')}: "
-                    f"{estimated['sessions']} ({estimated['aggregation']})",
-                ),
+                f"D: {estimated.get('degradation_value_source', estimated.get('degradation_source', 'base'))}; "
+                f"P: {estimated.get('compound_delta_source', 'reference')} (Global model)",
             ]
             for column, value in enumerate(values):
                 item = QtWidgets.QTableWidgetItem(str(value))
-                item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                field = {3: "baseline", 4: "delta", 7: "degradation"}.get(column)
+                if (
+                    self.team_scope_enabled and field is not None
+                    and not (field == "delta" and compound == "MEDIUM")
+                ):
+                    item.setData(QtCore.Qt.ItemDataRole.UserRole, (field, compound))
+                    item.setBackground(QtGui.QColor("#fff4c2"))
+                else:
+                    item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
                 self.strategy_input_table.setItem(row_index, column, item)
         self.strategy_input_table.resizeColumnsToContents()
         self._strategy_input_loading = False
@@ -2349,9 +2588,30 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
 
     def _record_history_point(self, summary) -> None:
         leader_lap = int(float(summary.manifest.get("as_of_leader_lap") or 0))
+        # History remains a Global model consumer. Dialog-local Used edits
+        # belong only to Strategy, regardless of the currently selected scope.
+        resolved = self.service.resolve_tyre_inputs(self.year, self.round_number)
+        initial_inputs = self._scope_initial_inputs.get("Global", {})
+        _, assumptions = self.service.effective_tyre_inputs(
+            summary, resolved, manual_override=self.manual_override.isChecked(),
+            initial_degradation={
+                compound: float(row["degradation"])
+                for compound, row in initial_inputs.items()
+                if row.get("degradation") is not None
+            },
+        )
+        # Strategy uses MEDIUM=0. Restore the model's original reference for
+        # history so its medians and model P10/P90 remain in the same coordinates.
+        assumptions = [
+            dict(row, compound_delta=(
+                float(row["compound_delta"])
+                + float(row.get("compound_delta_model_reference_offset") or 0.)
+            ))
+            for row in assumptions
+        ]
         if not self._working_plot_rows and leader_lap > 0:
             initial = []
-            for value in self._initial_strategy_inputs.values():
+            for value in initial_inputs.values():
                 row = dict(value)
                 row["degradation_source"] = "base"
                 row["degradation_race_informed"] = False
@@ -2364,11 +2624,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             row for row in self._working_plot_rows
             if int(float(row.get("as_of_leader_lap") or 0)) != leader_lap
         ]
-        # _load_strategy_inputs resolved the current Race-informed and assumed
-        # degradations once. Persist exactly those same values for plotting and
-        # later Strategy Prediction selection.
+        # Keep the existing Global history independent of the Strategy selector.
         new_rows = self._plot_rows_from_assumptions(
-            list(self._estimated_strategy_inputs.values()), leader_lap
+            assumptions, leader_lap
         )
         quality = dict(summary.manifest.get("sampler_quality") or {})
         if quality:
@@ -2386,15 +2644,25 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             }
             for row in new_rows:
                 row.update(common)
+                if any(
+                    str(row.get(source, "")).startswith("manual")
+                    for source in (
+                        "degradation_value_source", "degradation_source", "compound_delta_source"
+                    )
+                ):
+                    continue
                 compound = str(row.get("compound") or "").upper()
                 parameter = str(row.get("parameter") or "")
                 match = next((item for item in summary.parameters
                               if str(item.get("parameter")) == parameter
                               and str(item.get("compound") or "").upper() == compound), None)
-                if match:
+                if match and np.isclose(
+                    float(row["median"]), float(match["median"]), rtol=0., atol=1e-12
+                ):
                     row["p10"] = match.get("p10")
                     row["p90"] = match.get("p90")
-                    row["p10_p90_width"] = float(match["p90"]) - float(match["p10"])
+                    if match.get("p10") is not None and match.get("p90") is not None:
+                        row["p10_p90_width"] = float(match["p90"]) - float(match["p10"])
         self._working_plot_rows.extend(new_rows)
         self.history_snapshot_combo.blockSignals(True)
         self.history_snapshot_combo.setCurrentIndex(0)
@@ -2428,6 +2696,10 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                     "median": float(assumption["degradation"]),
                     "degradation_source": str(
                         assumption.get("degradation_source") or "model"
+                    ),
+                    "degradation_value_source": str(
+                        assumption.get("degradation_value_source")
+                        or assumption.get("degradation_source") or "model"
                     ),
                     "degradation_race_informed": bool(
                         assumption.get("degradation_race_informed", False)
@@ -2545,9 +2817,32 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         try:
             with self._state_path.open(encoding="utf-8") as handle:
                 state = json.load(handle)
+            if not isinstance(state, dict):
+                raise ValueError("saved state must be an object")
             if int(state.get("year")) != self.year or int(state.get("round_number")) != self.round_number:
                 raise ValueError("state belongs to a different event")
             controls = state.get("controls", {})
+            if not isinstance(controls, dict):
+                raise ValueError("saved controls must be an object")
+            if self.team_scope_enabled:
+                self._restore_scope_manual_values(state.get("scope_manual_values", {}))
+            else:
+                # The standard window must neither apply nor erase live-only
+                # scope state when both entry points use the same state file.
+                if "team" in controls:
+                    self._inactive_scope_state["team"] = controls["team"]
+                if "scope_manual_values" in state:
+                    self._inactive_scope_state["scope_manual_values"] = state["scope_manual_values"]
+            saved_team = controls.get("team") if self.team_scope_enabled else None
+            if self.team_scope_enabled and (
+                not isinstance(saved_team, (str, type(None))) or saved_team not in self.team_buttons
+                or not self.team_buttons[saved_team].isEnabled()
+            ):
+                self._append_log(
+                    f"Saved team {saved_team} is absent from the current model; Strategy scope reset to Global."
+                )
+                saved_team = None
+            self._team_scope_changed(saved_team)
             self.completed_lap.setValue(
                 int(controls.get("completed_lap", self.completed_lap.value()))
             )
@@ -2599,9 +2894,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.tabs.setCurrentIndex(int(controls.get("tab_index", self.tabs.currentIndex())))
             driver = controls.get("driver")
             self._restored_driver_code = str(driver) if driver else None
-            # Event-specific manual tyre values live only in
-            # manual_tyre_inputs_v1.json.  Older dialog-local copies are
-            # deliberately ignored to prevent Planner/live divergence.
+            # Persisted Tyre Inputs remain in manual_tyre_inputs_v1.json;
+            # scope_manual_values stores only this window's explicit Used edits.
             self._external_tyre_sources = {
                 str(compound).upper(): str(source)
                 for compound, source in dict(state.get("external_tyre_sources", {})).items()
@@ -2618,6 +2912,41 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self._append_log(f"Restored Strategy Prediction state from {self._state_path}")
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             self._append_log(f"Could not restore saved state: {exc}")
+
+    def _restore_scope_manual_values(self, scoped) -> None:
+        self._scope_manual_values = {}
+        if not isinstance(scoped, dict):
+            self._append_log("Ignored invalid saved scope manual values: expected an object.")
+            return
+        invalid = False
+        for scope, rows in scoped.items():
+            if not isinstance(scope, str) or not isinstance(rows, list):
+                invalid = True
+                continue
+            values = {}
+            for row in rows:
+                try:
+                    if not isinstance(row, dict):
+                        raise ValueError("expected an object")
+                    parameter, compound = row.get("parameter"), row.get("compound")
+                    if (
+                        not isinstance(parameter, str) or not isinstance(compound, str)
+                        or parameter not in {"degradation", "compound_delta"}
+                        or compound not in {"HARD", "MEDIUM", "SOFT"}
+                        or isinstance(row.get("value"), bool)
+                    ):
+                        raise ValueError("invalid parameter or compound")
+                    value = float(row["value"])
+                    if not np.isfinite(value):
+                        raise ValueError("non-finite value")
+                    if parameter == "compound_delta" and compound == "MEDIUM" and value != 0.:
+                        raise ValueError("MEDIUM is the fixed performance reference")
+                    values[(parameter, compound)] = value
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    invalid = True
+            self._scope_manual_values[scope] = values
+        if invalid:
+            self._append_log("Ignored invalid saved scope manual entries.")
 
     def _save_state(self, *_args) -> None:
         if not self._state_ready:
@@ -2636,6 +2965,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "tyre_age": self.tyre_age.value(),
                 "max_stops": self.max_stops.value(),
                 "driver": self.driver.currentData(),
+                "team": self._selected_team,
                 "result_count": self.result_count.value(),
                 "rules_compliant": self.rules_compliant.isChecked(),
                 "manual_override": self.manual_override.isChecked(),
@@ -2653,7 +2983,21 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "tab_index": self.tabs.currentIndex(),
             },
             "external_tyre_sources": dict(self._external_tyre_sources),
+            "scope_manual_values": {
+                scope: [
+                    {"parameter": parameter, "compound": compound, "value": value}
+                    for (parameter, compound), value in sorted(values.items())
+                ]
+                for scope, values in self._scope_manual_values.items()
+            },
         }
+        if not self.team_scope_enabled:
+            state["controls"].pop("team")
+            state.pop("scope_manual_values")
+            if "team" in self._inactive_scope_state:
+                state["controls"]["team"] = self._inactive_scope_state["team"]
+            if "scope_manual_values" in self._inactive_scope_state:
+                state["scope_manual_values"] = self._inactive_scope_state["scope_manual_values"]
         if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
             state["controls"].update({
                 "total_laps": self.total_laps.value(),

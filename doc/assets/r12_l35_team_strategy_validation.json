@@ -1,0 +1,208 @@
+{
+  "schema": "r12_l35_team_strategy_validation_v1",
+  "result": "PASS",
+  "code_identity": {
+    "base_and_head": "9a5cd47ae308e59ae1e9d2dd47601ce4e7aaf0d6",
+    "tracked_diff_sha256": "61aaf780428bd238994867e148d29dcfa06a77821898d5b58ed2a5cf858bddec",
+    "validation_script_sha256": "ba8b8f2f669137180f7d3d4f719841a9430c315ab51e067292149e304b4425dd",
+    "production_source_sha256": {
+      "src/woplanner/analysis/gui.py": "0dd5e63d2a92daa95fa985719c7e4c9126195ee056ec467ee35477f8be077138",
+      "src/woplanner/analysis/service.py": "738ee923c8255c9a323060ede3e4da21420178583a26c73d2dfd1b46548ac660",
+      "src/woplanner/analysis/tyre_inputs.py": "f381881a2a6d64551846296c13ae86cc09f5004e57ad74b5c49b2c3a93690433",
+      "src/woplanner/live/gui.py": "d18f1015d7dcbc0692d1ae8a4d5cbd1472dc4e3ec0bc1e6da6dc2cb9d6918da5",
+      "src/woplanner/live/service.py": "7d497c95b9685cf96d8701b361b4847bed36c56e869359aa92e69aeb5e8b2f43"
+    },
+    "status_short": [
+      " M README.md",
+      " M src/woplanner/analysis/gui.py",
+      " M src/woplanner/analysis/service.py",
+      " M src/woplanner/analysis/tyre_inputs.py",
+      " M src/woplanner/live/gui.py",
+      " M tests/test_live_gui.py",
+      " M tests/test_tyre_inputs.py",
+      " M tests/test_tyre_inputs_gui.py",
+      "?? doc/R12_L35_TEAM_STRATEGY_VALIDATION.md",
+      "?? doc/assets/r12_l35_team_strategy_validation.json",
+      "?? tools/validate_r12_l35_team_strategy.py"
+    ]
+  },
+  "input": {
+    "manifest": "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=12/session=R/recovered_replay_manifest.json",
+    "accepted_sources": [
+      "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=12/session=R/live_timing_raw.txt",
+      "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=12/session=R/live_timing_raw_2.txt",
+      "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=12/session=R/live_timing_raw_3.txt",
+      "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=12/session=R/live_timing_raw_4.txt"
+    ],
+    "imported_modules": {
+      "woplanner.analysis.service": "/Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode/src/woplanner/analysis/service.py",
+      "woplanner.analysis.tyre_inputs": "/Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode/src/woplanner/analysis/tyre_inputs.py",
+      "woplanner.live.service": "/Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode/src/woplanner/live/service.py",
+      "wodata": "/Users/zhxutong/dr-wo/woData/.worktrees/distinct-team-colours/src/wodata/__init__.py"
+    }
+  },
+  "run": {
+    "year": 2026,
+    "round": 12,
+    "session": "R",
+    "leader_lap_cutoff": 35,
+    "sample_count": 5000,
+    "persist": false,
+    "enforce_compound_order": true,
+    "filtering": {
+      "quick_lap_threshold": 1.1,
+      "min_clean_laps": 4,
+      "allowed_compounds": ["HARD", "MEDIUM", "SOFT"],
+      "exclude_stint_start_laps": 0,
+      "exclude_stint_end_laps": 0,
+      "use_sector_boundary_traffic": true,
+      "min_gap_ahead_seconds": 2.5,
+      "min_gap_behind_seconds": 1.0
+    },
+    "strategy_state": {
+      "current_completed_lap": 35,
+      "total_laps": 72,
+      "current_compound": "HARD",
+      "current_tyre_age": 10,
+      "max_future_stops": 2,
+      "provenance": "validation_common_state"
+    },
+    "pit_loss": 22.0,
+    "k": 3
+  },
+  "causal_cutoff": {
+    "replay_total_messages": 92309,
+    "invalid_records": 0,
+    "messages_consumed": 49004,
+    "event": {"sequence": 49004, "topic": "TimingData", "session_time_seconds": 1787494783.883},
+    "completion_clock": 1787494783.883,
+    "max_completed_lap": 35,
+    "max_clean_lap": 34
+  },
+  "clean_support": {
+    "laps": 95,
+    "runs": 14,
+    "global_by_compound": {
+      "HARD": {"laps": 43, "runs": 7},
+      "MEDIUM": {"laps": 28, "runs": 4},
+      "SOFT": {"laps": 24, "runs": 3}
+    },
+    "selected_teams": {
+      "Mercedes": {
+        "HARD": {"laps": 8, "runs": 1, "min_lap": 24, "max_lap": 31},
+        "MEDIUM": {"laps": 10, "runs": 1, "min_lap": 11, "max_lap": 20},
+        "SOFT": {"laps": 0, "runs": 0}
+      },
+      "McLaren": {
+        "HARD": {"laps": 10, "runs": 1, "min_lap": 8, "max_lap": 17},
+        "MEDIUM": {"laps": 0, "runs": 0},
+        "SOFT": {"laps": 0, "runs": 0}
+      }
+    }
+  },
+  "model": {
+    "analysis_id": "live-retro-analysis-a11538217d22a672fe9d",
+    "sample_bank_id": "live-retro-bank-b4861e92b8d7ffac918d",
+    "input_fingerprint": "d2534dd142250b2d26edaa2d97b6e491a60016cf3ccf861bccb0119944a0b0c8",
+    "config_hash": "b4861e92b8d7ffac918d83724fdf73f2c9c08946b3cb81f9b8390bd032572410",
+    "shared_sampler_quality": {
+      "sample_count": 5000,
+      "ess": 813.3881909271829,
+      "ess_fraction": 0.16267763818543657,
+      "baseline_group": "team",
+      "weight_strategy": "gaussian",
+      "evaluator_backend": "accelerated"
+    },
+    "posterior": {
+      "Global": {
+        "HARD": {"p10": 0.03021466374147912, "p50": 0.15199626989211865, "p90": 0.3743602353182375},
+        "MEDIUM": {"p10": 0.09263979613876788, "p50": 0.24479621522262415, "p90": 0.4475149702051378},
+        "SOFT": {"p10": 0.1576923108152773, "p50": 0.3360943551396227, "p90": 0.48330856145167045}
+      },
+      "Mercedes": {
+        "HARD": {"p10": 0.02682194429002622, "p50": 0.14774761153175348, "p90": 0.3847722775258175},
+        "MEDIUM": {"p10": 0.07882087541225327, "p50": 0.213748987639766, "p90": 0.4428801396572697},
+        "SOFT": null
+      },
+      "McLaren": {
+        "HARD": {"p10": 0.03185377457268961, "p50": 0.14413504351892176, "p90": 0.38096477436255227},
+        "MEDIUM": null,
+        "SOFT": null
+      }
+    }
+  },
+  "selectors": {
+    "Global": {
+      "effective": {"HARD": 0.15199626989211865, "MEDIUM": 0.24479621522262415, "SOFT": 0.3360943551396227},
+      "sources": {"HARD": "live_direct", "MEDIUM": "live_direct", "SOFT": "live_direct"},
+      "actual_build_degradation": {"HARD": 0.15199626989211865, "MEDIUM": 0.24479621522262415, "SOFT": 0.3360943551396227},
+      "search_results": 3
+    },
+    "Mercedes": {
+      "effective": {"HARD": 0.14774761153175348, "MEDIUM": 0.21374898763976596, "SOFT": 0.3185427010409643},
+      "sources": {"HARD": "team_live_direct", "MEDIUM": "team_live_direct", "SOFT": "team_live_derived"},
+      "actual_build_degradation": {"HARD": 0.14774761153175348, "MEDIUM": 0.21374898763976596, "SOFT": 0.3185427010409643},
+      "search_results": 3
+    },
+    "McLaren": {
+      "effective": {"HARD": 0.14413504351892176, "MEDIUM": 0.2090377559837947, "SOFT": 0.3115217159430046},
+      "sources": {"HARD": "team_live_direct", "MEDIUM": "team_live_derived", "SOFT": "team_live_derived"},
+      "actual_build_degradation": {"HARD": 0.14413504351892176, "MEDIUM": 0.2090377559837947, "SOFT": 0.3115217159430046},
+      "search_results": 3
+    },
+    "global_performance_effective_and_actual_build": {"HARD": 0.29727929071969816, "MEDIUM": 0.0, "SOFT": -0.36801556225045107}
+  },
+  "assertions": {
+    "causal_l35_only": true,
+    "sample_count_5000": true,
+    "persist_false": true,
+    "actual_generate_continuations_called": true,
+    "actual_build_strategy_model_consumed_all_effective_overrides": true,
+    "team_direct_values_equal_absolute_team_medians": true,
+    "global_mercedes_mclaren_differ": true,
+    "mercedes_soft_is_team_live_derived": true,
+    "team_performance_scope_is_global": true
+  },
+  "rerun_command": "PYTHONDONTWRITEBYTECODE=1 MPLCONFIGDIR=/private/tmp/r12-team-matplotlib /Users/zhxutong/dr-wo/.venv/bin/python tools/validate_r12_l35_team_strategy.py --planner-root /Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode --strategy-root /Users/zhxutong/dr-wo/woStrategy --data-root /Users/zhxutong/dr-wo/woData --input-manifest /Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=12/session=R/recovered_replay_manifest.json --expected-feature-src /Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode/src --output /private/tmp/r12_l35_team_strategy_validation.json",
+  "fixture_closure": {
+    "working_directory": "/private/tmp",
+    "single_process": true,
+    "feature_module": "/Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode/src/woplanner/live/service.py",
+    "command": "PYTHONPATH=/Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode/src:/Users/zhxutong/dr-wo/woStrategy/src:/Users/zhxutong/dr-wo/woData/src PYTHONDONTWRITEBYTECODE=1 MPLCONFIGDIR=/private/tmp/r12-team-matplotlib FEATURE_SRC=/Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode/src /Users/zhxutong/dr-wo/.venv/bin/python -c 'import os; from pathlib import Path; import pytest; import woplanner.live.service as feature_module; actual=Path(feature_module.__file__).resolve(); expected=(Path(os.environ[\"FEATURE_SRC\"]).resolve()/\"woplanner/live/service.py\"); print(f\"FEATURE_MODULE={actual}\", flush=True); assert actual == expected, (actual, expected); raise SystemExit(pytest.main([\"-q\", \"-c\", \"/dev/null\", \"-p\", \"no:cacheprovider\", \"/Users/zhxutong/dr-wo/woPlanner/tests/test_live_service.py\"]))'",
+    "result": "17 passed in 0.53s"
+  },
+  "ui_regression": {
+    "command": "QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 MPLCONFIGDIR=/private/tmp/r12-team-matplotlib PYTHONPATH=src:/Users/zhxutong/dr-wo/woStrategy/src:/Users/zhxutong/dr-wo/woData/src /Users/zhxutong/dr-wo/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_tyre_inputs.py tests/test_analysis_service.py tests/test_tyre_inputs_gui.py tests/test_live_gui.py",
+    "result": "102 passed in 5.64s",
+    "native_visual_reverification_required": false,
+    "native_numeric_investigation_required": true
+  },
+  "colour_ssot_rerun": {
+    "pythonpath": [
+      "/Users/zhxutong/dr-wo/woPlanner/.worktrees/live-strategy-team-mode/src",
+      "/Users/zhxutong/dr-wo/woStrategy/src",
+      "/Users/zhxutong/dr-wo/woData/.worktrees/distinct-team-colours/src"
+    ],
+    "wodata_module": "/Users/zhxutong/dr-wo/woData/.worktrees/distinct-team-colours/src/wodata/__init__.py",
+    "data_layout": "A disposable /private/tmp data-root facade linked the distinct-team-colours src and the existing main woData model/replay directories; it was removed after the run.",
+    "result": "PASS: actual Global, Mercedes, and McLaren Strategy inputs unchanged"
+  },
+  "native_user_feedback": {
+    "confirmed": [
+      "layout",
+      "sorting",
+      "disabled teams are grey",
+      "enabled team colours are bright",
+      "teams are visually distinguishable"
+    ],
+    "numeric_consistency_with_offline_validator": false,
+    "numeric_status": "Native Global/team values have a separate unexplained difference from the offline validator; do not mark them numerically consistent. Track as a separate issue.",
+    "attempted_numeric_fix": false
+  },
+  "notes": {
+    "ess": "Every parameter row repeats the shared global joint-sampler ESS; it is not team-specific evidence ESS.",
+    "writes": "No durable model, strategy, manual, clean-CSV, or repository artifact was written by the validation run.",
+    "ordering": "The rerun preserved Global degradation H<M<S at P10, P50, P90 and at the actual Strategy build boundary. The model's enforce_compound_order configuration is pre-existing; the UI-only diff did not change the fit or search algorithm.",
+    "manual_warning_semantics": "physical_order_warnings remains advisory/warning-only for manual values. It reports ordering concerns but does not clamp or rewrite manual Strategy inputs; this is existing code semantics, not a new algorithm."
+  }
+}

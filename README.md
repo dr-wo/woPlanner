@@ -231,6 +231,45 @@ Changing the Manual anchor does not rewind canonical live-session state or
 historical tyre models. The Auto/Manual choice and entered value are remembered
 with the other Strategy Prediction controls.
 
+### Strategy tyre scope
+
+At the top of the **Strategy Prediction** window, the Global and Team scope
+buttons list the full roster across two rows. Global is selected by default;
+teams with team-degradation rows in the current snapshot are coloured and enabled,
+while unavailable teams remain grey and disabled. Order follows the latest local
+successful prior-round constructors standings, with `TEAM_COLOURS` roster order
+as a display-only fallback; tooltips identify the source. Team colours come from
+woData's shared palette, the single source of truth. If a selected team becomes
+unavailable, the window returns to Global.
+
+Selecting a team changes degradation only. For each available compound, Strategy
+uses the existing team-by-compound median as an absolute degradation value; it is
+not added to or subtracted from the Global value. A compound missing from the
+team rows is derived with the event's automatic, non-manual fixed initial
+degradation ratio. Compound performance remains the **Global model**: this
+feature does not introduce a team performance model.
+
+Persisted manual values in **Tyre Inputs** and working edits in the **Used**
+columns are both isolated between Global and each Team scope. In particular,
+Global manual values do not propagate to a Team. A live model refresh updates
+automatic values without replacing active manual values in the selected scope,
+and reopening the window restores that scope and its edits.
+
+The Used values and **Used source** column show the exact inputs and provenance
+handed to the Strategy search. Median, P10, and P90 values shown in the model
+table are diagnostics; the existing search continues to use the selected median
+input, so the bounds do not alter a strategy. Likewise, a shared ESS value is a
+shared-fit support diagnostic and must not be read as team-specific evidence ESS.
+Scope selection affects only this **Strategy Prediction** window. It does not
+change Update history, other model consumers, or the strategy-search algorithm.
+
+For a short manual check, load a live-retro snapshot with at least two teams,
+then switch Global → Team A → Team B. Enter different persisted and Used
+manual values in each scope, trigger a live refresh, and confirm each active value
+is retained. Close and reopen the window, verify the selected scope and values
+are restored, inspect Used and Used source, then press **Calculate** and confirm
+the search uses the displayed inputs.
+
 ### Current-event inputs and historical what-if mode
 
 `CURRENT_EVENT` uses the canonical editable event configuration in

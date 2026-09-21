@@ -849,6 +849,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 "temporary" if self._active_source_mode == "replay" else "durable"
             ),
             auto_save_history=self._active_source_mode == "live",
+            team_scope_enabled=True,
             telemetry_worker=self.service.telemetry_worker,
             parent=self,
         )

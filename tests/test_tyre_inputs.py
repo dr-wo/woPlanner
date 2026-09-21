@@ -421,3 +421,280 @@ def test_strategy_model_does_not_invent_missing_compound_delta():
     )
     with pytest.raises(ValueError, match="both a delta and degradation"):
         OfflineAnalysisService().build_strategy_model(summary)
+
+
+def team_summary(*, ferrari_medium=.15, mclaren_medium=.22):
+    rows = []
+    for compound, degradation, delta in (
+        ("HARD", .20, .7), ("MEDIUM", .30, 0.0), ("SOFT", .40, -.6)
+    ):
+        for parameter, value in (("degradation", degradation), ("compound_delta", delta)):
+            rows.append({
+                "parameter": parameter, "compound": compound, "median": value,
+                "usable_lap_count": 20, "support_status": "measured", "session": "R",
+            })
+    for team, compound, value in (
+        ("Ferrari", "HARD", .12), ("Ferrari", "MEDIUM", ferrari_medium),
+        ("McLaren", "MEDIUM", mclaren_medium),
+    ):
+        rows.append({
+            "parameter": "team_degradation", "team": team, "compound": compound,
+            "median": value, "p10": value - .03, "p90": value + .04,
+            "usable_lap_count": 10, "usable_run_count": 2, "ess": 777,
+            "support_status": "measured", "session": "R",
+        })
+    return ModelSummary(
+        {"analysis_id": "team-live", "as_of_leader_lap": 35,
+         "sampler_quality": {"architecture": "live-retro-v1", "ess": 777,
+                             "observed_compounds": ["HARD", "MEDIUM", "SOFT"]}},
+        tuple(rows),
+    )
+
+
+def test_manual_scopes_preserve_v1_global_and_two_teams_across_restart(tmp_path):
+    write_prior(tmp_path)
+    service = TyreInputService(tmp_path)
+    # A legacy schema-v1 file has only the Global values mapping.
+    service.set_manual_value(2026, 11, "Deg_HARD", .91)
+    assert "team_values" not in json.loads(service.manual_path(2026, 11).read_text())
+    service.set_manual_value(2026, 11, "Deg_HARD", .11, team="Ferrari")
+    service.set_manual_value(2026, 11, "Perf_SOFT_vs_MEDIUM", -.8, team="McLaren")
+    service.set_manual_value(2026, 11, "Perf_HARD_vs_MEDIUM", .9)
+    restarted = TyreInputService(tmp_path)
+    assert restarted.resolve(2026, 11).by_parameter()["Deg_HARD"].selected_value == .91
+    ferrari = restarted.resolve(2026, 11, team="Ferrari")
+    assert ferrari.team == "Ferrari"
+    assert ferrari.by_parameter()["Deg_HARD"].selected_value == .11
+    assert ferrari.by_parameter()["Perf_HARD_vs_MEDIUM"].selected_value == pytest.approx(LEGACY["Perf_HARD_vs_MEDIUM"])
+    mclaren = restarted.resolve(2026, 11, team="McLaren")
+    assert mclaren.by_parameter()["Deg_HARD"].selected_value == LEGACY["Deg_HARD"]
+    assert mclaren.by_parameter()["Perf_SOFT_vs_MEDIUM"].selected_value == -.8
+    restarted.clear_all_manual_values(2026, 11, team="Ferrari")
+    assert restarted.resolve(2026, 11, team="Ferrari").by_parameter()["Deg_HARD"].selected_value == LEGACY["Deg_HARD"]
+    assert restarted.resolve(2026, 11, team="McLaren").by_parameter()["Perf_SOFT_vs_MEDIUM"].selected_value == -.8
+    assert restarted.resolve(2026, 11).by_parameter()["Deg_HARD"].selected_value == .91
+    restarted.clear_manual_value(2026, 11, "Perf_SOFT_vs_MEDIUM", team="McLaren")
+    assert restarted.resolve(2026, 11, team="McLaren").by_parameter()["Perf_SOFT_vs_MEDIUM"].selected_value == pytest.approx(LEGACY["Perf_SOFT_vs_MEDIUM"])
+
+
+def test_team_effective_rates_are_absolute_and_missing_use_nonmanual_initial_ratios(tmp_path):
+    write_prior(tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    service.tyre_inputs.save_manual_inputs(2026, 11, {
+        "Deg_HARD": .91, "Deg_MEDIUM": .99, "Deg_SOFT": .92,
+        "Perf_HARD_vs_MEDIUM": 9, "Perf_SOFT_vs_MEDIUM": -9,
+    })
+    summary = team_summary()
+    assert service.strategy_teams(summary) == ("Ferrari", "McLaren")
+    effective = {}
+    for team in (None, "Ferrari", "McLaren", "Ferrari", None):
+        resolved = service.resolve_tyre_inputs(2026, 11, team=team)
+        values, rows = service.effective_tyre_inputs(summary, resolved, manual_override=False)
+        effective[team] = values
+        assert values[("compound_delta", "HARD")] == .7
+        assert values[("compound_delta", "SOFT")] == -.6
+        assert all(row["performance_model_scope"] == "global" for row in rows)
+        if team:
+            assert all(row["compound_delta_source"] == "global_race_evidence" for row in rows)
+    assert effective[None][("degradation", "MEDIUM")] == .30
+    assert effective["Ferrari"][("degradation", "MEDIUM")] == .15
+    assert effective["Ferrari"][("degradation", "HARD")] == .12
+    assert effective["Ferrari"][("degradation", "SOFT")] == pytest.approx(.15 * LEGACY["Deg_SOFT"] / LEGACY["Deg_MEDIUM"])
+    assert effective["McLaren"][("degradation", "HARD")] == pytest.approx(.22 * LEGACY["Deg_HARD"] / LEGACY["Deg_MEDIUM"])
+    assert effective["McLaren"][("degradation", "SOFT")] == pytest.approx(.22 * LEGACY["Deg_SOFT"] / LEGACY["Deg_MEDIUM"])
+    # No team observations uses the event defaults, never Global manuals.
+    absent = service.resolve_tyre_inputs(2026, 11, team="Williams")
+    values, rows = service.effective_tyre_inputs(summary, absent, manual_override=False)
+    assert values[("degradation", "HARD")] == LEGACY["Deg_HARD"]
+    assert {row["degradation_source"] for row in rows} == {"base"}
+
+
+def test_team_manual_and_global_active_manual_survive_live_updates_and_switches(tmp_path):
+    write_prior(tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    service.set_manual_tyre_input(2026, 11, "Deg_MEDIUM", .51, team="Ferrari")
+    service.set_manual_tyre_input(2026, 11, "Perf_HARD_vs_MEDIUM", .81, team="Ferrari")
+    service.set_manual_tyre_input(2026, 11, "Deg_HARD", .62, team="McLaren")
+    global_manual = {("degradation", "HARD"): .71, ("compound_delta", "SOFT"): -.91}
+    for summary in (team_summary(), team_summary(ferrari_medium=.25, mclaren_medium=.32)):
+        for team in (None, "Ferrari", "McLaren", None, "Ferrari"):
+            resolved = service.resolve_tyre_inputs(2026, 11, team=team)
+            values, rows = service.effective_tyre_inputs(
+                summary, resolved, manual_override=False,
+                manual_values=global_manual if team is None else None,
+            )
+            if team is None:
+                assert values[("degradation", "HARD")] == .71
+                assert values[("compound_delta", "SOFT")] == -.91
+            elif team == "Ferrari":
+                assert values[("degradation", "MEDIUM")] == .51
+                assert values[("compound_delta", "HARD")] == .81
+                assert values[("degradation", "HARD")] == .12
+                direct_medium = next(
+                    row["median"] for row in summary.parameters
+                    if row.get("team") == "Ferrari" and row["compound"] == "MEDIUM"
+                )
+                assert values[("degradation", "SOFT")] == pytest.approx(
+                    direct_medium * LEGACY["Deg_SOFT"] / LEGACY["Deg_MEDIUM"]
+                )
+            else:
+                assert values[("degradation", "HARD")] == .62
+                assert values[("compound_delta", "HARD")] == .7
+            frozen = tyre_snapshot_from_overrides(values, resolved, assumptions=rows)
+            assert "unattributed_override" not in frozen["selected_sources"].values()
+            assert frozen["team"] == team
+            if team == "Ferrari":
+                assert frozen["values"]["Deg_MEDIUM"] == .51
+                assert frozen["selected_sources"]["Deg_MEDIUM"] == "manual"
+                assert frozen["selected_sources"]["Deg_HARD"] == "team_live_direct"
+                assert frozen["selected_sources"]["Deg_SOFT"] == "team_live_derived"
+                assert frozen["selected_sources"]["Perf_HARD_vs_MEDIUM"] == "manual"
+                manual_row = next(row for row in rows if row["compound"] == "MEDIUM")
+                assert manual_row["degradation_support_status"] == "manual"
+                assert "p10" not in manual_row and "p90" not in manual_row and "ess" not in manual_row
+
+
+def test_effective_snapshot_does_not_claim_stale_source_and_normalizes_reference(tmp_path):
+    write_prior(tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    resolved = service.resolve_tyre_inputs(2026, 11)
+    values, rows = service.effective_tyre_inputs(team_summary(), resolved, manual_override=False)
+    snapshot = tyre_snapshot_from_overrides(values, resolved, assumptions=rows)
+    assert snapshot["values"]["Deg_MEDIUM"] == .3
+    assert snapshot["selected_sources"]["Deg_MEDIUM"] == "live_direct"
+    legacy_call = tyre_snapshot_from_overrides(values, resolved)
+    assert legacy_call["selected_sources"]["Deg_MEDIUM"] == "unattributed_override"
+    with pytest.raises(ValueError, match="fixed reference and must be 0"):
+        service.effective_tyre_inputs(
+            team_summary(), resolved, manual_override=False,
+            manual_values={("compound_delta", "MEDIUM"): .2},
+        )
+    with pytest.raises(ValueError, match="fixed reference and must be 0"):
+        tyre_snapshot_from_overrides(
+            values, resolved, assumptions=rows,
+            manual_values={("compound_delta", "MEDIUM"): .2},
+        )
+    frozen = tyre_snapshot_from_overrides(
+        values, resolved, assumptions=rows,
+        manual_values={("compound_delta", "MEDIUM"): 0.0},
+    )
+    assert frozen["values"]["Perf_HARD_vs_MEDIUM"] == pytest.approx(.7)
+    assert frozen["values"]["Perf_SOFT_vs_MEDIUM"] == pytest.approx(-.6)
+    assert frozen["selected_sources"]["Perf_HARD_vs_MEDIUM"] == "race_evidence"
+    assert frozen["selected_sources"]["Perf_SOFT_vs_MEDIUM"] == "race_evidence"
+
+
+def test_team_resolution_rejects_global_manual_package(tmp_path):
+    write_prior(tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    with pytest.raises(ValueError, match="selected team"):
+        service.effective_tyre_inputs(
+            team_summary(), service.resolve_tyre_inputs(2026, 11),
+            manual_override=False, team="Ferrari",
+        )
+
+
+def test_team_live_snapshot_persists_exact_sources_and_values(tmp_path):
+    write_prior(tmp_path)
+    write_strategy_model(tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    service.set_manual_tyre_input(2026, 11, "Deg_HARD", .19, team="Ferrari")
+    resolved = service.resolve_tyre_inputs(2026, 11, team="Ferrari")
+    values, rows = service.effective_tyre_inputs(team_summary(), resolved, manual_override=False)
+    snapshot = tyre_snapshot_from_overrides(values, resolved, assumptions=rows)
+    service.generate_continuations(
+        year=2026, round_number=11,
+        state=StrategySearchState(0, 12, "MEDIUM", 0, max_future_stops=1),
+        pit_loss=20.0, k=2, overrides=values, tyre_input_snapshot=snapshot,
+    )
+    service.set_manual_tyre_input(2026, 11, "Deg_HARD", .99, team="Ferrari")
+    paths = list((strategy_search_root(2026, 11, "global", tmp_path) / "tyre_input_snapshots").glob("*.json"))
+    assert len(paths) == 1
+    frozen = json.loads(paths[0].read_text())
+    assert frozen["team"] == "Ferrari"
+    assert frozen["values"]["Deg_HARD"] == .19
+    assert frozen["values"]["Deg_MEDIUM"] == .15
+    assert frozen["selected_sources"]["Deg_HARD"] == "manual"
+    assert frozen["selected_sources"]["Deg_MEDIUM"] == "team_live_direct"
+    assert frozen["selected_sources"]["Deg_SOFT"] == "team_live_derived"
+    assert frozen["selected_sources"]["Perf_HARD_vs_MEDIUM"] == "global_race_evidence"
+    assert service.load_named_snapshot(service.save_named_snapshot(2026, 11, "team-a", []))["tyre_input_snapshot"] == frozen
+
+
+def r12_reference_summary():
+    summary = team_summary()
+    hard_reference_deltas = {"HARD": 0.0, "MEDIUM": -.297279, "SOFT": -.665295}
+    return ModelSummary(summary.manifest, tuple(
+        dict(row, median=hard_reference_deltas[row["compound"]], reference_compound="HARD")
+        if row["parameter"] == "compound_delta" else row
+        for row in summary.parameters
+    ))
+
+
+@pytest.mark.parametrize("team", [None, "Ferrari"])
+def test_r12_live_performance_rebases_to_medium_without_changing_differences(tmp_path, team):
+    write_prior(tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    resolved = service.resolve_tyre_inputs(2026, 11, team=team)
+    summary = r12_reference_summary()
+    previous = None
+    for _ in range(3):
+        values, rows = service.effective_tyre_inputs(summary, resolved, manual_override=False)
+        assert values[("compound_delta", "MEDIUM")] == 0.0
+        assert values[("compound_delta", "HARD")] == pytest.approx(.297279)
+        assert values[("compound_delta", "SOFT")] == pytest.approx(-.368016)
+        assert values[("compound_delta", "HARD")] - values[("compound_delta", "SOFT")] == pytest.approx(.665295)
+        raw_deltas = {"HARD": 0.0, "MEDIUM": -.297279, "SOFT": -.665295}
+        for row in rows:
+            assert row["compound_delta_model_reference_offset"] == -.297279
+            assert (
+                row["compound_delta"] + row["compound_delta_model_reference_offset"]
+            ) == raw_deltas[row["compound"]]
+        frozen = tyre_snapshot_from_overrides(values, resolved, assumptions=rows)
+        assert frozen["values"]["Perf_HARD_vs_MEDIUM"] == values[("compound_delta", "HARD")]
+        assert frozen["values"]["Perf_SOFT_vs_MEDIUM"] == values[("compound_delta", "SOFT")]
+        source = "global_race_evidence" if team else "race_evidence"
+        assert frozen["selected_sources"]["Perf_HARD_vs_MEDIUM"] == source
+        assert frozen["selected_sources"]["Perf_SOFT_vs_MEDIUM"] == source
+        if previous is not None:
+            assert values == previous
+        previous = values
+
+
+@pytest.mark.parametrize("team", [None, "Ferrari"])
+@pytest.mark.parametrize("storage", ["persisted", "explicit"])
+def test_r12_manual_performance_is_exact_medium_difference_on_every_resolution(tmp_path, team, storage):
+    write_prior(tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    if storage == "persisted":
+        service.set_manual_tyre_input(2026, 11, "Perf_HARD_vs_MEDIUM", .81, team=team)
+    # Preserve Global's existing Manual Override activation rule; Team manual
+    # and explicit active-window overrides always win over automatic evidence.
+    global_base_override = team is None and storage == "persisted"
+    manual = {("compound_delta", "HARD"): .81, ("compound_delta", "MEDIUM"): 0.0}
+    previous = None
+    for _ in range(3):
+        resolved = service.resolve_tyre_inputs(2026, 11, team=team)
+        values, rows = service.effective_tyre_inputs(
+            r12_reference_summary(), resolved, manual_override=global_base_override,
+            manual_values=manual if storage == "explicit" else None,
+        )
+        assert values[("compound_delta", "MEDIUM")] == 0.0
+        assert values[("compound_delta", "HARD")] == .81
+        assert {row["compound_delta_model_reference_offset"] for row in rows} == {
+            0.0 if global_base_override else -.297279
+        }
+        frozen = tyre_snapshot_from_overrides(
+            values, resolved, assumptions=rows,
+            manual_values=manual if storage == "explicit" else None,
+        )
+        assert frozen["values"]["Perf_HARD_vs_MEDIUM"] == .81
+        assert frozen["selected_sources"]["Perf_HARD_vs_MEDIUM"] == "manual"
+        if not global_base_override:
+            assert values[("compound_delta", "SOFT")] == pytest.approx(-.368016)
+            assert frozen["selected_sources"]["Perf_SOFT_vs_MEDIUM"] == (
+                "global_race_evidence" if team else "race_evidence"
+            )
+        if previous is not None:
+            assert values == previous
+        previous = values
