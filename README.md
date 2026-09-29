@@ -200,6 +200,16 @@ history plots, supports editable degradation/delta overrides, and allows up to
 three pinned comparisons. In live mode, selecting a driver fills the current lap,
 compound, and tyre age from the feed.
 
+**Completed lap** uses the observed race progress in Auto mode. Check **Use
+override** to enter a Manual completed lap; **Calculate Top 10** then uses that
+value as its race-progress anchor for remaining distance and absolute pit laps.
+With no selected driver, pre-race or manual planning starts a new strategy at
+that anchor and can choose any available starting compound, including after lap
+zero. Selecting a driver instead continues that driver's current strategy.
+Changing the Manual anchor does not rewind canonical live-session state or
+historical tyre models. The Auto/Manual choice and entered value are remembered
+with the other Strategy Prediction controls.
+
 ### Current-event inputs and historical what-if mode
 
 `CURRENT_EVENT` uses the canonical editable event configuration in

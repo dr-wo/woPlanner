@@ -666,22 +666,88 @@ class OfflineAnalysisService:
     ) -> list[StrategyResult]:
         summary = model_summary or self.load_model(year, round_number, source_scope)
         model = self.build_strategy_model(summary, overrides)
-        results = search_best_compound_sequences(
-            state,
-            model,
-            pit_loss,
-            max_stops=state.max_future_stops,
-            k=k,
-            allow_any_start=(
-                state.current_completed_lap == 0 and state.selected_driver is None
-            ),
-            strategy_rules=(
-                StrategyRules(minimum_distinct_dry_compounds=2)
-                if rules_compliant else StrategyRules()
-            ),
+        strategy_rules = (
+            StrategyRules(minimum_distinct_dry_compounds=2)
+            if rules_compliant else StrategyRules()
         )
+        # ``selected_driver is None`` is the existing Pre-race / manual planning
+        # scope.  Enumerate its possible starting compounds explicitly because
+        # woStrategy's legacy ``allow_any_start`` path is coupled to lap zero;
+        # the completed-lap anchor must still remain absolute for pit positions.
+        new_strategy_start = state.selected_driver is None
+        search_states = (
+            [
+                replace(
+                    state,
+                    current_compound=compound,
+                    current_tyre_age=int(
+                        (model.fitted_start_age or {}).get(compound.upper(), 0)
+                    ),
+                )
+                for compound in model.degradation
+            ]
+            if new_strategy_start
+            else [state]
+        )
+        candidates = [
+            result
+            for search_state in search_states
+            for result in search_best_compound_sequences(
+                search_state,
+                model,
+                pit_loss,
+                max_stops=state.max_future_stops,
+                k=k,
+                strategy_rules=strategy_rules,
+            )
+        ]
+        unique = {
+            (result.plan.compounds, result.plan.pit_laps): result
+            for result in candidates
+        }
+        ordered = sorted(
+            unique.values(),
+            key=lambda result: (
+                result.remaining_cost,
+                result.plan.compounds,
+                result.plan.pit_laps,
+            ),
+        )[:k]
+        best_cost = ordered[0].remaining_cost if ordered else 0.0
+        results = [
+            replace(
+                result,
+                rank=rank,
+                delta_to_best=result.remaining_cost - best_cost,
+            )
+            for rank, result in enumerate(ordered, start=1)
+        ]
         target = state.selected_driver or "global"
         records = results_to_records(results, state, model)
+        if new_strategy_start:
+            records = [
+                replace(
+                    record,
+                    current_compound=result.plan.compounds[0],
+                    current_tyre_age=int(
+                        (model.fitted_start_age or {}).get(
+                            result.plan.compounds[0].upper(), 0
+                        )
+                    ),
+                    input_state_hash=canonical_hash(
+                        replace(
+                            state,
+                            current_compound=result.plan.compounds[0],
+                            current_tyre_age=int(
+                                (model.fitted_start_age or {}).get(
+                                    result.plan.compounds[0].upper(), 0
+                                )
+                            ),
+                        )
+                    ),
+                )
+                for record, result in zip(records, results)
+            ]
         persistence_started = time.perf_counter()
         if persist:
             write_strategy_records(

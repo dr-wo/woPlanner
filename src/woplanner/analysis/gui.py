@@ -743,6 +743,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         controls = QtWidgets.QHBoxLayout()
         self.completed_lap = QtWidgets.QSpinBox()
         self.completed_lap.setRange(0, 200)
+        self.completed_lap_override_enabled = QtWidgets.QCheckBox("Use override")
+        self.completed_lap_override_enabled.setToolTip(
+            "Use the entered completed lap for Strategy Prediction while retaining "
+            "the latest available tyre and performance information."
+        )
         self.total_laps = QtWidgets.QSpinBox()
         if self.strategy_mode is StrategyPredictionMode.CURRENT_EVENT:
             self.total_laps.setRange(0, 200)
@@ -810,6 +815,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         ):
             controls.addWidget(QtWidgets.QLabel(label))
             controls.addWidget(control)
+            if control is self.completed_lap:
+                controls.addWidget(self.completed_lap_override_enabled)
         controls.addWidget(self.rules_compliant)
         controls.addWidget(self.manual_override)
         controls.addWidget(self.generate_button)
@@ -837,10 +844,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         )
         self.pin_button.clicked.connect(self._pin_selected)
         self.driver.currentIndexChanged.connect(self._apply_selected_driver_state)
+        self.completed_lap_override_enabled.toggled.connect(
+            self._completed_lap_override_changed
+        )
         self.strategy_input_table.itemChanged.connect(self._strategy_input_changed)
         self.enforce_compound_order.toggled.connect(self._apply_strategy_input_order)
         self.manual_override.toggled.connect(self._manual_override_changed)
         self.load_tyre_file_button.clicked.connect(self._load_tyre_information_from_file)
+        self._completed_lap_override_changed(False)
         return widget
 
     def _current_operational_block_reason(self) -> str | None:
@@ -1197,7 +1208,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             )
             return
         self._apply_latest_race_state()
-        if self.total_laps.value() <= self.completed_lap.value():
+        effective_completed_lap = self._effective_completed_lap()
+        if self.total_laps.value() <= effective_completed_lap:
             QtWidgets.QMessageBox.warning(self, "Strategy", "Total laps must exceed completed lap.")
             return
         if self.pit_loss.value() < 0.0:
@@ -1210,7 +1222,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self._manual_overrides, self._resolved_tyre_inputs
         )
         state = StrategySearchState(
-            self.completed_lap.value(), self.total_laps.value(), self.compound.currentText(),
+            effective_completed_lap, self.total_laps.value(), self.compound.currentText(),
             self.tyre_age.value(), selected_driver=self.driver.currentData(),
             max_future_stops=self.max_stops.value()
         )
@@ -1272,7 +1284,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "pit_laps": list(result.plan.pit_laps),
                 "remaining_cost": result.remaining_cost,
                 "delta_to_best": result.delta_to_best,
-                "current_lap": self.completed_lap.value(),
+                "current_lap": self._effective_completed_lap(),
                 "total_laps": self.total_laps.value(),
                 "model_version": self._analysis_worker.current_result_version,
             }
@@ -1604,7 +1616,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         if not laps:
             return
         latest = max(laps, key=lambda lap: lap.lap_number)
-        self.completed_lap.setValue(int(latest.lap_number))
+        self._apply_observed_completed_lap(int(latest.lap_number))
         index = self.compound.findText(str(latest.compound).upper())
         if index >= 0:
             self.compound.setCurrentIndex(index)
@@ -1624,7 +1636,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             candidates = leaders or candidates
         if candidates:
             latest = max(candidates, key=lambda lap: (lap.lap_number, lap.driver_code))
-            self.completed_lap.setValue(int(latest.lap_number))
+            self._apply_observed_completed_lap(int(latest.lap_number))
             self.compound.setCurrentText(str(latest.compound).upper())
             if latest.tyre_life is not None:
                 self.tyre_age.setValue(max(int(round(float(latest.tyre_life))) - 1, 0))
@@ -1636,9 +1648,49 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         ):
             self.total_laps.setValue(int(scheduled))
 
+    def _apply_observed_completed_lap(self, completed_lap: int) -> None:
+        if not self.completed_lap_override_enabled.isChecked():
+            self.completed_lap.setValue(int(completed_lap))
+
+    def _observed_completed_lap(self) -> int | None:
+        if self._live_snapshot is None:
+            return None
+        driver = self.driver.currentData()
+        candidates = [
+            lap for lap in self._live_snapshot.completed_laps
+            if lap.compound is not None and (driver is None or lap.driver_code == driver)
+        ]
+        if driver is None:
+            leaders = [lap for lap in candidates if lap.position == 1]
+            candidates = leaders or candidates
+        if not candidates:
+            return None
+        latest = max(candidates, key=lambda lap: (lap.lap_number, lap.driver_code))
+        return int(latest.lap_number)
+
+    def _effective_completed_lap(self) -> int:
+        if self.completed_lap_override_enabled.isChecked():
+            return self.completed_lap.value()
+        observed = self._observed_completed_lap()
+        return self.completed_lap.value() if observed is None else observed
+
+    def _completed_lap_override_changed(self, enabled: bool) -> None:
+        self.completed_lap.setReadOnly(not enabled)
+        self.completed_lap.setButtonSymbols(
+            QtWidgets.QAbstractSpinBox.ButtonSymbols.UpDownArrows
+            if enabled
+            else QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons
+        )
+        if not enabled:
+            observed = self._observed_completed_lap()
+            if observed is not None:
+                self.completed_lap.setValue(observed)
+        self._save_state()
+
     def _current_strategy_context(self) -> tuple[object, ...]:
         summary = self._current_model_summary
         manifest = summary.manifest if summary is not None else {}
+        selected_driver = self.driver.currentData()
         leader_lap = 0
         if self._live_snapshot is not None:
             leader_lap = max(
@@ -1649,12 +1701,15 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 ),
             )
         return (
-            leader_lap,
-            self.completed_lap.value(),
+            None if self.completed_lap_override_enabled.isChecked() else leader_lap,
+            self._effective_completed_lap(),
             self.total_laps.value(),
-            self.compound.currentText(),
-            self.tyre_age.value(),
-            self.driver.currentData(),
+            self.compound.currentText() if selected_driver is not None else None,
+            # Top-10 sequence search replaces the supplied tyre age with the
+            # model start age; it is display/persistence state, not a consumed
+            # optimisation input.
+            None,
+            selected_driver,
             manifest.get("analysis_id"),
             manifest.get("as_of_leader_lap"),
             bool(self.manual_override.isChecked()),
@@ -2399,7 +2454,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
 
     def _connect_state_persistence(self) -> None:
         controls = [
-            self.completed_lap, self.compound, self.tyre_age,
+            self.completed_lap, self.completed_lap_override_enabled,
+            self.compound, self.tyre_age,
             self.max_stops, self.driver, self.result_count,
             self.rules_compliant, self.manual_override,
             self.enforce_compound_order, self.auto_recalculate, self.sample_count,
@@ -2430,7 +2486,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             if int(state.get("year")) != self.year or int(state.get("round_number")) != self.round_number:
                 raise ValueError("state belongs to a different event")
             controls = state.get("controls", {})
-            self.completed_lap.setValue(int(controls.get("completed_lap", self.completed_lap.value())))
+            self.completed_lap.setValue(
+                int(controls.get("completed_lap", self.completed_lap.value()))
+            )
+            self.completed_lap_override_enabled.setChecked(
+                bool(controls.get("completed_lap_override_enabled", False))
+            )
             if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
                 self.total_laps.setValue(int(controls.get("total_laps", self.total_laps.value())))
             self.compound.setCurrentText(str(controls.get("compound", self.compound.currentText())).upper())
@@ -2506,6 +2567,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "controls": {
                 "completed_lap": self.completed_lap.value(),
+                "completed_lap_override_enabled": (
+                    self.completed_lap_override_enabled.isChecked()
+                ),
                 "compound": self.compound.currentText(),
                 "tyre_age": self.tyre_age.value(),
                 "max_stops": self.max_stops.value(),

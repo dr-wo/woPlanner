@@ -492,6 +492,93 @@ def test_service_loads_canonical_model_generates_and_persists_top_ten(tmp_path):
     assert saved[0]["model_analysis_id"] == "a1"
 
 
+def test_strategy_search_uses_completed_lap_anchor_for_distance_and_absolute_pits(
+    tmp_path,
+):
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    state = StrategySearchState(
+        23, 57, "MEDIUM", 6, selected_driver="44", max_future_stops=2
+    )
+
+    results = service.generate_continuations(
+        year=2026, round_number=5, state=state, pit_loss=18.0, k=10,
+        persist=False,
+    )
+
+    records = service._last_strategy_search[0]
+    assert results
+    assert state.laps_remaining == 34
+    assert {record.laps_remaining for record in records} == {34}
+    assert all(
+        23 < pit_lap < 57
+        for result in results
+        for pit_lap in result.plan.pit_laps
+    )
+
+
+@pytest.mark.parametrize(
+    ("completed_lap", "total_laps"),
+    ((0, 12), (23, 57)),
+)
+def test_pre_race_scope_can_start_on_any_compound_at_any_progress(
+    tmp_path, completed_lap, total_laps,
+):
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    state = StrategySearchState(
+        completed_lap, total_laps, "MEDIUM", 9,
+        selected_driver=None, max_future_stops=1,
+    )
+
+    results = service.generate_continuations(
+        year=2026, round_number=5, state=state, pit_loss=18.0, k=10,
+        persist=False,
+    )
+
+    records = service._last_strategy_search[0]
+    assert {result.plan.compounds for result in results} == {
+        ("MEDIUM",),
+        ("HARD",),
+        ("MEDIUM", "MEDIUM"),
+        ("MEDIUM", "HARD"),
+        ("HARD", "MEDIUM"),
+        ("HARD", "HARD"),
+    }
+    assert {result.plan.compounds[0] for result in results} == {"MEDIUM", "HARD"}
+    assert {record.laps_remaining for record in records} == {
+        total_laps - completed_lap
+    }
+    assert all(
+        completed_lap < pit_lap < total_laps
+        for result in results
+        for pit_lap in result.plan.pit_laps
+    )
+    assert [record.current_compound for record in records] == [
+        result.plan.compounds[0] for result in results
+    ]
+    assert {record.current_tyre_age for record in records} == {0}
+
+
+def test_selected_driver_scope_preserves_current_compound_continuation(tmp_path):
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    service = OfflineAnalysisService(tmp_path)
+    state = StrategySearchState(
+        23, 57, "MEDIUM", 9, selected_driver="44", max_future_stops=1
+    )
+
+    results = service.generate_continuations(
+        year=2026, round_number=5, state=state, pit_loss=18.0, k=10,
+        persist=False,
+    )
+
+    records = service._last_strategy_search[0]
+    assert results
+    assert {result.plan.compounds[0] for result in results} == {"MEDIUM"}
+    assert {record.current_compound for record in records} == {"MEDIUM"}
+    assert {record.current_tyre_age for record in records} == {9}
+
+
 def test_service_rules_compliant_option_requires_two_dry_compounds(tmp_path):
     write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
     service = OfflineAnalysisService(tmp_path)
@@ -1102,6 +1189,8 @@ def test_strategy_prediction_restores_context_local_state(tmp_path):
     first.result_count.setValue(17)
     first.sample_count.setValue(4321)
     first.enforce_compound_order.setChecked(False)
+    first.completed_lap_override_enabled.setChecked(True)
+    first.completed_lap.setValue(23)
     first.service.set_manual_tyre_input(2026, 5, "Perf_HARD_vs_MEDIUM", 0.25)
     first.service.set_manual_tyre_input(2026, 5, "Deg_MEDIUM", 0.11)
     first._refresh_tyre_inputs(apply_to_strategy=True)
@@ -1129,6 +1218,15 @@ def test_strategy_prediction_restores_context_local_state(tmp_path):
     )
     assert second.result_count.value() == 17
     assert second.sample_count.value() == 4321
+    assert second.completed_lap_override_enabled.isChecked()
+    assert second.completed_lap.value() == 23
+    assert not second.completed_lap.isReadOnly()
+    saved_controls = json.loads(
+        second._state_path.read_text(encoding="utf-8")
+    )["controls"]
+    assert saved_controls["completed_lap"] == 23
+    assert saved_controls["completed_lap_override_enabled"] is True
+    assert "completed_lap_override_value" not in saved_controls
     assert (
         second._resolved_tyre_inputs.by_parameter()["Perf_HARD_vs_MEDIUM"].selected_value
         == 0.25
@@ -1333,6 +1431,251 @@ def test_strategy_search_captures_latest_live_race_state(tmp_path, monkeypatch):
     window._future = None
     window.close()
     app.processEvents()
+
+
+def _strategy_progress_snapshot(
+    lap_number: int,
+    *,
+    compound: str = "HARD",
+    tyre_life: float = 7.0,
+) -> LiveSessionSnapshot:
+    return LiveSessionSnapshot(
+        MappingProxyType({}), "Started",
+        (LiveDriver("1", "AAA", "Team", "A Driver", 1, None),),
+        (CompletedLap(
+            "1", "AAA", "Team", lap_number, 88.0, 88.0 * lap_number, 1, None,
+            compound, tyre_life, 2, False,
+        ),),
+        MappingProxyType({"1": 1}), None, scheduled_total_laps=72,
+    )
+
+
+def test_manual_completed_lap_survives_snapshot_driver_change_and_calculate(
+    tmp_path, monkeypatch,
+):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    window.auto_recalculate.setChecked(False)
+    window.consume_live_snapshot(_strategy_progress_snapshot(12, compound="MEDIUM"))
+    window.completed_lap_override_enabled.setChecked(True)
+    window.completed_lap.setValue(23)
+
+    window.consume_live_snapshot(
+        _strategy_progress_snapshot(14, compound="HARD", tyre_life=9.0)
+    )
+    window.driver.setCurrentIndex(window.driver.findData("AAA"))
+    assert window.completed_lap.value() == 23
+
+    captured = {}
+    pending = Future()
+
+    def submit(_function, **kwargs):
+        captured.update(kwargs)
+        return pending
+
+    monkeypatch.setattr(window._executor, "submit", submit)
+    window._start_search()
+
+    state = captured["state"]
+    assert state.current_completed_lap == 23
+    assert state.laps_remaining == 49
+    assert state.current_compound == "HARD"
+    assert state.current_tyre_age == 8
+    assert window.completed_lap.value() == 23
+    pending.cancel()
+    window._future = None
+    window.close()
+    qt.processEvents()
+
+
+def test_completed_lap_override_returns_to_auto_and_resumes_updates(tmp_path):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    window.auto_recalculate.setChecked(False)
+    window.consume_live_snapshot(_strategy_progress_snapshot(12))
+    window.driver.setCurrentIndex(window.driver.findData("AAA"))
+    window.completed_lap_override_enabled.setChecked(True)
+    window.completed_lap.setValue(23)
+    window.consume_live_snapshot(_strategy_progress_snapshot(14))
+    assert window.completed_lap.value() == 23
+
+    window.completed_lap_override_enabled.setChecked(False)
+    assert window.completed_lap.value() == 14
+    assert window.completed_lap.isReadOnly()
+
+    window.consume_live_snapshot(_strategy_progress_snapshot(15))
+    assert window.completed_lap.value() == 15
+    window.completed_lap_override_enabled.setChecked(True)
+    assert window.completed_lap.value() == 15
+    assert not window.completed_lap.isReadOnly()
+    window.close()
+    qt.processEvents()
+
+
+def test_manual_completed_lap_rejects_finish_or_later_value(tmp_path, monkeypatch):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    window.completed_lap_override_enabled.setChecked(True)
+    window.completed_lap.setValue(window.total_laps.value())
+    warnings = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox, "warning",
+        lambda *args: warnings.append(args[2]),
+    )
+
+    window._start_search()
+
+    assert window._future is None
+    assert warnings == ["Total laps must exceed completed lap."]
+    window.close()
+    qt.processEvents()
+
+
+def test_old_strategy_state_defaults_completed_lap_to_auto(tmp_path):
+    data_root = tmp_path / "data"
+    state_directory = tmp_path / "state"
+    state_directory.mkdir()
+    write_test_pre_race_prior(data_root)
+    write_model_snapshot(
+        model_snapshot(), year=2026, round_number=5, data_root=data_root
+    )
+    (state_directory / "strategy_prediction_state.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "year": 2026,
+            "round_number": 5,
+            "controls": {"completed_lap": 23},
+        }),
+        encoding="utf-8",
+    )
+    qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(data_root),
+        state_directory=state_directory,
+    )
+
+    assert not window.completed_lap_override_enabled.isChecked()
+    assert window.completed_lap.isReadOnly()
+    window.consume_live_snapshot(_strategy_progress_snapshot(14))
+    window.driver.setCurrentIndex(window.driver.findData("AAA"))
+    assert window.completed_lap.value() == 14
+    window.close()
+    qt.processEvents()
+
+
+def test_manual_completed_lap_result_survives_observed_leader_advance(
+    tmp_path, monkeypatch,
+):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    window.auto_recalculate.setChecked(False)
+    window.consume_live_snapshot(_strategy_progress_snapshot(12, compound="MEDIUM"))
+    window.completed_lap_override_enabled.setChecked(True)
+    window.completed_lap.setValue(23)
+    pending = Future()
+    monkeypatch.setattr(window._executor, "submit", lambda *_args, **_kwargs: pending)
+    window._start_search()
+    request_context = window._strategy_request_context
+
+    window.consume_live_snapshot(
+        _strategy_progress_snapshot(13, compound="HARD", tyre_life=3.0)
+    )
+    window._apply_latest_race_state()
+
+    assert window._strategy_request_context == request_context
+    assert window._current_strategy_context() == request_context
+    assert window.compound.currentText() == "HARD"
+    assert window.tyre_age.value() == 2
+    pending.set_result([])
+    window._poll_future()
+    assert window._strategy_request_context is None
+    assert window.status_label.text().startswith("Strategy results current")
+    window.close()
+    qt.processEvents()
+
+
+def test_selected_driver_tyre_state_change_discards_inflight_result(
+    tmp_path, monkeypatch,
+):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    window.auto_recalculate.setChecked(False)
+    window.consume_live_snapshot(_strategy_progress_snapshot(12, compound="MEDIUM"))
+    window.driver.setCurrentIndex(window.driver.findData("AAA"))
+    window.completed_lap_override_enabled.setChecked(True)
+    window.completed_lap.setValue(23)
+    pending = Future()
+    monkeypatch.setattr(window._executor, "submit", lambda *_args, **_kwargs: pending)
+    window._start_search()
+    request_context = window._strategy_request_context
+
+    window.consume_live_snapshot(
+        _strategy_progress_snapshot(13, compound="HARD", tyre_life=3.0)
+    )
+
+    assert window._current_strategy_context() != request_context
+    pending.set_result([])
+    window._poll_future()
+    assert window._strategy_request_context is None
+    assert window.status_label.text().startswith("Strategy result discarded")
+    window.close()
+    qt.processEvents()
+
+
+def test_selected_driver_unconsumed_tyre_age_change_keeps_inflight_result(
+    tmp_path, monkeypatch,
+):
+    write_test_pre_race_prior(tmp_path)
+    write_model_snapshot(model_snapshot(), year=2026, round_number=5, data_root=tmp_path)
+    qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=5, service=OfflineAnalysisService(tmp_path)
+    )
+    window.auto_recalculate.setChecked(False)
+    window.consume_live_snapshot(
+        _strategy_progress_snapshot(12, compound="MEDIUM", tyre_life=3.0)
+    )
+    window.driver.setCurrentIndex(window.driver.findData("AAA"))
+    window.completed_lap_override_enabled.setChecked(True)
+    window.completed_lap.setValue(23)
+    pending = Future()
+    monkeypatch.setattr(window._executor, "submit", lambda *_args, **_kwargs: pending)
+    window._start_search()
+    request_context = window._strategy_request_context
+
+    window.consume_live_snapshot(
+        _strategy_progress_snapshot(13, compound="MEDIUM", tyre_life=9.0)
+    )
+
+    assert window.tyre_age.value() == 8
+    assert window._current_strategy_context() == request_context
+    pending.set_result([])
+    window._poll_future()
+    assert window._strategy_request_context is None
+    assert window.status_label.text().startswith("Strategy results current")
+    window.close()
+    qt.processEvents()
 
 
 def test_replay_model_config_is_generated_from_existing_resolved_settings(tmp_path, monkeypatch):
