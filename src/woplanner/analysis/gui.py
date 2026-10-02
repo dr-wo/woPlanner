@@ -357,6 +357,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.tabs.addTab(self.strategy_tab, "Strategy predictions")
         self.tabs.addTab(self.history_tab, "Update history")
         self.tabs.addTab(self.live_tab, "Live recalculation")
+        self.history_info_tab = self._build_history_info_tab()
+        self.tabs.addTab(self.history_info_tab, "History Info")
         self.tabs.currentChanged.connect(self._strategy_tab_changed)
         layout.addWidget(self.status_label)
         layout.addWidget(self.tabs)
@@ -384,6 +386,55 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             )
         else:
             self._append_log("Durable persistence: live calculations and results are retained.")
+
+    def _build_history_info_tab(self):
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(widget)
+        help_label = QtWidgets.QLabel(
+            "Latest five prior races at the same venue. Safety Car and Red Flag context only; "
+            "pure VSC excluded. Approximate SC ranges cover laps active for any portion; "
+            "withdrawal at a lap boundary excludes the next lap. Red Flags use entry laps."
+        )
+        help_label.setWordWrap(True)
+        self.history_info_status = QtWidgets.QLabel()
+        self.history_info_status.setWordWrap(True)
+        self.history_info_table = QtWidgets.QTableWidget(0, 4)
+        self.history_info_table.setHorizontalHeaderLabels(
+            ["Edition", "Safety Car periods / laps", "Red Flags / laps", "Source coverage"]
+        )
+        self.history_info_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.history_info_table.horizontalHeader().setSectionResizeMode(
+            QtWidgets.QHeaderView.ResizeMode.ResizeToContents
+        )
+        refresh = QtWidgets.QPushButton("Reload prepared history")
+        refresh.clicked.connect(self._reload_history_info)
+        layout.addWidget(help_label)
+        layout.addWidget(self.history_info_status)
+        layout.addWidget(self.history_info_table)
+        layout.addWidget(refresh)
+        self._reload_history_info()
+        return widget
+
+    def _reload_history_info(self):
+        from wodata.interruption_history import load_history
+        from wostrategy.analysis.interruption_history import history_rows
+        self.historical_interruptions = load_history(
+            self.year, self.round_number, self.service.data_root
+        )
+        payload = self.historical_interruptions
+        rows = history_rows(payload)
+        warnings = payload.get("selection", {}).get("warnings", [])
+        self.history_info_status.setText(
+            payload.get("reason") or "; ".join(warnings) or
+            ("Prepared historical context; source coverage shown per edition." if rows else
+             "No prior same-venue races found in the inspected schedules.")
+        )
+        self.history_info_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            for column, key in enumerate(("edition", "safety_car", "red_flag", "coverage")):
+                self.history_info_table.setItem(
+                    row_index, column, QtWidgets.QTableWidgetItem(row[key])
+                )
 
     def _build_tyre_inputs_tab(self):
         widget = QtWidgets.QWidget()
