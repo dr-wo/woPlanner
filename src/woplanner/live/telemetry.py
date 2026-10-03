@@ -644,7 +644,7 @@ def _apply_replay_message(store: LiveSessionStore, message: LiveTimingMessage) -
 def _analysis_store() -> LiveSessionStore:
     return LiveSessionStore(
         telemetry_lap_window=None,
-        position_sample_limit=1,
+        position_sample_limit=6000,
     )
 
 
@@ -670,7 +670,10 @@ def _snapshot_at_cut(snapshot, cut: CausalAnalysisCut):
             sample for sample in snapshot.telemetry_samples
             if _value_is_within_cut(sample, cut)
         ),
-        position_samples=(),
+        position_samples=tuple(
+            sample for sample in snapshot.position_samples
+            if _value_is_within_cut(sample, cut)
+        ),
         provisional_sectors=(),
         live_timing=(),
     )

@@ -1449,6 +1449,8 @@ def snapshot_as_of_leader_lap(snapshot, leader_lap: int):
         completed_laps=completed_laps,
         completed_sectors=completed_sectors,
         telemetry_samples=telemetry_samples,
+        # A materialized later snapshot has no position-arrival lineage. Only
+        # the worker's ingress-bounded replay can preserve positions causally.
         position_samples=(),
         provisional_sectors=(),
         live_timing=(),
@@ -1802,71 +1804,59 @@ def _exclude_clean_run_edges(
             laps.loc[excluded, "IsCleanAirLongRunLap"] = False
 
 
+def live_position_traffic_shadow(snapshot, *, reference, coordinate_frame, cutoff, targets=None):
+    """Inspect positions preserved by the real ingress/sample-time analysis cut.
+
+    Diagnostic only: its outputs are not attached to LiveAnalysisInput. Lap
+    membership follows target timing-publication boundaries, not physical finish
+    crossings. No inferred first-lap start is supplied on a mid-session join.
+    """
+    from wostrategy.analysis.position_traffic import position_traffic_shadow
+
+    codes = {driver.driver_number: driver.driver_code for driver in snapshot.drivers}
+    positions = pd.DataFrame([
+        {"Driver": codes.get(sample.driver_number, sample.driver_number),
+         "SessionTime": sample.session_time_seconds, "X": sample.x, "Y": sample.y,
+         "Z": sample.z, "OnTrack": sample.on_track}
+        for sample in getattr(snapshot, "position_samples", ())
+    ])
+    windows = []
+    by_driver = {}
+    for lap in snapshot.completed_laps:
+        clock = _completion_clock(lap)
+        if clock is not None and clock <= cutoff:
+            by_driver.setdefault(lap.driver_code, []).append((lap.lap_number, clock))
+    for driver, boundaries in by_driver.items():
+        ordered = sorted(boundaries)
+        for previous, current in zip(ordered, ordered[1:]):
+            if current[0] == previous[0] + 1 and current[1] > previous[1]:
+                windows.append(dict(Driver=driver, LapNumber=current[0], Start=previous[1],
+                                    End=current[1], Basis="target_timing_publication"))
+    return position_traffic_shadow(
+        positions, reference=reference, coordinate_frame=coordinate_frame, cutoff=cutoff,
+        expected_drivers=set(codes.values()), targets=targets, lap_windows=pd.DataFrame(windows),
+    )
+
+
 def _live_traffic_gaps(snapshot, *, force_sector: bool = False) -> pd.DataFrame:
-    keys = ["Driver", "LapNumber"]
     prepared_rows = getattr(snapshot, "traffic_rows", ())
     if prepared_rows:
         return pd.DataFrame(list(prepared_rows))
-    sector = _sector_boundary_traffic_gaps(snapshot)
     if force_sector:
+        sector = _sector_boundary_traffic_gaps(snapshot)
         forced = _sector_as_selected_traffic(sector, reason="sector mode forced")
         return forced if not forced.empty else _unknown_live_traffic(
             snapshot, reason="sector mode forced but boundary data unavailable"
         )
 
-    telemetry = _snapshot_telemetry_frame(snapshot)
-    circuit_length = _estimate_live_circuit_length(telemetry)
-    if telemetry.empty or circuit_length is None:
-        reason = "telemetry unavailable" if telemetry.empty else "circuit length unavailable"
-        fallback = _sector_as_selected_traffic(sector, reason=reason)
-        return fallback if not fallback.empty else _unknown_live_traffic(
-            snapshot, reason=f"{reason}; sector fallback unavailable"
-        )
-
-    physical = evaluate_physical_traffic(
-        telemetry,
-        config=TrafficEvaluationConfig(circuit_length_m=circuit_length),
-        group_columns=("Driver", "LapNumber"),
-    ).laps
-    direct = evaluate_direct_fastf1_style(
-        telemetry,
-        group_columns=("Driver", "LapNumber"),
-    ).laps
-    selected = combine_lap_traffic_components(
-        direct,
-        physical,
-        group_columns=tuple(keys),
-        combination_mode=COMBINATION_MODE_COMPATIBILITY_MIN,
+    # Independent lap-labelled speed origins are not a shared track coordinate.
+    # Position geometry/neighbours are validated separately in the shadow path;
+    # its passage headways have not been validated for production decisions.
+    # Never auto-promote missing geometry or diagnostic gaps to clean evidence.
+    return _unknown_live_traffic(
+        snapshot,
+        reason="position traffic gaps not validated; zero-origin live reconstruction disabled",
     )
-    selected["TrafficGapAheadSeconds"] = selected["MeanTimeDeltaToDriverAhead"]
-    selected["TrafficGapBehindSeconds"] = selected["MeanTimeDeltaToDriverBehind"]
-
-    fallback = _sector_as_selected_traffic(
-        sector,
-        reason="telemetry unavailable or below coverage threshold",
-    )
-    if fallback.empty:
-        return selected
-    fallback = fallback.set_index(keys)
-    selected = selected.set_index(keys)
-    bad = ~selected["TrafficStatus"].eq("ok")
-    replacement_keys = selected.index[bad].intersection(fallback.index)
-    if len(replacement_keys):
-        replacement_columns = [
-            "TrafficGapAheadSeconds",
-            "TrafficGapBehindSeconds",
-            "TrafficMethod",
-            "TrafficStatus",
-            "TrafficStatusReason",
-            "CoverageFraction",
-        ]
-        selected.loc[replacement_keys, replacement_columns] = fallback.loc[
-            replacement_keys, replacement_columns
-        ]
-    missing_keys = fallback.index.difference(selected.index)
-    if len(missing_keys):
-        selected = pd.concat([selected, fallback.loc[missing_keys]], axis=0, sort=False)
-    return selected.reset_index()
 
 
 def _snapshot_telemetry_frame(snapshot) -> pd.DataFrame:
@@ -1939,7 +1929,9 @@ def _unknown_live_traffic(snapshot, *, reason: str) -> pd.DataFrame:
                 "CoverageFraction": 0.0,
             }
             for driver, lap_number in sorted(rows)
-        ]
+        ],
+        columns=["Driver", "LapNumber", "TrafficGapAheadSeconds", "TrafficGapBehindSeconds",
+                 "TrafficMethod", "TrafficStatus", "TrafficStatusReason", "CoverageFraction"],
     ))
 
 

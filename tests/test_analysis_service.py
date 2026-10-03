@@ -621,6 +621,7 @@ def test_live_clean_lap_definition_supports_stint_edge_trimming():
         allowed_compounds=("MEDIUM",),
         exclude_stint_start_laps=1,
         exclude_stint_end_laps=1,
+        use_sector_boundary_traffic=True,
     )
     assert selected["LapNumber"].tolist() == [2, 3, 4, 5]
 
@@ -656,8 +657,8 @@ def test_live_clean_lap_sector_boundary_filter_requires_clear_ahead_and_behind()
 
     automatic = _live_traffic_gaps(snapshot)
     target_traffic = automatic.loc[automatic["Driver"].eq("TARGET")].iloc[0]
-    assert target_traffic["TrafficMethod"] == "SECTOR_BOUNDARY_FALLBACK"
-    assert target_traffic["TrafficStatus"] == "sector_fallback"
+    assert pd.isna(target_traffic["TrafficMethod"])
+    assert target_traffic["TrafficStatus"] == "unknown"
     assert target_traffic["DirectTrafficStatus"] == "unknown"
     assert target_traffic["PhysicalTrafficStatus"] == "unknown"
     assert pd.isna(target_traffic["MeanTimeDeltaToDriverAhead"])
@@ -696,58 +697,26 @@ def test_missing_live_telemetry_and_sector_data_is_explicitly_unknown():
     traffic = _live_traffic_gaps(snapshot)
     assert traffic["TrafficStatus"].tolist() == ["unknown"]
     assert traffic["CoverageFraction"].tolist() == [0.0]
-    assert "fallback unavailable" in traffic["TrafficStatusReason"].iloc[0]
+    assert "zero-origin live reconstruction disabled" in traffic["TrafficStatusReason"].iloc[0]
 
 
-def test_live_traffic_uses_shared_circular_physical_evaluator():
-    speed = 180.0
-    samples = []
-    for number, lap, start in (("1", 10, -10.0), ("2", 8, -12.0), ("3", 12, -9.0)):
-        for index in range(41):
-            time = start + index * 0.5
-            samples.append(LiveTelemetrySample(number, time, lap, speed))
-    drivers = (
-        LiveDriver("1", "TARGET", "Team", "Target", 1, None),
-        LiveDriver("2", "LAPPED_AHEAD", "Team", "Ahead", 2, None),
-        LiveDriver("3", "BEHIND", "Team", "Behind", 3, None),
-    )
-    snapshot = LiveSessionSnapshot(
-        MappingProxyType({}), "Started", drivers, (), MappingProxyType({}), None,
-        telemetry_samples=tuple(samples),
-    )
-
-    traffic = _live_traffic_gaps(snapshot)
-    target = traffic.loc[traffic["Driver"].eq("TARGET")].iloc[0]
-    assert target["TrafficMethod"] == "PHYSICAL_CIRCULAR"
-    assert target["TrafficStatus"] == "ok"
-    assert target["PhysicalMeanTimeDeltaToDriverAhead"] > 0.0
-    assert target["PhysicalMeanTimeDeltaToDriverBehind"] > 0.0
-    assert target["DirectMeanTimeDeltaToDriverAhead"] != target["DirectMeanTimeDeltaToDriverAhead"]
-
-
-def test_live_traffic_exposes_shared_completed_lap_direct_component():
+def test_live_zero_origin_gaps_are_unavailable_even_with_speed_coverage():
     samples = tuple(
-        LiveTelemetrySample(number, start + index * 0.5, 5, 180.0)
-        for number, start in (("1", -10.0), ("2", -12.0), ("3", -8.5))
+        LiveTelemetrySample(number, start + index * .5, 5, 180.0)
+        for number, start in (("1", -10.), ("2", -12.), ("3", -8.5))
         for index in range(41)
     )
-    drivers = (
-        LiveDriver("1", "TARGET", "Team", "Target", 1, None),
-        LiveDriver("2", "AHEAD", "Team", "Ahead", 2, None),
-        LiveDriver("3", "BEHIND", "Team", "Behind", 3, None),
-    )
+    lap = CompletedLap("1", "TARGET", "Team", 5, 90., 450., 1, None,
+                       "MEDIUM", 5., 1, True)
     snapshot = LiveSessionSnapshot(
-        MappingProxyType({}), "Started", drivers, (), MappingProxyType({}), None,
+        MappingProxyType({}), "Started", (), (lap,), MappingProxyType({}), None,
         telemetry_samples=samples,
     )
-
-    traffic = _live_traffic_gaps(snapshot)
-    target = traffic.loc[traffic["Driver"].eq("TARGET")].iloc[0]
-
-    assert target["DirectTrafficStatus"] == "ok"
-    assert target["DirectMeanDistanceToDriverAhead"] == 100.0
-    assert target["DirectMeanTimeDeltaToDriverAhead"] == 2.0
-    assert target["TrafficMethod"] == "compatibility_min"
+    target = _live_traffic_gaps(snapshot).iloc[0]
+    assert target["TrafficStatus"] == "unknown"
+    assert pd.isna(target["TrafficGapAheadSeconds"])
+    assert pd.isna(target["TrafficGapBehindSeconds"])
+    assert _live_analysis_laps(snapshot, quick_lap_threshold=1.1, min_clean_laps=1).empty
 
 
 def test_finalized_live_traffic_is_identical_for_batch_and_replay_sample_order():
@@ -905,11 +874,11 @@ def test_live_recalculation_runs_once_for_new_clean_laps(tmp_path):
     service = OfflineAnalysisService(tmp_path)
     first = service.recalculate_from_live_snapshot(
         year=2026, round_number=5, snapshot=snapshot, sample_count=100,
-        quick_lap_threshold=1.1, min_clean_laps=3,
+        quick_lap_threshold=1.1, min_clean_laps=3, use_sector_boundary_traffic=True,
     )
     second = service.recalculate_from_live_snapshot(
         year=2026, round_number=5, snapshot=snapshot, sample_count=100,
-        quick_lap_threshold=1.1, min_clean_laps=3,
+        quick_lap_threshold=1.1, min_clean_laps=3, use_sector_boundary_traffic=True,
     )
     assert first.status == "updated"
     assert first.elapsed_seconds >= 0.0
@@ -1161,7 +1130,7 @@ def test_replay_recalculation_stays_temporary_until_promoted(tmp_path):
     service.activate_temporary_replay_model(2026, 5)
     result = service.recalculate_from_live_snapshot(
         year=2026, round_number=5, snapshot=snapshot, sample_count=100,
-        quick_lap_threshold=1.1, min_clean_laps=3, persist=False,
+        quick_lap_threshold=1.1, min_clean_laps=3, use_sector_boundary_traffic=True, persist=False,
     )
 
     assert result.status == "updated"

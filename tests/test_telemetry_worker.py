@@ -576,3 +576,27 @@ def test_malformed_packet_does_not_kill_telemetry_worker(monkeypatch):
     assert diagnostics.thread_alive
     assert diagnostics.last_error == "RuntimeError: bad packet"
     worker.shutdown()
+
+
+def test_position_history_survives_real_worker_cut_without_late_packet_leakage(monkeypatch):
+    observed=[]
+    def capture(snapshot, *, force_sector=False):
+        observed.extend(snapshot.position_samples)
+        return pd.DataFrame()
+    monkeypatch.setattr('woplanner.live.telemetry._live_traffic_gaps', capture)
+    worker=TelemetryAnalysisWorker()
+    try:
+        worker.reset()
+        worker.enqueue_message(message('DriverList', {'1': {'Tla': 'AAA'}}, 1))
+        # Embedded sample UTC is NOW + sequence, so adjusted clock = session_time + sequence.
+        worker.enqueue_message(position_message(2, x=101, session_time=3))  # t=5
+        worker.enqueue_message(position_message(3, x=202, session_time=12)) # t=15
+        worker.enqueue_message(completed_lap_message(4, 1, session_time=10))
+        worker.enqueue_message(position_message(5, x=303, session_time=1))  # late t=6
+        worker.request_analysis_input(leader_lap=1, use_sector_boundary_traffic=False)
+        results=[]
+        wait_until(lambda: bool(results.extend(worker.poll_analysis_inputs()) or results))
+        assert results[0].error is None
+        assert [(s.session_time_seconds,s.x) for s in observed] == [(5.,101.)]
+    finally:
+        worker.shutdown()
