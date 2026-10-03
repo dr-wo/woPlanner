@@ -17,6 +17,9 @@ from wodata.artifacts import weekend_model_root
 
 from ..common.visual_styles import COMPOUND_COLOURS
 from ..operational_inputs import load_operational_race_inputs
+from .compound_offsets import (
+    COMPOUND_OFFSET_CONTRACT, merge_compound_offsets, validate_offset_rows,
+)
 from .service import OfflineAnalysisService, leader_lap_snapshots
 from .worker import AnalysisQueuePolicy, LiveAnalysisProcessService
 from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
@@ -1790,6 +1793,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                     "compound": compound,
                     "baseline_pace": deltas[compound] - fastest,
                     "compound_delta": deltas[compound],
+                    "compound_offset_contract": COMPOUND_OFFSET_CONTRACT,
+                    "reference_compound": "MEDIUM",
                     "compound_delta_available": True,
                     "degradation": degradation.selected_value,
                     "degradation_source": degradation.selected_source,
@@ -1860,6 +1865,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             return
         try:
             rows, reference = self.service.load_tyre_information_files(paths)
+            deltas = {
+                str(row["compound"]).upper(): float(row["compound_delta"])
+                for row in rows if "compound_delta" in row
+                and str(row["compound"]).upper() in self._estimated_strategy_inputs
+            }
+            self._merge_strategy_offsets(deltas)
         except (OSError, ValueError) as exc:
             QtWidgets.QMessageBox.warning(self, "Load tyre information", str(exc))
             return
@@ -1871,7 +1882,6 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             if compound not in self._estimated_strategy_inputs:
                 continue
             if "baseline_pace" in row:
-                self._baseline_values[compound] = float(row["baseline_pace"])
                 self._manual_baseline_compounds.add(compound)
                 updated.append(f"{compound} delta")
             if "degradation" in row:
@@ -1891,6 +1901,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._append_log(
             f"Loaded tyre inputs from {len(paths)} file(s): " + ", ".join(updated)
         )
+
+    def _merge_strategy_offsets(self, deltas: dict[str, float]) -> None:
+        merged = merge_compound_offsets(self._baseline_values, deltas)
+        fastest = min(merged.values(), default=0.0)
+        self._baseline_values = {c: value - fastest for c, value in merged.items()}
 
     def _strategy_input_changed(self, item) -> None:
         if self._strategy_input_loading:
@@ -2239,6 +2254,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             if str(row.get("source_scope", "")).upper() == "AGGREGATE"
             and int(float(row.get("as_of_leader_lap") or 0)) == selected_lap
         ]
+        if getattr(self, "_history_offsets_unverified", False) and any(
+            row.get("parameter") == "compound_delta" for row in selected_rows
+        ):
+            self._append_log(
+                "Saved history has unverified compound offset references; "
+                "recalculate from the original model and baseline before applying it."
+            )
+            return False
         degradation: dict[str, float] = {}
         deltas: dict[str, float] = {}
         for row in selected_rows:
@@ -2251,12 +2274,18 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 degradation[compound] = value
             elif str(row.get("parameter")) == "compound_delta":
                 deltas[compound] = value
-        fastest_delta = min(deltas.values(), default=0.0)
+        try:
+            validate_offset_rows(selected_rows)
+            self._merge_strategy_offsets({
+                c: v for c, v in deltas.items() if c in self._estimated_strategy_inputs
+            })
+        except ValueError as exc:
+            self._append_log(f"Could not apply history tyre offsets: {exc}")
+            return False
         updated_compounds = set()
         for compound, value in deltas.items():
             if compound not in self._estimated_strategy_inputs:
                 continue
-            self._baseline_values[compound] = value - fastest_delta
             self._manual_baseline_compounds.add(compound)
             updated_compounds.add(compound)
         for compound, value in degradation.items():
@@ -2443,6 +2472,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                         "parameter": "compound_delta",
                         "compound": compound,
                         "median": float(assumption["compound_delta"]),
+                        "compound_offset_contract": assumption.get("compound_offset_contract"),
+                        "reference_compound": assumption.get("reference_compound"),
                         "compound_delta_source": str(
                             assumption.get("compound_delta_source") or "model"
                         ),
@@ -2450,7 +2481,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 )
         return rows
 
-    def _show_plot_rows(self, rows) -> None:
+    def _show_plot_rows(self, rows, *, offsets_unverified: bool = False) -> None:
+        self._history_offsets_unverified = offsets_unverified
         self._displayed_history_rows = [dict(row) for row in rows]
         for row in self._displayed_history_rows:
             row["source"] = row.get(
@@ -2501,7 +2533,17 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             parameter_rows = payload.get("parameter_history", [])
         else:
             parameter_rows = []
-        self._show_plot_rows(parameter_rows)
+        unverified = any(
+            row.get("parameter") == "compound_delta"
+            and row.get("compound_offset_contract") != COMPOUND_OFFSET_CONTRACT
+            for row in parameter_rows
+        )
+        self._show_plot_rows(parameter_rows, offsets_unverified=unverified)
+        if unverified:
+            self._append_log(
+                "Legacy saved plot: compound offsets may contain mixed references. "
+                "Values are displayed unchanged; applying them requires recalculation."
+            )
 
     def _connect_state_persistence(self) -> None:
         controls = [

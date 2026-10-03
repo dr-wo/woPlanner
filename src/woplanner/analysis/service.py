@@ -59,6 +59,9 @@ from wostrategy.analysis.long_run_performance import (
     select_consecutive_clean_air_runs,
 )
 
+from .compound_offsets import (
+    COMPOUND_OFFSET_CONTRACT, REFERENCE_ORDER, merge_compound_offsets, validate_offset_rows,
+)
 from .tyre_inputs import ResolvedTyreInputs, TyreInputService
 
 
@@ -164,6 +167,13 @@ class OfflineAnalysisService:
         summary: ModelSummary,
         overrides: Mapping[tuple[str, str], float] | None = None,
     ) -> StrategyModel:
+        """Build from coherent additive vectors; partial offsets need a shared pivot.
+
+        Override compound deltas form one vector in seconds, not independent
+        scalars in the model's fitting coordinates. Results use MEDIUM (or the
+        first available HARD/SOFT) as zero. Degradation overrides are unchanged.
+        """
+        validate_offset_rows(summary.parameters)
         degradation: dict[str, float] = {}
         deltas: dict[str, float] = {}
         weighted_values: dict[tuple[str, str], list[tuple[float, float]]] = {}
@@ -185,12 +195,14 @@ class OfflineAnalysisService:
                 degradation[compound] = value
             else:
                 deltas[compound] = value
+        override_deltas = {}
         for (parameter, compound), value in (overrides or {}).items():
             compound = str(compound).upper()
             if parameter == "degradation":
                 degradation[compound] = float(value)
             elif parameter == "compound_delta":
-                deltas[compound] = float(value)
+                override_deltas[compound] = float(value)
+        deltas = merge_compound_offsets(deltas, override_deltas)
         if not degradation:
             raise ValueError("The selected model has no compound degradation parameters.")
         return StrategyModel(
@@ -260,12 +272,12 @@ class OfflineAnalysisService:
                 ):
                     resolved_degradation[compound] = medium_scale * ratio
                     degradation_states[compound] = "live_derived"
-        for coordinate in informed_coordinates:
-            parameter, compound = coordinate
-            if coordinate not in model_values:
-                continue
-            if parameter == "compound_delta":
-                baseline_deltas[compound] = model_values[coordinate]
+        direct_deltas = {
+            compound: model_values[(parameter, compound)]
+            for parameter, compound in informed_coordinates
+            if parameter == "compound_delta" and (parameter, compound) in model_values
+        }
+        baseline_deltas = merge_compound_offsets(baseline_deltas, direct_deltas)
         fastest = min(baseline_deltas.values(), default=0.0)
         rows = []
         for compound in ("SOFT", "MEDIUM", "HARD"):
@@ -302,6 +314,8 @@ class OfflineAnalysisService:
                     "compound": compound,
                     "baseline_pace": delta - fastest,
                     "compound_delta": delta,
+                    "compound_offset_contract": COMPOUND_OFFSET_CONTRACT,
+                    "reference_compound": next(c for c in REFERENCE_ORDER if c in baseline_deltas),
                     "compound_delta_available": True,
                     "compound_delta_source": (
                         "race_evidence"
@@ -488,6 +502,10 @@ class OfflineAnalysisService:
             raise ValueError(
                 "No tyre degradation or compound-delta values were found in the selected CSV file(s)."
             )
+        validate_offset_rows(
+            {"parameter": "compound_delta", "reference_compound": reference}
+            for reference in references
+        )
         compounds = sorted(
             {compound for _, compound in values},
             key=lambda value: ("SOFT", "MEDIUM", "HARD").index(value)
@@ -1533,6 +1551,7 @@ def _race_informed_coordinates(summary: ModelSummary) -> set[tuple[str, str]]:
 def _summary_tyre_coordinates(
     summary: ModelSummary,
 ) -> dict[tuple[str, str], float]:
+    validate_offset_rows(summary.parameters)
     weighted: dict[tuple[str, str], list[tuple[float, float]]] = {}
     for row in summary.parameters:
         parameter = str(row.get("parameter") or "")
@@ -1620,6 +1639,8 @@ def _assumptions_from_base(
                 "compound": compound,
                 "baseline_pace": float(deltas[compound]) - fastest,
                 "compound_delta": float(deltas[compound]),
+                "compound_offset_contract": COMPOUND_OFFSET_CONTRACT,
+                "reference_compound": "MEDIUM",
                 "compound_delta_available": True,
                 "compound_delta_source": "resolved_pre_race_baseline",
                 "degradation": float(degradation[compound]),
