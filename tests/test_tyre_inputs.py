@@ -644,12 +644,9 @@ def test_r12_live_performance_rebases_to_medium_without_changing_differences(tmp
         assert values[("compound_delta", "HARD")] == pytest.approx(.297279)
         assert values[("compound_delta", "SOFT")] == pytest.approx(-.368016)
         assert values[("compound_delta", "HARD")] - values[("compound_delta", "SOFT")] == pytest.approx(.665295)
-        raw_deltas = {"HARD": 0.0, "MEDIUM": -.297279, "SOFT": -.665295}
-        for row in rows:
-            assert row["compound_delta_model_reference_offset"] == -.297279
-            assert (
-                row["compound_delta"] + row["compound_delta_model_reference_offset"]
-            ) == raw_deltas[row["compound"]]
+        assert {row["compound"]: row["compound_delta"] for row in rows} == pytest.approx(
+            {"HARD": .297279, "MEDIUM": 0., "SOFT": -.368016}
+        )
         frozen = tyre_snapshot_from_overrides(values, resolved, assumptions=rows)
         assert frozen["values"]["Perf_HARD_vs_MEDIUM"] == values[("compound_delta", "HARD")]
         assert frozen["values"]["Perf_SOFT_vs_MEDIUM"] == values[("compound_delta", "SOFT")]
@@ -681,9 +678,7 @@ def test_r12_manual_performance_is_exact_medium_difference_on_every_resolution(t
         )
         assert values[("compound_delta", "MEDIUM")] == 0.0
         assert values[("compound_delta", "HARD")] == .81
-        assert {row["compound_delta_model_reference_offset"] for row in rows} == {
-            0.0 if global_base_override else -.297279
-        }
+        assert next(row for row in rows if row["compound"] == "HARD")["compound_delta"] == .81
         frozen = tyre_snapshot_from_overrides(
             values, resolved, assumptions=rows,
             manual_values=manual if storage == "explicit" else None,

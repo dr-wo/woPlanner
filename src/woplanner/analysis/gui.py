@@ -2600,15 +2600,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 if row.get("degradation") is not None
             },
         )
-        # Strategy uses MEDIUM=0. Restore the model's original reference for
-        # history so its medians and model P10/P90 remain in the same coordinates.
-        assumptions = [
-            dict(row, compound_delta=(
-                float(row["compound_delta"])
-                + float(row.get("compound_delta_model_reference_offset") or 0.)
-            ))
-            for row in assumptions
-        ]
+        # Keep current-main history in the same normalized coordinates as
+        # effective inputs; scope-local Used edits remain excluded.
         if not self._working_plot_rows and leader_lap > 0:
             initial = []
             for value in initial_inputs.values():
@@ -2629,6 +2622,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             assumptions, leader_lap
         )
         quality = dict(summary.manifest.get("sampler_quality") or {})
+        race_delta_count = sum(
+            row.get("compound_delta_source") == "race_evidence" for row in assumptions
+        )
         if quality:
             evidence = quality.get("compound_evidence") or {}
             common = {
@@ -2656,13 +2652,27 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 match = next((item for item in summary.parameters
                               if str(item.get("parameter")) == parameter
                               and str(item.get("compound") or "").upper() == compound), None)
-                if match and np.isclose(
+                if match is None:
+                    continue
+                shift = 0.0
+                if parameter == "compound_delta":
+                    if row.get("compound_delta_source") != "race_evidence" or race_delta_count < 2:
+                        continue
+                    # These are model marginal diagnostics translated by a
+                    # fixed offset, not quantiles of a new compound contrast.
+                    shift = float(row["median"]) - float(match["median"])
+                    row["model_reference_shift"] = shift
+                    row["bounds_basis"] = "fixed-shift model marginal diagnostics"
+                elif row.get("degradation_source") != "live_direct" or not np.isclose(
                     float(row["median"]), float(match["median"]), rtol=0., atol=1e-12
                 ):
-                    row["p10"] = match.get("p10")
-                    row["p90"] = match.get("p90")
-                    if match.get("p10") is not None and match.get("p90") is not None:
-                        row["p10_p90_width"] = float(match["p90"]) - float(match["p10"])
+                    continue
+                for bound in ("p10", "p90"):
+                    row[bound] = (
+                        None if match.get(bound) is None else float(match[bound]) + shift
+                    )
+                if row["p10"] is not None and row["p90"] is not None:
+                    row["p10_p90_width"] = row["p90"] - row["p10"]
         self._working_plot_rows.extend(new_rows)
         self.history_snapshot_combo.blockSignals(True)
         self.history_snapshot_combo.setCurrentIndex(0)

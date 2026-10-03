@@ -597,24 +597,26 @@ def test_nonzero_medium_performance_manual_is_stable_at_search_boundary(tmp_path
         service=service, team_scope_enabled=True,
     )
     try:
-        def assert_raw_global_history():
+        def assert_normalized_global_history():
             history = {
                 (row["parameter"], row["compound"]): row
                 for row in window._working_plot_rows if row["as_of_leader_lap"] == 35
             }
             for compound, value in deltas.items():
                 row = history[("compound_delta", compound)]
-                assert row["median"] == pytest.approx(value)
+                assert row["median"] == pytest.approx(value - deltas["MEDIUM"])
                 model_row = next(
                     item for item in summary.parameters
                     if item["parameter"] == "compound_delta" and item["compound"] == compound
                 )
-                assert row["p10"] == model_row["p10"]
-                assert row["p90"] == model_row["p90"]
+                assert row["p10"] == pytest.approx(model_row["p10"] - deltas["MEDIUM"])
+                assert row["p90"] == pytest.approx(model_row["p90"] - deltas["MEDIUM"])
+                assert row["model_reference_shift"] == pytest.approx(-deltas["MEDIUM"])
+                assert row["bounds_basis"] == "fixed-shift model marginal diagnostics"
             assert history[("degradation", "HARD")]["median"] == .20
 
         window._load_model(summary=summary, record_history=True)
-        assert_raw_global_history()
+        assert_normalized_global_history()
         assert {
             compound: window._manual_overrides[("compound_delta", compound)]
             for compound in ("HARD", "MEDIUM", "SOFT")
@@ -625,7 +627,7 @@ def test_nonzero_medium_performance_manual_is_stable_at_search_boundary(tmp_path
         strategy_cell(window, "HARD", 4).setText(".81")
         strategy_cell(window, "HARD", 7).setText(".72")
         window._load_model(summary=summary, record_history=True)
-        assert_raw_global_history()
+        assert_normalized_global_history()
         for _ in range(3):
             window._sync_strategy_overrides()
             assert window._manual_overrides[("compound_delta", "HARD")] == pytest.approx(.81)
@@ -873,3 +875,77 @@ def test_live_application_startup_does_not_calculate_fp(monkeypatch):
     assert calls == []
     window.close()
     qt.processEvents()
+
+
+@pytest.mark.parametrize("team", [None, "Ferrari"])
+@pytest.mark.parametrize("observed", [("HARD", "MEDIUM"), ("HARD", "SOFT"), ("HARD",)])
+def test_partial_reference_updates_keep_scope_inputs_and_history_diagnostics(
+    tmp_path, monkeypatch, team, observed,
+):
+    write_event(tmp_path)
+    qt = app()
+    service = OfflineAnalysisService(tmp_path)
+    calls = []
+    monkeypatch.setattr(service, "generate_continuations", lambda **kwargs: calls.append(kwargs) or [])
+    window = StrategyPredictionWindow(
+        year=2026, round_number=11, mode=StrategyPredictionMode.HISTORICAL_WHAT_IF,
+        service=service, team_scope_enabled=True,
+    )
+    base = service.resolve_tyre_inputs(2026, 11).strategy_overrides()
+    expected = {c: base[("compound_delta", c)] for c in ("HARD", "MEDIUM", "SOFT")}
+    if observed == ("HARD", "MEDIUM"):
+        expected["HARD"] = .3
+    elif observed == ("HARD", "SOFT"):
+        expected["SOFT"] = expected["HARD"] - .9
+    original = team_model()
+    try:
+        for shift in (0., 7.):
+            raw = {"HARD": shift, "MEDIUM": shift - .3, "SOFT": shift - .9}
+            summary = ModelSummary({
+                **original.manifest,
+                "sampler_quality": {"architecture": "live-retro-v1", "ess": 80.,
+                                    "observed_compounds": list(observed)},
+            }, tuple(
+                {**row, "median": raw[row["compound"]],
+                 "p10": raw[row["compound"]] - .02, "p90": raw[row["compound"]] + .03}
+                if row["parameter"] == "compound_delta" else row
+                for row in original.parameters
+            ))
+            window._load_model(summary=summary, record_history=True)
+            choose_team(window, team)
+            automatic, assumptions = service.effective_tyre_inputs(
+                summary, service.resolve_tyre_inputs(2026, 11, team=team), manual_override=False,
+            )
+            assert {c: automatic[("compound_delta", c)] for c in expected} == pytest.approx(expected)
+            history = {
+                row["compound"]: row for row in window._working_plot_rows
+                if row["as_of_leader_lap"] == 35 and row["parameter"] == "compound_delta"
+            }
+            for compound, value in expected.items():
+                row = history[compound]
+                assert row["median"] == pytest.approx(value)
+                if compound in observed and len(observed) > 1:
+                    assert row["p10"] == pytest.approx(value - .02)
+                    assert row["p90"] == pytest.approx(value + .03)
+                    assert row["model_reference_shift"] == pytest.approx(value - raw[compound])
+                    assert row["bounds_basis"] == "fixed-shift model marginal diagnostics"
+                else:
+                    assert row.get("p10") is None and row.get("p90") is None
+            # A live Used edit stays exact through Calculate; retained performance
+            # and its source come from the same resolution as the search snapshot.
+            strategy_cell(window, "HARD", 4).setText(".81")
+            window._start_search()
+            window._future.result(timeout=5)
+            window._poll_future()
+            call = calls[-1]
+            assert call["overrides"][("compound_delta", "HARD")] == pytest.approx(.81)
+            assert call["overrides"][("compound_delta", "MEDIUM")] == 0.
+            assert call["overrides"][("compound_delta", "SOFT")] == pytest.approx(expected["SOFT"])
+            snapshot = call["tyre_input_snapshot"]
+            assert snapshot["team"] == team
+            assert snapshot["selected_sources"]["Perf_HARD_vs_MEDIUM"] == "manual"
+            soft = next(row for row in assumptions if row["compound"] == "SOFT")
+            assert snapshot["selected_sources"]["Perf_SOFT_vs_MEDIUM"] == soft["compound_delta_source"]
+    finally:
+        window.close()
+        qt.processEvents()

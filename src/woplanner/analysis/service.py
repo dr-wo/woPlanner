@@ -446,19 +446,9 @@ class OfflineAnalysisService:
                 initial_degradation=initial_degradation,
                 baseline_degradation_sources=base_degradation_sources,
             )
-        # The live model may use HARD (or another compound) as its reference.
-        # Strategy and manual H/S inputs use MEDIUM, so rebase automatic values
-        # once, before applying any manual differences relative to MEDIUM.
-        medium_delta = next(
-            (float(row["compound_delta"]) for row in assumptions
-             if str(row["compound"]).upper() == "MEDIUM"),
-            None,
-        )
-        if medium_delta is None:
-            raise ValueError("Missing required effective tyre input: compound_delta:MEDIUM")
-        for row in assumptions:
-            row["compound_delta_model_reference_offset"] = medium_delta
-            row["compound_delta"] = float(row["compound_delta"]) - medium_delta
+        # strategy_assumptions already aligns partial live offsets to the
+        # baseline and normalizes MEDIUM to zero. Apply scoped manual
+        # differences afterwards without a second reference conversion.
         effective: dict[tuple[str, str], float] = {}
         for row in assumptions:
             compound = str(row["compound"]).upper()
