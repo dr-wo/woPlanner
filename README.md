@@ -687,3 +687,5 @@ Observed positive events remain confirmed minimums with null exact totals, shown
 exercise confirmed-zero behavior. Report and Planner use the same local artifact
 and formatting; neither acquires data on render/reload. This descriptive context
 never changes strategy, probabilities or operational inputs.
+
+Track Map contracts and reproducible evidence: [Live Track Map](doc/LIVE_TRACK_MAP.md); [reconciliation decisions](doc/LIVE_TRACK_MAP_DECISIONS.md).

@@ -1,0 +1,23 @@
+{
+  "planner_base": "b303a11",
+  "wodata_main": "8c2ba26",
+  "source_integration": "44b13b7",
+  "planner_tests": {
+    "passed": 65,
+    "scope": [
+      "test_track_map",
+      "test_live_gui",
+      "test_telemetry_worker",
+      "test_position_retention_integration",
+      "test_r13_track_map_replay"
+    ],
+    "qt_platform": "offscreen",
+    "harness": "persistent QApplication; MPLBACKEND=Agg"
+  },
+  "pit_cycle_passed": true,
+  "max_replay_verifications_passed": true,
+  "reference_mapping_status": "ok",
+  "native_visual_acceptance": false,
+  "team_mode_ported": false,
+  "source_config_write_policy": "temporary copy, Apply disabled, source bytes checked unchanged"
+}

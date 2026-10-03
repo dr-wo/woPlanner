@@ -1,0 +1,189 @@
+{
+  "target_event": "2026-12",
+  "target_name": "Dutch Grand Prix",
+  "target_location": "Zandvoort",
+  "policy": {
+    "mode": "evidence_only",
+    "history_years": [2021, 2022, 2023, 2024, 2025],
+    "current_year_is_history": false,
+    "operational_input": false,
+    "candidate_available": false,
+    "apply_available": false,
+    "aggregation": null,
+    "estimator_semantics": "GREEN-relative pit-sector excess (evidence only)"
+  },
+  "audit": {
+    "method": "production single-Race loader, followed by offline replay from an isolated scratch FastF1 cache",
+    "full_report_sha256": "03985700c029287e5ad3a62fc085025360dceb1421d6b4b80cee21d02a288297",
+    "production_sources_unchanged": true,
+    "strict_vsc_samples_across_history": 0
+  },
+  "history": [
+    {
+      "year": 2021,
+      "event": "Dutch Grand Prix",
+      "round": 13,
+      "date": "2021-09-05",
+      "location": "Zandvoort",
+      "status": "no_vsc",
+      "reason": "Race laps contain no VSC TrackStatus code",
+      "lap_count": 1361,
+      "adjacent_pit_pairs": 29,
+      "normal_pairs": 29,
+      "mixed_pairs": 0,
+      "vsc_related_pairs": 0,
+      "strict_vsc_sample_count": 0,
+      "source": "FastF1 3.8.3 minimal Race load in isolated scratch cache; offline replay confirmed",
+      "source_event": "2021-13",
+      "source_sha256": {
+        "track_status_data.ff1pkl": "b79203d611140762d3da05884464fefb7e5b45f3fcdf42dd101ac33a1fe35dfc",
+        "_extended_timing_data.ff1pkl": "3c17bcbb6d6a171dd83715f454801f8d0efaa015fe9c8f746ce6646b37f2b39d"
+      }
+    },
+    {
+      "year": 2022,
+      "event": "Dutch Grand Prix",
+      "round": 15,
+      "date": "2022-09-04",
+      "location": "Zandvoort",
+      "status": "vsc_no_qualified_pair",
+      "reason": "VSC occurred; all 9 VSC-related adjacent pit pairs were mixed-state and the strict estimator accepted none",
+      "vsc_confirmed": true,
+      "vsc_interval_session_seconds": {
+        "deployed": 7348.234,
+        "ending": 7563.103,
+        "all_clear": 7576.78
+      },
+      "lap_count": 1392,
+      "adjacent_pit_pairs": 71,
+      "normal_pairs": 30,
+      "mixed_pairs": 20,
+      "sc_pairs": 21,
+      "vsc_related_pairs": 9,
+      "strict_vsc_sample_count": 0,
+      "source": "FastF1 3.8.3 minimal Race load in isolated scratch cache; offline replay confirmed",
+      "source_event": "2022-15",
+      "source_sha256": {
+        "track_status_data.ff1pkl": "7e352de6952da6892f004b173f7514be0fa7b69db6ccbd6c1afd6b01b80c0693",
+        "_extended_timing_data.ff1pkl": "4e6d600e4c49351d97d924f77e12d3ce5adf2d53d68a34a0828d2bb910609267"
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Dutch Grand Prix",
+      "round": 13,
+      "date": "2023-08-27",
+      "location": "Zandvoort",
+      "status": "vsc_no_qualified_pair",
+      "reason": "VSC occurred and transitioned to red; all 19 VSC-related adjacent pit pairs were mixed-state and the strict estimator accepted none",
+      "vsc_confirmed": true,
+      "vsc_interval_session_seconds": {
+        "deployed": 8968.507,
+        "red": 9015.725
+      },
+      "lap_count": 1343,
+      "adjacent_pit_pairs": 101,
+      "normal_pairs": 63,
+      "mixed_pairs": 37,
+      "sc_pairs": 1,
+      "vsc_related_pairs": 19,
+      "strict_vsc_sample_count": 0,
+      "source": "FastF1 3.8.3 minimal Race load in isolated scratch cache; offline replay confirmed",
+      "source_event": "2023-13",
+      "source_sha256": {
+        "track_status_data.ff1pkl": "d764d0e71ffe564d5ef32064f17d92a7d4bed76ed62ab2d38e611473edfdaf52",
+        "_extended_timing_data.ff1pkl": "1dd07001ac02feb5762488a54887c6fede0c662a02f0e19397c05aa149f8771c"
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Dutch Grand Prix",
+      "round": 15,
+      "date": "2024-08-25",
+      "location": "Zandvoort",
+      "status": "no_vsc",
+      "reason": "Race laps contain no VSC TrackStatus code",
+      "lap_count": 1426,
+      "adjacent_pit_pairs": 26,
+      "normal_pairs": 26,
+      "mixed_pairs": 0,
+      "vsc_related_pairs": 0,
+      "strict_vsc_sample_count": 0,
+      "source": "FastF1 3.8.3 minimal Race load in isolated scratch cache; offline replay confirmed",
+      "source_event": "2024-15",
+      "source_sha256": {
+        "track_status_data.ff1pkl": "5d34ab8387d20fad6359a54d7f0e6cd05e8a37ef61a45583bdae991e9ce767df",
+        "_extended_timing_data.ff1pkl": "3dc6f5cf2e9191bf292a2d06ab5a49e1d8921431fb7fcd0f2a26bd676e430b0e"
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Dutch Grand Prix",
+      "round": 15,
+      "date": "2025-08-31",
+      "location": "Zandvoort",
+      "status": "vsc_no_qualified_pair",
+      "vsc_confirmed": true,
+      "vsc_interval_session_seconds": {
+        "deployed": 5867.801,
+        "ending": 5937.644,
+        "all_clear": 5950.44
+      },
+      "lap_count": 1364,
+      "adjacent_pit_pairs": 39,
+      "normal_pairs": 10,
+      "mixed_pairs": 29,
+      "vsc_related_pairs": 0,
+      "strict_vsc_sample_count": 0,
+      "strict_sc_sample_count": 0,
+      "source": "FastF1 3.8.3 minimal Race load in isolated scratch cache",
+      "reproduction_api": "woweekend.historical_vsc.load_single_race_vsc_evidence(2025, {'country': 'Netherlands', 'location': 'Zandvoort'})",
+      "source_sha256": {
+        "track_status_data.ff1pkl": "c06069f3a27f8066144240dbabf36958dbcc20143e529bf8d5591116c6b332ea",
+        "_extended_timing_data.ff1pkl": "d0889b368be259dbbc776540e73d9c5fd7f906733b2c620b6967fb10a5e9ff50"
+      }
+    }
+  ],
+  "current_or_post_race_evidence": {
+    "year": 2026,
+    "event": "Dutch Grand Prix",
+    "round": 12,
+    "date": "2026-08-23",
+    "location": "Zandvoort",
+    "status": "vsc_no_qualified_pair",
+    "vsc_confirmed": true,
+    "vsc_deployed_utc": [
+      "2026-08-23T14:44:34.965Z",
+      "2026-08-23T15:04:21.679Z"
+    ],
+    "lap_count": 1368,
+    "adjacent_pit_pairs": 64,
+    "normal_pairs": 37,
+    "mixed_pairs": 27,
+    "vsc_related_pairs": 7,
+    "strict_vsc_sample_count": 0,
+    "strict_sc_sample_count": 0,
+    "canonical_laps": "/Users/zhxutong/dr-wo/woData/wostrategy/planner_race_laps/schema_v2/year=2026/round=12/session=R/laps.pkl",
+    "canonical_laps_sha256": "e7178ec9e113f13ce3fa6fca67896a857dc5b6daaa2facd3fa7b76e3d28064d3",
+    "recovered_replay": "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=12/session=R/recovered_replay.jsonl",
+    "recovered_replay_sha256": "a46c01d2bf6ae87549abedefed1da04b7c003457941cd3b416f25c64472a1a23",
+    "legacy_combined_artifact": {
+      "path": "/Users/zhxutong/dr-wo/woData/woweekend/runs/schema_v1/event=2026-12/workflow=post_race/runs/20260905T214745.966214Z-484ba2c82b/empirical_pit_loss.json",
+      "field": "sc_vsc",
+      "total_seconds": 33.523,
+      "sample_count": 5,
+      "operational_input": false,
+      "reason": "legacy combined evidence is not an independent strict VSC result"
+    }
+  },
+  "estimator": {
+    "source": "/Users/zhxutong/dr-wo/woStrategy/src/wostrategy/script/race_performance_review.py",
+    "source_head": "afb1c824545c524de8cb3d3772bd97f0c62f3f99",
+    "implementation_sha256": "33f1101550511b467c645bd33f5cbf017d1e7587522766393aea410ae9c0b469",
+    "public_api": "wostrategy.analysis.pit_loss.median_pit_loss_by_state",
+    "qualification": "adjacent pit-in/out laps with valid S3/S1 and both TrackStatus values exactly equal to the requested pure state",
+    "semantic_limit": "output compares pit sectors with GREEN non-pit sector medians; it is not named or used as an operational VSC pit window"
+  },
+  "layout_comparability": "unknown: a common circuit key does not prove an identical layout version",
+  "production_writes": false
+}

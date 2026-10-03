@@ -1,0 +1,723 @@
+{
+  "D_pit_cycle": {
+    "checkpoints": {
+      "before": {
+        "actual_position_marker": {
+          "sample_time_seconds": 1788702956.608389,
+          "x": 76.0,
+          "y": -5799.0,
+          "z": 1843.0
+        },
+        "driver_id": "30",
+        "in_pit": false,
+        "observed_recording_seconds": 3478.06667,
+        "on_track": true,
+        "reference_source": "actual clean-lap Position.z trajectory",
+        "rendered_window_marker_count": 6,
+        "rendered_window_markers": [
+          {
+            "direction": "behind",
+            "key": "pit",
+            "label": "Pit \u221220.0 s",
+            "seconds": 20.0,
+            "x": 3527.445932951654,
+            "y": 7167.349300297662
+          },
+          {
+            "direction": "ahead",
+            "key": "pit",
+            "label": "Pit +20.0 s",
+            "seconds": 20.0,
+            "x": -391.6174756563994,
+            "y": 8302.3456310859
+          },
+          {
+            "direction": "behind",
+            "key": "sc",
+            "label": "SC \u22129.0 s",
+            "seconds": 9.0,
+            "x": 1435.1725550306883,
+            "y": 561.325385553627
+          },
+          {
+            "direction": "ahead",
+            "key": "sc",
+            "label": "SC +9.0 s",
+            "seconds": 9.0,
+            "x": -1289.1932330538432,
+            "y": 285.368305702992
+          },
+          {
+            "direction": "behind",
+            "key": "vsc",
+            "label": "VSC \u22127.0 s",
+            "seconds": 7.0,
+            "x": 1268.8298340117408,
+            "y": -1243.198632510381
+          },
+          {
+            "direction": "ahead",
+            "key": "vsc",
+            "label": "VSC +7.0 s",
+            "seconds": 7.0,
+            "x": -1432.0329754002435,
+            "y": -1435.9808912535493
+          }
+        ],
+        "status": "Track Map \u2014 approximate mapping from actual Position.z reference: NOR lap 12 (86.2 s)",
+        "target_recording_seconds": 3478.0
+      },
+      "entry": {
+        "actual_position_marker": {
+          "sample_time_seconds": 1788702965.529039,
+          "x": -1334.0,
+          "y": -1897.0,
+          "z": 1865.0
+        },
+        "driver_id": "30",
+        "in_pit": true,
+        "observed_recording_seconds": 3487.390569,
+        "on_track": true,
+        "reference_source": "actual clean-lap Position.z trajectory",
+        "rendered_window_marker_count": 0,
+        "rendered_window_markers": [],
+        "status": "Track Map \u2014 approximate mapping from actual Position.z reference: NOR lap 12 (86.2 s) \u2014 selected car is pit-side/off-track",
+        "target_recording_seconds": 3487.3
+      },
+      "exit": {
+        "actual_position_marker": {
+          "sample_time_seconds": 1788702996.409364,
+          "x": -930.0,
+          "y": 2222.0,
+          "z": 1865.0
+        },
+        "driver_id": "30",
+        "in_pit": false,
+        "observed_recording_seconds": 3518.299038,
+        "on_track": true,
+        "reference_source": "actual clean-lap Position.z trajectory",
+        "rendered_window_marker_count": 6,
+        "rendered_window_markers": [
+          {
+            "direction": "behind",
+            "key": "pit",
+            "label": "Pit \u221220.0 s",
+            "seconds": 20.0,
+            "x": 1424.8940798533315,
+            "y": 448.7090488278058
+          },
+          {
+            "direction": "ahead",
+            "key": "pit",
+            "label": "Pit +20.0 s",
+            "seconds": 20.0,
+            "x": 936.0954238530878,
+            "y": 13570.289143038397
+          },
+          {
+            "direction": "behind",
+            "key": "sc",
+            "label": "SC \u22129.0 s",
+            "seconds": 9.0,
+            "x": -1017.3614255057262,
+            "y": -5182.520626322795
+          },
+          {
+            "direction": "ahead",
+            "key": "sc",
+            "label": "SC +9.0 s",
+            "seconds": 9.0,
+            "x": -372.4247710659398,
+            "y": 8307.143807233515
+          },
+          {
+            "direction": "behind",
+            "key": "vsc",
+            "label": "VSC \u22127.0 s",
+            "seconds": 7.0,
+            "x": -1473.8593027974632,
+            "y": -3839.4103983038576
+          },
+          {
+            "direction": "ahead",
+            "key": "vsc",
+            "label": "VSC +7.0 s",
+            "seconds": 7.0,
+            "x": -634.3154122086022,
+            "y": 7899.075268611143
+          }
+        ],
+        "status": "Track Map \u2014 approximate mapping from actual Position.z reference: NOR lap 12 (86.2 s)",
+        "target_recording_seconds": 3518.2
+      },
+      "pit": {
+        "actual_position_marker": {
+          "sample_time_seconds": 1788702979.868868,
+          "x": -1164.0,
+          "y": -153.0,
+          "z": 1865.0
+        },
+        "driver_id": "30",
+        "in_pit": true,
+        "observed_recording_seconds": 3502.068258,
+        "on_track": true,
+        "reference_source": "actual clean-lap Position.z trajectory",
+        "rendered_window_marker_count": 0,
+        "rendered_window_markers": [],
+        "status": "Track Map \u2014 approximate mapping from actual Position.z reference: NOR lap 12 (86.2 s) \u2014 selected car is pit-side/off-track",
+        "target_recording_seconds": 3502.0
+      },
+      "return": {
+        "actual_position_marker": {
+          "sample_time_seconds": 1788703010.509229,
+          "x": -191.0,
+          "y": 8383.0,
+          "z": 1921.0
+        },
+        "driver_id": "30",
+        "in_pit": false,
+        "observed_recording_seconds": 3532.334549,
+        "on_track": true,
+        "reference_source": "actual clean-lap Position.z trajectory",
+        "rendered_window_marker_count": 6,
+        "rendered_window_markers": [
+          {
+            "direction": "behind",
+            "key": "pit",
+            "label": "Pit \u221220.0 s",
+            "seconds": 20.0,
+            "x": -480.6364832930902,
+            "y": -5664.041047411251
+          },
+          {
+            "direction": "ahead",
+            "key": "pit",
+            "label": "Pit +20.0 s",
+            "seconds": 20.0,
+            "x": 7103.241473205356,
+            "y": 14999.572484955639
+          },
+          {
+            "direction": "behind",
+            "key": "sc",
+            "label": "SC \u22129.0 s",
+            "seconds": 9.0,
+            "x": -1051.8102509856155,
+            "y": 3043.219488471286
+          },
+          {
+            "direction": "ahead",
+            "key": "sc",
+            "label": "SC +9.0 s",
+            "seconds": 9.0,
+            "x": 333.0092185972615,
+            "y": 13010.848599229093
+          },
+          {
+            "direction": "behind",
+            "key": "vsc",
+            "label": "VSC \u22127.0 s",
+            "seconds": 7.0,
+            "x": -892.619440563917,
+            "y": 4887.58771847971
+          },
+          {
+            "direction": "ahead",
+            "key": "vsc",
+            "label": "VSC +7.0 s",
+            "seconds": 7.0,
+            "x": -324.77551164877656,
+            "y": 11561.17526254464
+          }
+        ],
+        "status": "Track Map \u2014 approximate mapping from actual Position.z reference: NOR lap 12 (86.2 s)",
+        "target_recording_seconds": 3532.0
+      }
+    },
+    "conclusion": "The checkpoint records include the real Position.z coordinates and the widget's actual rendered marker count.",
+    "driver": "LAW",
+    "expected_transition_seconds": {
+      "in_pit_false_near": 3518,
+      "in_pit_true_near": 3487
+    },
+    "verification": {
+      "entry_and_pit_flags_true": true,
+      "exit_and_return_flags_false": true,
+      "markers_are_actual_position_coordinates": "TrackMapDriver coordinates are copied directly from the reducer's latest Position.z sample",
+      "pit_windows_suppressed": true,
+      "windows_resume_after_exit": true
+    }
+  },
+  "E_reference_lap_mapping": {
+    "common_anchor_fraction": 0.5,
+    "interpretation_hint": "local-like below 0.15 track extents; major-segment-like at or above 0.15",
+    "laps": [
+      {
+        "common_anchor_fraction": 0.5,
+        "coordinates": [
+          {
+            "offset_s": -23.0,
+            "progress": 0.21217811836400818,
+            "x": -332.73463840044917,
+            "y": 11518.44788203887
+          },
+          {
+            "offset_s": -15.0,
+            "progress": 0.32268557361933725,
+            "x": 4670.274353804235,
+            "y": 14432.0510623525
+          },
+          {
+            "offset_s": -9.0,
+            "progress": 0.3704329995610215,
+            "x": 7199.33681546924,
+            "y": 15053.148859381323
+          },
+          {
+            "offset_s": 9.0,
+            "progress": 0.5521835167998177,
+            "x": 7746.318193469928,
+            "y": 10744.08923292551
+          },
+          {
+            "offset_s": 15.0,
+            "progress": 0.6391647522903143,
+            "x": 3923.075470768292,
+            "y": 7511.098152536
+          },
+          {
+            "offset_s": 23.0,
+            "progress": 0.7280523599361869,
+            "x": 1678.7479484808841,
+            "y": 3204.479484808841
+          }
+        ],
+        "driver": "VER",
+        "extent": 21681.0,
+        "lap": 12,
+        "lap_time_s": 86.38299989700317,
+        "points": 327
+      },
+      {
+        "common_anchor_fraction": 0.5,
+        "coordinates": [
+          {
+            "offset_s": -23.0,
+            "progress": 0.20828769239696976,
+            "x": -324.67219684303495,
+            "y": 11564.185619584887
+          },
+          {
+            "offset_s": -15.0,
+            "progress": 0.31923558482133935,
+            "x": 4742.730902250743,
+            "y": 14436.387889771275
+          },
+          {
+            "offset_s": -9.0,
+            "progress": 0.36823884221079445,
+            "x": 7334.702948487901,
+            "y": 15101.396825576612
+          },
+          {
+            "offset_s": 9.0,
+            "progress": 0.5518517573806417,
+            "x": 7537.367058152721,
+            "y": 10604.085241845385
+          },
+          {
+            "offset_s": 15.0,
+            "progress": 0.6417995163552477,
+            "x": 3603.899253893406,
+            "y": 7233.265729683051
+          },
+          {
+            "offset_s": 23.0,
+            "progress": 0.7273099309290486,
+            "x": 1656.1076108966117,
+            "y": 2976.328896905844
+          }
+        ],
+        "driver": "VER",
+        "extent": 21683.0,
+        "lap": 11,
+        "lap_time_s": 86.10199999809265,
+        "points": 334
+      },
+      {
+        "common_anchor_fraction": 0.5,
+        "coordinates": [
+          {
+            "offset_s": -23.0,
+            "progress": 0.20836714346334756,
+            "x": -358.6387478034697,
+            "y": 11364.648633565552
+          },
+          {
+            "offset_s": -15.0,
+            "progress": 0.31781985805246327,
+            "x": 4454.684712150387,
+            "y": 14417.689336267767
+          },
+          {
+            "offset_s": -9.0,
+            "progress": 0.3701854678757944,
+            "x": 7245.624461206897,
+            "y": 15069.474968262872
+          },
+          {
+            "offset_s": 9.0,
+            "progress": 0.5510623993642064,
+            "x": 7749.84794996789,
+            "y": 10739.395063718863
+          },
+          {
+            "offset_s": 15.0,
+            "progress": 0.6408168066397333,
+            "x": 3801.821119800588,
+            "y": 7405.749045981278
+          },
+          {
+            "offset_s": 23.0,
+            "progress": 0.7288945215795348,
+            "x": 1666.4448253661037,
+            "y": 3090.331194354168
+          }
+        ],
+        "driver": "VER",
+        "extent": 21684.0,
+        "lap": 10,
+        "lap_time_s": 85.68600010871887,
+        "points": 316
+      },
+      {
+        "common_anchor_fraction": 0.5,
+        "coordinates": [
+          {
+            "offset_s": -23.0,
+            "progress": 0.21360294193761287,
+            "x": -345.65642240040694,
+            "y": 11444.33806135432
+          },
+          {
+            "offset_s": -15.0,
+            "progress": 0.3225316014234407,
+            "x": 4505.150257743592,
+            "y": 14421.152120242303
+          },
+          {
+            "offset_s": -9.0,
+            "progress": 0.37423106492410313,
+            "x": 7256.748393910671,
+            "y": 15074.429418509224
+          },
+          {
+            "offset_s": 9.0,
+            "progress": 0.5572642266977675,
+            "x": 7633.323093819892,
+            "y": 10669.16723509993
+          },
+          {
+            "offset_s": 15.0,
+            "progress": 0.6454252602502338,
+            "x": 3769.2757117858755,
+            "y": 7377.0015114329635
+          },
+          {
+            "offset_s": 23.0,
+            "progress": 0.7328261493206533,
+            "x": 1666.580031169362,
+            "y": 3086.274321044429
+          }
+        ],
+        "driver": "VER",
+        "extent": 21678.0,
+        "lap": 9,
+        "lap_time_s": 86.06699991226196,
+        "points": 324
+      },
+      {
+        "common_anchor_fraction": 0.5,
+        "coordinates": [
+          {
+            "offset_s": -23.0,
+            "progress": 0.2117118678292005,
+            "x": -330.61244534163154,
+            "y": 11531.206777041547
+          },
+          {
+            "offset_s": -15.0,
+            "progress": 0.3226739426120034,
+            "x": 4710.133947057017,
+            "y": 14433.772585121002
+          },
+          {
+            "offset_s": -9.0,
+            "progress": 0.3707509707658117,
+            "x": 7253.650880492647,
+            "y": 15073.925100001788
+          },
+          {
+            "offset_s": 9.0,
+            "progress": 0.5511662652845785,
+            "x": 7762.355108851094,
+            "y": 10752.894823752436
+          },
+          {
+            "offset_s": 15.0,
+            "progress": 0.6397127867988002,
+            "x": 3868.402064643899,
+            "y": 7463.431140153816
+          },
+          {
+            "offset_s": 23.0,
+            "progress": 0.7277265607097058,
+            "x": 1676.030853754904,
+            "y": 3181.2103610009544
+          }
+        ],
+        "driver": "VER",
+        "extent": 21680.0,
+        "lap": 8,
+        "lap_time_s": 86.48399996757507,
+        "points": 331
+      }
+    ],
+    "max_pairwise_variation_normalized": 0.019514845681256193,
+    "observed_classification": "local-like",
+    "offset_variation": [
+      {
+        "max_pairwise_distance": 202.40735009833045,
+        "max_pairwise_variation_normalized": 0.009334410168711052,
+        "normalizing_track_extent": 21684.0,
+        "offset_s": -23.0
+      },
+      {
+        "max_pairwise_distance": 288.6524615076999,
+        "max_pairwise_variation_normalized": 0.013311771882849101,
+        "normalizing_track_extent": 21684.0,
+        "offset_s": -15.0
+      },
+      {
+        "max_pairwise_distance": 143.70753706889465,
+        "max_pairwise_variation_normalized": 0.006627353674086638,
+        "normalizing_track_extent": 21684.0,
+        "offset_s": -9.0
+      },
+      {
+        "max_pairwise_distance": 269.74787232600175,
+        "max_pairwise_variation_normalized": 0.012439949839789787,
+        "normalizing_track_extent": 21684.0,
+        "offset_s": 9.0
+      },
+      {
+        "max_pairwise_distance": 423.15991375235933,
+        "max_pairwise_variation_normalized": 0.019514845681256193,
+        "normalizing_track_extent": 21684.0,
+        "offset_s": 15.0
+      },
+      {
+        "max_pairwise_distance": 229.27118363722235,
+        "max_pairwise_variation_normalized": 0.010573288306457405,
+        "normalizing_track_extent": 21684.0,
+        "offset_s": 23.0
+      }
+    ],
+    "private_diagnostic_access": true,
+    "selection": "five latest valid non-pit laps sorted by driver/lap",
+    "status": "ok"
+  },
+  "F_practical_max_replay": {
+    "production_window": {
+      "detached_full_render_count": 22,
+      "detached_snapshot_dispatch_count": 21,
+      "detached_spy_installed": true,
+      "embedded_full_render_count": 4,
+      "embedded_snapshot_dispatch_count": 2,
+      "event_probe_samples_ms": [
+        211.8299580179155,
+        34.73970899358392,
+        32.194749917835,
+        6.357916863635182,
+        6.327541079372168,
+        5.9042079374194145,
+        5.765500012785196,
+        315.0504168588668,
+        5.582249956205487,
+        5.803458159789443,
+        5.7129578199237585,
+        6.403417093679309,
+        6.287707947194576,
+        6.3027499709278345,
+        6.316708866506815,
+        6.325499853119254,
+        6.330500124022365,
+        6.33845804259181,
+        19.99337482266128,
+        0.9908750653266907,
+        360.4702919255942,
+        55.576875107362866,
+        15.268458053469658,
+        157.56470896303654,
+        7.792167132720351,
+        11.798333143815398,
+        9.650958003476262,
+        11.587042128667235,
+        11.624000035226345,
+        17.96675007790327,
+        15.331916976720095,
+        18.242750084027648,
+        15.646375017240644,
+        15.090167056769133,
+        16.571999993175268,
+        16.075874911621213,
+        15.463416930288076
+      ],
+      "hidden_embedded_full_render_count": 0,
+      "max_event_probe_ms": 360.4702919255942,
+      "max_poll_ms": 477.12204209528863,
+      "max_selection_ms": 804.1481669060886,
+      "poll_count": 37,
+      "poll_samples_ms": [
+        477.12204209528863,
+        1.1092917993664742,
+        1.5604998916387558,
+        1.26895890571177,
+        1.2143340427428484,
+        1.173374941572547,
+        0.8555001113563776,
+        1.12745794467628,
+        0.9232501033693552,
+        1.0477500036358833,
+        0.9559169411659241,
+        0.9295840281993151,
+        0.9986669756472111,
+        0.9971670806407928,
+        1.027874881401658,
+        1.037708017975092,
+        0.9190000128000975,
+        0.9272501338273287,
+        0.8876249194145203,
+        1.0242920834571123,
+        455.9560420457274,
+        72.96883314847946,
+        111.8595409207046,
+        215.76616703532636,
+        27.80595887452364,
+        80.61241707764566,
+        67.83237494528294,
+        80.61916613951325,
+        80.94150014221668,
+        88.43979192897677,
+        90.19066696055233,
+        90.82783409394324,
+        90.74591705575585,
+        92.42120804265141,
+        92.38137491047382,
+        95.81962483935058,
+        93.83399994112551
+      ],
+      "selection_samples_ms": [
+        804.1481669060886,
+        18.938791938126087
+      ],
+      "timing_plot_redraw_count": 31,
+      "transitions": [
+        {
+          "progress": 0.3087867630346834,
+          "scenario": "embedded_visible"
+        },
+        {
+          "progress": 0.3087867630346834,
+          "scenario": "embedded_hidden"
+        },
+        {
+          "progress": 0.46311195963452884,
+          "scenario": "detached_normal"
+        },
+        {
+          "progress": 1.0,
+          "scenario": "detached_enlarged"
+        }
+      ]
+    },
+    "replay": {
+      "diagnostics_after_sync": {
+        "control_queue_depth": 0,
+        "generation": 1,
+        "last_error": null,
+        "latest_ingress_sequence": 21999,
+        "message_queue_depth": 0,
+        "pending_build_count": 0,
+        "position_messages_processed": 3515,
+        "processed_ingress_sequence": 21999,
+        "queue_depth": 0,
+        "telemetry_messages_processed": 7025,
+        "thread_alive": true
+      },
+      "expected_messages": 21999,
+      "expected_planner_topic_counts": {
+        "DriverList": 83,
+        "ExtrapolatedClock": 4,
+        "Heartbeat": 237,
+        "LapCount": 13,
+        "SessionInfo": 2,
+        "SessionStatus": 4,
+        "TimingAppData": 249,
+        "TimingData": 13781,
+        "TimingStats": 592,
+        "TrackStatus": 9
+      },
+      "messages_emitted": 21999,
+      "planner_topic_counts": {
+        "DriverList": 83,
+        "ExtrapolatedClock": 4,
+        "Heartbeat": 237,
+        "LapCount": 13,
+        "SessionInfo": 2,
+        "SessionStatus": 4,
+        "TimingAppData": 249,
+        "TimingData": 13781,
+        "TimingStats": 592,
+        "TrackStatus": 9
+      },
+      "planner_topic_messages": 14974,
+      "status": "completed",
+      "wall_seconds": 6.987009999807924
+    },
+    "replay_speed": "max (ReplayConfig speed=0)",
+    "sync": {
+      "all_presentations_synchronised": true,
+      "selected_driver": "ALO",
+      "worker_drained": true
+    },
+    "verification": {
+      "all_messages_ingressed": true,
+      "all_scenarios_exercised": true,
+      "hidden_embedded_did_not_redraw": true,
+      "planner_queue_drained": true,
+      "presentations_synchronised": true,
+      "two_selection_probes": true,
+      "visible_and_detached_rendered": true,
+      "worker_drained": true
+    }
+  },
+  "event_config": "/Users/zhxutong/dr-wo/woData/woweekend/runs/schema_v1/event=2026-13/workflow=race_preparation/runs/20260906T125838.745617Z-c1083c2b12/config.resolved.json",
+  "event_config_isolated_copy": true,
+  "event_identity": {
+    "event_id": "2026-13",
+    "event_name": "Italian Grand Prix",
+    "round_number": 13,
+    "season": 2026,
+    "session": "R"
+  },
+  "invalid_record_count": 0,
+  "output_policy": "outside repository only",
+  "private_diagnostic_access": [
+    "LiveSessionStore._drivers/_timing/_laps/_position_samples",
+    "_reference_from_store",
+    "_optional_bool"
+  ],
+  "purpose": "R13 Track Map-only evidence on current main",
+  "recording": "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=13/session=R/live_timing_raw.jsonl"
+}

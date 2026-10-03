@@ -1,0 +1,265 @@
+{
+  "recording": "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=13/session=R/live_timing_raw.jsonl",
+  "event_config": "/Users/zhxutong/dr-wo/woData/woweekend/runs/schema_v1/event=2026-13/workflow=race_preparation/runs/20260906T125838.745617Z-c1083c2b12/config.resolved.json",
+  "event_config_isolated_copy": true,
+  "event_key": [
+    2026,
+    13
+  ],
+  "selected_driver": "RUS",
+  "selection_entries": {
+    "start_name": {
+      "target": "GAS",
+      "synchronised": true
+    },
+    "right_name": {
+      "target": "VER",
+      "synchronised": true
+    },
+    "curve": {
+      "target": "RUS",
+      "synchronised": true
+    },
+    "refresh_preserved": true
+  },
+  "sc_only_windows": [
+    [
+      "pit",
+      23.0,
+      "Pit ±23.0 s"
+    ],
+    [
+      "sc",
+      8.9,
+      "SC ±8.9 s"
+    ]
+  ],
+  "changed_seconds": {
+    "planner_labels": [
+      "GREEN pit window",
+      "SC pit window"
+    ],
+    "map_labels": [
+      "Pit +23.0 s",
+      "Pit −23.0 s",
+      "SC +9.4 s",
+      "SC −9.4 s"
+    ],
+    "detached_map_labels": [
+      "Pit +23.0 s",
+      "Pit −23.0 s",
+      "SC +9.4 s",
+      "SC −9.4 s"
+    ]
+  },
+  "split_windows": [
+    [
+      "pit",
+      23.0,
+      "Pit ±23.0 s"
+    ],
+    [
+      "sc",
+      8.9,
+      "SC ±8.9 s"
+    ],
+    [
+      "vsc",
+      7.2,
+      "VSC ±7.2 s"
+    ]
+  ],
+  "equal_independent_windows": [
+    [
+      "pit",
+      23.0
+    ],
+    [
+      "sc",
+      8.9
+    ],
+    [
+      "vsc",
+      8.9
+    ]
+  ],
+  "planner_labels": [
+    "GREEN pit window",
+    "SC pit window"
+  ],
+  "map_window_markers": [
+    {
+      "key": "pit",
+      "direction": "behind",
+      "seconds": 23.0,
+      "x": 9600.509713590536,
+      "y": 11799.709424175217,
+      "label": "Pit −23.0 s"
+    },
+    {
+      "key": "pit",
+      "direction": "ahead",
+      "seconds": 23.0,
+      "x": -718.9981706867434,
+      "y": 6933.221585896428,
+      "label": "Pit +23.0 s"
+    },
+    {
+      "key": "sc",
+      "direction": "behind",
+      "seconds": 8.9,
+      "x": 2285.3277531654167,
+      "y": 4925.517583408001,
+      "label": "SC −8.9 s"
+    },
+    {
+      "key": "sc",
+      "direction": "ahead",
+      "seconds": 8.9,
+      "x": -1155.1029772218014,
+      "y": -4962.394896191197,
+      "label": "SC +8.9 s"
+    }
+  ],
+  "detached_map_window_markers": [
+    {
+      "key": "pit",
+      "direction": "behind",
+      "seconds": 23.0,
+      "x": 9600.509713590536,
+      "y": 11799.709424175217,
+      "label": "Pit −23.0 s"
+    },
+    {
+      "key": "pit",
+      "direction": "ahead",
+      "seconds": 23.0,
+      "x": -718.9981706867434,
+      "y": 6933.221585896428,
+      "label": "Pit +23.0 s"
+    },
+    {
+      "key": "sc",
+      "direction": "behind",
+      "seconds": 8.9,
+      "x": 2285.3277531654167,
+      "y": 4925.517583408001,
+      "label": "SC −8.9 s"
+    },
+    {
+      "key": "sc",
+      "direction": "ahead",
+      "seconds": 8.9,
+      "x": -1155.1029772218014,
+      "y": -4962.394896191197,
+      "label": "SC +8.9 s"
+    }
+  ],
+  "detached_map_connectors": [
+    {
+      "key": "pit",
+      "direction": "behind",
+      "x1": 1224.0,
+      "y1": -1738.0,
+      "x2": 9600.509713590536,
+      "y2": 11799.709424175217,
+      "colour": "#5f5f5f",
+      "line_style": "dash"
+    },
+    {
+      "key": "pit",
+      "direction": "ahead",
+      "x1": 1224.0,
+      "y1": -1738.0,
+      "x2": -718.9981706867434,
+      "y2": 6933.221585896428,
+      "colour": "#5f5f5f",
+      "line_style": "dash"
+    },
+    {
+      "key": "sc",
+      "direction": "behind",
+      "x1": 1224.0,
+      "y1": -1738.0,
+      "x2": 2285.3277531654167,
+      "y2": 4925.517583408001,
+      "colour": "#f4b400",
+      "line_style": "dash"
+    },
+    {
+      "key": "sc",
+      "direction": "ahead",
+      "x1": 1224.0,
+      "y1": -1738.0,
+      "x2": -1155.1029772218014,
+      "y2": -4962.394896191197,
+      "colour": "#f4b400",
+      "line_style": "dash"
+    }
+  ],
+  "detached_window": {
+    "non_modal": true,
+    "sync_on_open": {
+      "selected_driver": "RUS",
+      "windows": [
+        [
+          "pit",
+          23.0,
+          "Pit ±23.0 s"
+        ],
+        [
+          "sc",
+          8.9,
+          "SC ±8.9 s"
+        ]
+      ]
+    },
+    "normal_size": [
+      820,
+      620
+    ],
+    "large_size": [
+      1280,
+      860
+    ],
+    "hidden_after_close": true,
+    "same_instance_after_reopen": true,
+    "selection_preserved_after_reopen": true,
+    "popup_image": "/private/tmp/track-map-planner-reconcile/doc/assets/track_map_main_r13_popup.png",
+    "large_popup_image": "/private/tmp/track-map-planner-reconcile/doc/assets/track_map_main_r13_popup_large.png"
+  },
+  "main_window": {
+    "size": [
+      1500,
+      900
+    ],
+    "embedded_map_collapsed": true,
+    "strategy_button_text": "Strategy",
+    "track_map_button_text": "Track Map"
+  },
+  "reference": {
+    "driver": "RUS",
+    "lap": 2,
+    "lap_time_s": 86.65100002288818,
+    "point_count": 324,
+    "source": "actual clean-lap Position.z trajectory"
+  },
+  "track_driver_count": 22,
+  "ghost_ids_present": [],
+  "event_status": "Event inputs: 2026-13",
+  "wrap": {
+    "minus_1_second_elapsed_s": 85.65100002288818,
+    "plus_lap_and_1_second_elapsed_s": 1.0,
+    "lap_time_s": 86.65100002288818
+  },
+  "stale_suppression": {
+    "window_marker_count": 0,
+    "status": "Track Map — approximate mapping from actual Position.z reference: RUS lap 2 (86.7 s) — selected position is stale"
+  },
+  "event_mismatch": {
+    "pit_value": -1.0,
+    "sc_value": -1.0,
+    "vsc_value": -1.0,
+    "status": "Event inputs unresolved: config is 2026-13, Planner is 2026-14"
+  }
+}
