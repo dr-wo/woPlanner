@@ -59,9 +59,7 @@ from wostrategy.analysis.long_run_performance import (
     select_consecutive_clean_air_runs,
 )
 
-from .compound_offsets import (
-    COMPOUND_OFFSET_CONTRACT, REFERENCE_ORDER, merge_compound_offsets, validate_offset_rows,
-)
+from .compound_offsets import merge_compound_offsets, validate_offset_rows
 from .tyre_inputs import ResolvedTyreInputs, TyreInputService
 
 
@@ -167,13 +165,6 @@ class OfflineAnalysisService:
         summary: ModelSummary,
         overrides: Mapping[tuple[str, str], float] | None = None,
     ) -> StrategyModel:
-        """Build from coherent additive vectors; partial offsets need a shared pivot.
-
-        Override compound deltas form one vector in seconds, not independent
-        scalars in the model's fitting coordinates. Results use MEDIUM (or the
-        first available HARD/SOFT) as zero. Degradation overrides are unchanged.
-        """
-        validate_offset_rows(summary.parameters)
         degradation: dict[str, float] = {}
         deltas: dict[str, float] = {}
         weighted_values: dict[tuple[str, str], list[tuple[float, float]]] = {}
@@ -195,14 +186,12 @@ class OfflineAnalysisService:
                 degradation[compound] = value
             else:
                 deltas[compound] = value
-        override_deltas = {}
         for (parameter, compound), value in (overrides or {}).items():
             compound = str(compound).upper()
             if parameter == "degradation":
                 degradation[compound] = float(value)
             elif parameter == "compound_delta":
-                override_deltas[compound] = float(value)
-        deltas = merge_compound_offsets(deltas, override_deltas)
+                deltas[compound] = float(value)
         if not degradation:
             raise ValueError("The selected model has no compound degradation parameters.")
         return StrategyModel(
@@ -314,8 +303,6 @@ class OfflineAnalysisService:
                     "compound": compound,
                     "baseline_pace": delta - fastest,
                     "compound_delta": delta,
-                    "compound_offset_contract": COMPOUND_OFFSET_CONTRACT,
-                    "reference_compound": next(c for c in REFERENCE_ORDER if c in baseline_deltas),
                     "compound_delta_available": True,
                     "compound_delta_source": (
                         "race_evidence"
@@ -396,25 +383,7 @@ class OfflineAnalysisService:
     ) -> tuple[list[dict[str, object]], str | None]:
         """Read canonical weekend parameters or race-review tyre CSV outputs."""
         values: dict[tuple[str, str], list[tuple[float, float, str]]] = {}
-        offset_rows: list[dict[str, object]] = []
-
-        def validate_csv_offsets(frame: pd.DataFrame, reference_column: str | None) -> None:
-            columns = {str(column).lower(): str(column) for column in frame.columns}
-            for raw in frame.to_dict("records"):
-                row: dict[str, object] = {"parameter": "compound_delta"}
-                for key, column in (
-                    ("reference_compound", reference_column),
-                    ("unit", columns.get("unit")),
-                    ("compound_offset_contract", columns.get("compound_offset_contract")),
-                    ("compound_delta_source", columns.get("compound_delta_source")),
-                ):
-                    if column is not None:
-                        value = raw[column]
-                        row[key] = None if pd.isna(value) else str(value).strip()
-                offset_rows.append(row)
-            # Check provenance and cross-file references before any aggregation.
-            validate_offset_rows(offset_rows, require_provenance=True)
-
+        references: list[str] = []
         for raw_path in paths:
             path = Path(raw_path).expanduser()
             frame = pd.read_csv(path)
@@ -438,10 +407,6 @@ class OfflineAnalysisService:
                     selected = selected.loc[
                         selected[scope_column].astype(str).str.lower() == "global"
                     ]
-                validate_csv_offsets(
-                    selected.loc[selected[normalized["compounddeltamedianseconds"]].notna()],
-                    normalized.get("referencecompound"),
-                )
                 for row in selected.to_dict("records"):
                     compound = str(row.get(normalized["compound"]) or "").upper()
                     if not compound:
@@ -458,8 +423,6 @@ class OfflineAnalysisService:
                             "deltasamplecount",
                         ),
                     ):
-                        if parameter == "compound_delta" and pd.isna(row[normalized[value_key]]):
-                            continue
                         try:
                             value = float(row[normalized[value_key]])
                             weight = max(
@@ -470,14 +433,11 @@ class OfflineAnalysisService:
                         values.setdefault((parameter, compound), []).append(
                             (value, weight, path.name)
                         )
+                    reference_column = normalized.get("referencecompound")
+                    if reference_column and row.get(reference_column):
+                        references.append(str(row[reference_column]).upper())
                 continue
             if {"parameter", "compound", "median"}.issubset(normalized):
-                validate_csv_offsets(
-                    frame.loc[
-                        frame[normalized["parameter"]].astype(str).str.lower().eq("compound_delta")
-                    ],
-                    normalized.get("reference_compound"),
-                )
                 for row in frame.to_dict("records"):
                     parameter = str(row.get(normalized["parameter"]) or "").lower()
                     compound = str(row.get(normalized["compound"]) or "").upper()
@@ -491,6 +451,9 @@ class OfflineAnalysisService:
                     values.setdefault((parameter, compound), []).append(
                         (value, weight, path.name)
                     )
+                    reference_column = normalized.get("reference_compound")
+                    if reference_column and row.get(reference_column):
+                        references.append(str(row[reference_column]).upper())
                 continue
 
             if "compound_degradation" in name:
@@ -503,16 +466,17 @@ class OfflineAnalysisService:
                 value_column = normalized.get("median") or normalized.get(
                     "compounddeltaseconds"
                 )
+                reference_column = normalized.get("compounddeltareference")
+                if reference_column:
+                    references.extend(
+                        str(value).upper()
+                        for value in frame[reference_column].dropna().unique()
+                    )
             else:
                 continue
             compound_column = normalized.get("compound")
             if not compound_column or not value_column:
                 continue
-            if parameter == "compound_delta":
-                validate_csv_offsets(
-                    frame.loc[pd.to_numeric(frame[value_column], errors="coerce").notna()],
-                    normalized.get("compounddeltareference"),
-                )
             for compound, group in frame.groupby(compound_column):
                 numeric = pd.to_numeric(group[value_column], errors="coerce").dropna()
                 if numeric.empty:
@@ -555,8 +519,6 @@ class OfflineAnalysisService:
             if ("degradation", compound) in aggregated:
                 row["degradation"] = aggregated[("degradation", compound)]
             rows.append(row)
-        references = [str(row["reference_compound"]).upper()
-                      for row in offset_rows if row.get("reference_compound")]
         reference = references[-1] if references else None
         return rows, reference
 
@@ -1660,8 +1622,6 @@ def _assumptions_from_base(
                 "compound": compound,
                 "baseline_pace": float(deltas[compound]) - fastest,
                 "compound_delta": float(deltas[compound]),
-                "compound_offset_contract": COMPOUND_OFFSET_CONTRACT,
-                "reference_compound": "MEDIUM",
                 "compound_delta_available": True,
                 "compound_delta_source": "resolved_pre_race_baseline",
                 "degradation": float(degradation[compound]),

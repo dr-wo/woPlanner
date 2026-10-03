@@ -21,8 +21,6 @@ from wostrategy.analysis.pre_race_tyre_prediction import (
     get_pre_race_tyre_prediction,
 )
 
-from .compound_offsets import COMPOUND_OFFSET_CONTRACT
-
 
 MANUAL_TYRE_INPUT_SCHEMA_VERSION = 1
 MANUAL_TYRE_INPUT_FILENAME = "manual_tyre_inputs_v1.json"
@@ -452,7 +450,6 @@ def tyre_snapshot_from_overrides(
     return {
         "schema_version": 1,
         "captured_at": datetime.now(timezone.utc).isoformat(),
-        "compound_offset_contract": COMPOUND_OFFSET_CONTRACT,
         "resolved_content_hash": resolved.content_hash,
         "values": actual,
         "selected_sources": source,
@@ -460,7 +457,6 @@ def tyre_snapshot_from_overrides(
         "content_hash": canonical_hash(
             {
                 "values": actual,
-                "compound_offset_contract": COMPOUND_OFFSET_CONTRACT,
                 "selected_sources": source,
                 "semantics": dict(resolved.semantics),
             }

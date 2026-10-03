@@ -10,23 +10,14 @@ from typing import Iterable, Mapping
 
 
 REFERENCE_ORDER = ("MEDIUM", "HARD", "SOFT")
-COMPOUND_OFFSET_CONTRACT = "shared_compound_alignment_v1"
 
 
-def has_current_offset_contract(row: Mapping[str, object]) -> bool:
-    """Resolved exports must explicitly attest to the current merge contract."""
-    return row.get("compound_offset_contract") == COMPOUND_OFFSET_CONTRACT
+def validate_offset_rows(rows: Iterable[Mapping[str, object]]) -> None:
+    """Check that live model offsets declare one coherent vector in seconds.
 
-
-def validate_offset_rows(
-    rows: Iterable[Mapping[str, object]], *, require_provenance: bool = False
-) -> None:
-    """Refuse incompatible declared coordinates before existing aggregation.
-
-    Internal callers may supply a coherent vector without reference metadata.
-    Imports require a current resolved contract or an explicit raw-fit reference.
-    Resolved provenance cannot fall back to a raw-fit reference when its contract
-    is missing/obsolete. No zero point or legacy intent is inferred from values.
+    Missing metadata remains supported for coherent in-memory model summaries.
+    A fitting reference need not be observed; never infer its value as zero.
+    This check does not alter the existing model-estimate aggregation weights.
     """
     references = set()
     for row in rows:
@@ -39,16 +30,8 @@ def validate_offset_rows(
             if reference not in (*REFERENCE_ORDER, "SUM_ZERO"):
                 raise ValueError(f"Unsupported compound offset reference: {reference}")
             references.add(reference)
-        if require_provenance and not has_current_offset_contract(row) and (
-            not reference or "compound_delta_source" in row or "compound_offset_contract" in row
-        ):
-            raise ValueError(
-                "Unverified imported compound offsets; resolved history requires "
-                "the current compound-offset contract. Recalculate legacy values "
-                "from the original model and baseline."
-            )
     if len(references) > 1:
-        raise ValueError("Mixed compound offset references within one source; load coherent vectors separately.")
+        raise ValueError("Mixed compound offset references within one live model summary.")
 
 
 def merge_compound_offsets(
