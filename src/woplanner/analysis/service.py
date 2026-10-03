@@ -1404,7 +1404,7 @@ class OfflineAnalysisService:
 
 
 def snapshot_as_of_leader_lap(snapshot, leader_lap: int):
-    """Return the same causal snapshot used by Planner's replay MC queue."""
+    """Return a committed-only causal snapshot for Planner's replay MC queue."""
     leader_lap = int(leader_lap)
     lap_candidates = [
         lap for lap in snapshot.completed_laps
@@ -1450,6 +1450,8 @@ def snapshot_as_of_leader_lap(snapshot, leader_lap: int):
         completed_sectors=completed_sectors,
         telemetry_samples=telemetry_samples,
         position_samples=(),
+        provisional_sectors=(),
+        live_timing=(),
     )
 
 
