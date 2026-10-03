@@ -511,19 +511,28 @@ class QualiLiveService:
         clock_has_started = remaining is not None and (
             remaining > 0 or self.raw_snapshot.normal_finished
         )
-        if (not effective and completed_operational_push and clock_has_started
-                and cool_requirement is not None and remaining < cool_requirement):
+        # Reuse the existing opportunity thresholds: OUT from the pit, or
+        # COOL/PREP after a completed PUSH, to reach the next PUSH start.
+        pit_no_outlap_time = clock_has_started and raw.in_pit and remaining < self.out_lap_s
+        push_no_recovery_time = (
+            clock_has_started and completed_operational_push
+            and cool_requirement is not None and remaining < cool_requirement
+        )
+        if not effective and (pit_no_outlap_time or push_no_recovery_time):
             effective = True
-            effective_remaining, recovery = remaining, cool_requirement
-            timing_source = cool_source
+            effective_remaining = remaining
+            recovery, timing_source = (
+                (self.out_lap_s, self.operational_timing_sources["out_lap_s"])
+                if pit_no_outlap_time else (cool_requirement, cool_source)
+            )
         # A recognised lap after the real chequered flag supersedes an earlier
         # predictive finish.  An archive bootstrap zero is not a finish.
         if completed_lap and self.raw_snapshot.normal_finished:
             finished, reason = True, FinishedReason.FINAL_LAP_COMPLETED
         elif clock_has_started and not finished:
-            if raw.in_pit and remaining < self.out_lap_s:
+            if pit_no_outlap_time:
                 finished, reason = True, FinishedReason.IN_PIT_NO_OUTLAP_TIME
-            elif completed_operational_push and cool_requirement is not None and remaining < cool_requirement:
+            elif push_no_recovery_time:
                 finished, reason = True, FinishedReason.NO_TIME_FOR_NEXT_PUSH
         # Current official timing is authoritative: a deletion/retraction may
         # clear the best entirely, so never retain a historical minimum here.

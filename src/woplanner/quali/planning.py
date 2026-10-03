@@ -33,6 +33,7 @@ class QualiArrangement:
     turnaround_s: float = 120.0
     margin_s: float = 30.0
     name: str = "Arrangement"
+    double_yellow: bool = False
 
     def __post_init__(self) -> None:
         if not self.runs:
@@ -56,6 +57,7 @@ class ArrangementTiming:
     latest_start_s: float
     feasible: bool
     segments: tuple[TimelineSegment, ...]
+    double_yellow_allowance_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,15 @@ def calculate_arrangement_timing(
     duration = sum(run_duration(run, timings) for run in arrangement.runs)
     duration += arrangement.turnaround_s * max(len(arrangement.runs) - 1, 0)
     latest_start = float(session_duration_s) - arrangement.margin_s - final_push_offset
+    # Reserve one invalidated attempt for the whole arrangement. Its first
+    # PUSH has the first planned run's prep requirement; no extra turnaround
+    # or margin is part of the requested OUT + PREP + PUSH + IN allowance.
+    double_yellow_allowance = (
+        run_duration(QualiRunPlan(arrangement.runs[0].prep_required, 1), timings)
+        if arrangement.double_yellow else 0.0
+    )
+    if arrangement.double_yellow:
+        latest_start -= double_yellow_allowance
     segments = _timeline_segments(arrangement, timings, latest_start)
     return ArrangementTiming(
         duration,
@@ -139,6 +150,7 @@ def calculate_arrangement_timing(
         latest_start,
         latest_start >= 0,
         segments,
+        double_yellow_allowance,
     )
 
 

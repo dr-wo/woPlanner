@@ -201,6 +201,14 @@ def test_effective_finish_has_distinct_colour_and_explanation():
             rank=2,
             finished=True,
             finished_reason=FinishedReason.IN_PIT_NO_OUTLAP_TIME,
+            effective_finished=True,
+            effective_finish_remaining_s=80,
+            effective_finish_recovery_s=100,
+            effective_finish_timing_source="manual override",
+        ),
+        QualiDriverState(
+            "3", "Pit with time", "Team", rank=3, status="IN-PIT",
+            pit_state=QualiPitState.IN_PIT,
         ),
     )
     window._render_timing_table(
@@ -209,9 +217,64 @@ def test_effective_finish_has_distinct_colour_and_explanation():
 
     assert window.table.item(0, 0).background().color().name() == "#f4b183"
     assert "Not the session chequered flag" in window.table.item(0, 0).toolTip()
-    assert window.table.item(1, 0).background().style() == (
+    assert "COOL/PREP lap after completed PUSH" in window.table.item(0, 0).toolTip()
+    assert window.table.item(1, 0).background().color().name() == "#f4b183"
+    assert "OUT lap from the pit" in window.table.item(1, 0).toolTip()
+    assert "80s remaining, 100s required" in window.table.item(1, 0).toolTip()
+    assert "Source: manual override" in window.table.item(1, 0).toolTip()
+    assert "Not the session chequered flag" in window.table.item(1, 0).toolTip()
+    assert window.table.item(2, 0).background().style() == (
         QtCore.Qt.BrushStyle.NoBrush
     )
+    window.close()
+    app.processEvents()
+
+
+def test_pit_no_time_service_snapshot_renders_orange_without_changing_status():
+    from test_quali_service import driver, raw
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = QualiWindow()
+    pit = replace(
+        driver(1, None, laps=0, in_pit=True),
+        pit_state=QualiPitState.IN_PIT, structural_state=QualiPitState.IN_PIT,
+    )
+    snapshot = window.service.consume(raw([pit], remaining=50))
+    window._render_timing_table(snapshot)
+    assert window.table.item(0, 0).background().color().name() == "#f4b183"
+    assert "OUT lap from the pit" in window.table.item(0, 0).toolTip()
+    assert window.table.item(0, 4).text() == "IN-PIT"
+    assert window.table.item(0, 4).background().color().name() == PIT_STATUS_BACKGROUNDS["IN-PIT"]
+    assert not window.table.item(0, 0).text().startswith("🏁")
+    window.close()
+    app.processEvents()
+
+
+def test_pit_with_time_to_start_push_is_unmarked_then_chequered_on_completion_after_zero():
+    from test_quali_service import driver, raw, with_test_pace_reference
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = QualiWindow()
+    with_test_pace_reference(window.service)
+    pit = replace(
+        driver(1, None, laps=0, in_pit=True),
+        pit_state=QualiPitState.IN_PIT, structural_state=QualiPitState.IN_PIT,
+    )
+    # 100 s OUT + 90 s PUSH exceeds the 150 s countdown, but PUSH can
+    # start before zero and its recognised completion can be after zero.
+    snapshot = window.service.consume(raw([pit], remaining=150))
+    window._render_timing_table(snapshot)
+    assert window.table.item(0, 0).background().style() == QtCore.Qt.BrushStyle.NoBrush
+    assert window.table.item(0, 4).text() == "IN-PIT"
+
+    final = window.service.consume(replace(
+        raw([driver(1, 90, laps=1)], remaining=0), normal_finished=True,
+    ))
+    window._render_timing_table(final)
+    item = window.table.item(0, 0)
+    assert item.text().startswith("🏁")
+    assert "recognised final timed lap completed" in item.toolTip()
+    assert item.background().style() == QtCore.Qt.BrushStyle.NoBrush
     window.close()
     app.processEvents()
 

@@ -18,7 +18,6 @@ from .planning import (
     QualiPlanModel,
     QualiRunPlan,
     QualiTimingValues,
-    calculate_double_yellow_latest_safe_release,
 )
 from .service import QualiLiveService
 from .track_evolution import TrackEvolutionDiagnostic, render_track_evolution_diagnostic
@@ -270,6 +269,11 @@ class ArrangementEditor(QtWidgets.QGroupBox):
         self.margin.setRange(0, 300)
         self.margin.setValue(30)
         self.margin.setSuffix(" s")
+        self.double_yellow = QtWidgets.QCheckBox("DY")
+        self.double_yellow.setToolTip(
+            "Allow one worst-case Double Yellow per arrangement: OUT + PUSH + IN, "
+            "plus PREP if the first run requires it."
+        )
         self.add_run_button = QtWidgets.QPushButton("Add run")
         for label, widget in (
             ("Turnaround", self.turnaround),
@@ -277,6 +281,7 @@ class ArrangementEditor(QtWidgets.QGroupBox):
         ):
             settings.addWidget(QtWidgets.QLabel(label))
             settings.addWidget(widget)
+        settings.addWidget(self.double_yellow)
         settings.addWidget(self.add_run_button)
         settings.addStretch(1)
         layout.addLayout(settings)
@@ -284,9 +289,13 @@ class ArrangementEditor(QtWidgets.QGroupBox):
         layout.addLayout(self.run_layout)
         self.timeline = TimelineWidget()
         layout.addWidget(self.timeline)
+        self.release_summary = QtWidgets.QLabel()
+        self.release_summary.setWordWrap(True)
+        layout.addWidget(self.release_summary)
         self.add_run_button.clicked.connect(self.add_run)
         self.turnaround.valueChanged.connect(self.changed)
         self.margin.valueChanged.connect(self.changed)
+        self.double_yellow.toggled.connect(self.changed)
         self.add_run()
 
     def add_run(self) -> None:
@@ -328,6 +337,7 @@ class ArrangementEditor(QtWidgets.QGroupBox):
             self.turnaround.value(),
             self.margin.value(),
             self.title(),
+            double_yellow=self.double_yellow.isChecked(),
         )
 
 
@@ -391,15 +401,6 @@ class QualiPlanDialog(QtWidgets.QDialog):
         reset.clicked.connect(self._reset_timings)
         timing.addWidget(reset)
         outer.addWidget(timing_box)
-
-        double_yellow = QtWidgets.QGroupBox("Double-yellow latest-safe release")
-        double_yellow_layout = QtWidgets.QVBoxLayout(double_yellow)
-        self.double_yellow_countdown = QtWidgets.QLabel()
-        self.double_yellow_detail = QtWidgets.QLabel()
-        self.double_yellow_detail.setWordWrap(True)
-        double_yellow_layout.addWidget(self.double_yellow_countdown)
-        double_yellow_layout.addWidget(self.double_yellow_detail)
-        outer.addWidget(double_yellow)
 
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
@@ -592,7 +593,6 @@ class QualiPlanDialog(QtWidgets.QDialog):
         if not hasattr(self, "part_editors"):
             return
         self.model.timings = self._current_timings()
-        self._refresh_double_yellow_release()
         for part, (duration, _, editors) in self.part_editors.items():
             seconds = duration.value() * 60.0
             self.model.session_durations_s[part] = seconds
@@ -603,50 +603,27 @@ class QualiPlanDialog(QtWidgets.QDialog):
                     else self.model.timing(part, arrangement)
                 )
                 editor.timeline.set_timing(timing, seconds, arrangement.margin_s)
-
-    def _refresh_double_yellow_release(self) -> None:
-        """Render the conditional local-yellow recovery calculation in countdown terms."""
-        if not hasattr(self, "double_yellow_countdown"):
-            return
-        first_editor = next(
-            (editors[0] for _, _, editors in self.part_editors.values() if editors),
-            None,
-        )
-        if first_editor is None:
-            return
-        if self.model.timings.cool_lap_s is None:
-            self.double_yellow_countdown.setText(
-                "Cool / Prep timing unavailable — manual override required"
-            )
-            self.double_yellow_detail.setText(
-                "Enter a Cool / Prep duration to calculate a latest-safe release."
-            )
-            return
-        arrangement = first_editor.arrangement()
-        sources = (
-            self.live_service.operational_timing_sources
-            if self.live_service is not None else {}
-        )
-        result = calculate_double_yellow_latest_safe_release(
-            self.model.timings,
-            turnaround_s=arrangement.turnaround_s,
-            margin_s=arrangement.margin_s,
-            timing_sources=sources,
-            prep_required=arrangement.runs[0].prep_required,
-        )
-        self.double_yellow_countdown.setText(
-            "Latest-safe release: leave with at least "
-            f"{format_duration_words(result.latest_safe_release_remaining_s)} remaining"
-        )
-        self.double_yellow_detail.setText(
-            "Conditional double-yellow path: invalidated OUT/PREP/PUSH "
-            f"{result.invalidated_attempt_s:g}s + IN {result.recovery_in_s:g}s + "
-            f"turnaround {result.turnaround_s:g}s + replacement OUT "
-            f"{result.replacement_out_s:g}s + PREP {result.replacement_prep_s:g}s "
-            f"+ next-PUSH margin {result.next_push_margin_s:g}s. "
-            "Red-flag waiting is excluded because the session clock pauses. "
-            + "; ".join(f"{name}: {source}" for name, source in result.sources)
-        )
+                if timing is None:
+                    editor.release_summary.setText(
+                        "Cool / Prep timing unavailable — manual override required"
+                    )
+                    continue
+                summary = (
+                    "Latest-safe release: leave with at least "
+                    f"{format_duration_words(seconds - timing.latest_start_s)} remaining. "
+                )
+                if arrangement.double_yellow:
+                    baseline = timing.latest_start_s + timing.double_yellow_allowance_s
+                    prep = " + PREP" if arrangement.runs[0].prep_required else ""
+                    summary += (
+                        f"DY: one OUT{prep} + PUSH + IN allowance, "
+                        f"{format_duration_words(timing.double_yellow_allowance_s)} earlier; "
+                        "without DY, leave with at least "
+                        f"{format_duration_words(seconds - baseline)} remaining."
+                    )
+                else:
+                    summary += "DY off."
+                editor.release_summary.setText(summary)
 
     def _update_effective_track(self) -> None:
         if self.live_service is not None:

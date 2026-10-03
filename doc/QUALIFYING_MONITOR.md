@@ -85,6 +85,18 @@ seconds, required seconds and operational-input provenance. This is not a
 session flag. A recognised final-lap completion displays a chequered marker for
 that driver. Both states reset for the next segment.
 
+A driver still in the pit receives the same amber indication when remaining
+time is strictly less than the existing OUT-lap requirement, without needing
+a newly completed PUSH. The tooltip explains the OUT requirement and its source.
+These checks allow time to reach the next PUSH start; they do not require that
+PUSH to finish before session zero. The pit finish reason and cutoff calculation
+are unchanged, and an unstarted archive clock at zero does not trigger a warning.
+For example, with 150 s remaining, a 100 s OUT and a 90 s PUSH still permit a
+new opportunity: PUSH starts with 50 s remaining and completes 40 s after zero.
+The equivalent on-track check likewise excludes PUSH duration from COOL/PREP.
+PREP is optional per planned run; the live driver state has no selected run or
+per-driver prep requirement, so the live pit warning does not assume a PREP lap.
+
 An operational completed `FAST` timed lap can count as a PUSH for effective
 finish even when it fails the stricter 2% quality filter for a track-evolution
 sample. The latter controls the evolution fit, not the driver finish decision.
@@ -125,6 +137,13 @@ Default planning durations are:
 
 The Plan window formats latest-start offsets as minutes and seconds and supports
 multiple arrangements of out, prep, push, cool, in, and turnaround segments.
+Each arrangement has a default-off **DY** checkbox. Selecting it reserves one
+worst-case Double Yellow allowance: OUT + PUSH + IN, plus PREP when the first
+run requires it. The existing run durations, turnarounds and margin still apply;
+the allowance is added once per arrangement, regardless of its run or PUSH count.
+Its timeline moves earlier and the release label shows the required remaining
+countdown, the allowance and the comparison with DY off. Disabling DY restores
+the original timing. A negative latest release remains visible as infeasible.
 Click **Analyse FP1–FP3** to load the available practice sessions, combine their
 laps for pre-Qualifying analysis, save `lap_roles.csv`, `duration_summary.csv`,
 `track_progression.csv`, and `manifest.json` under the event's

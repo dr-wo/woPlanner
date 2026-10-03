@@ -460,9 +460,15 @@ class QualiWindow(QtWidgets.QMainWindow):
                     item.setToolTip("Chequered: recognised final timed lap completed.")
                 elif column == 0 and state.effective_finished:
                     item.setBackground(QtGui.QColor("#f4b183"))
+                    if state.finished_reason == FinishedReason.IN_PIT_NO_OUTLAP_TIME:
+                        opportunity = "OUT lap from the pit"
+                    elif state.finished_reason == FinishedReason.NO_TIME_FOR_NEXT_PUSH:
+                        opportunity = "COOL/PREP lap after completed PUSH"
+                    else:
+                        opportunity = "recovery lap"
                     item.setToolTip(
-                        "Effective finish: completed PUSH; insufficient time for another "
-                        f"COOL/PREP lap ({state.effective_finish_remaining_s:g}s remaining, "
+                        f"Effective finish: insufficient time for the {opportunity} "
+                        f"before another PUSH ({state.effective_finish_remaining_s:g}s remaining, "
                         f"{state.effective_finish_recovery_s:g}s required). "
                         f"Source: {state.effective_finish_timing_source}. Not the session chequered flag."
                     )

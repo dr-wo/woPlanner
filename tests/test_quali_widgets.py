@@ -5,6 +5,7 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
+import pytest
 
 from woplanner.quali.service import QualiLiveService
 from woplanner.quali.widgets import QualiPlanDialog, format_duration_words, format_time
@@ -198,9 +199,83 @@ def test_plan_fp_best_fallback_and_unavailable_share_service_policy():
     assert live._effective_cool_timing(80)[0] is None
     assert dialog._current_timings().cool_lap_s is None
     assert dialog.timing_inputs["cool_lap_s"][0].text() == "Manual required"
-    assert "manual override required" in dialog.double_yellow_countdown.text()
+    assert all("manual override required" in editor.release_summary.text()
+               for _, _, editors in dialog.part_editors.values() for editor in editors)
     assert all(editor.timeline.timing is None
                for _, _, editors in dialog.part_editors.values() for editor in editors)
+    dialog.close()
+    app.processEvents()
+
+
+@pytest.mark.parametrize("part", ["Q1", "Q2", "Q3"])
+def test_plan_dy_is_independent_per_arrangement_and_toggle_restores_timing(part):
+    from PySide6 import QtWidgets
+    from woplanner.quali.planning import QualiTimingValues
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    class AnalysisService:
+        result = None
+        def effective_fp_track_rate(self):
+            return 0.0, "No usable FP estimate", 0
+
+    live = QualiLiveService()
+    live.set_operational_timings(QualiTimingValues(100, 100, 110, 90), source="test policy")
+    dialog = QualiPlanDialog(AnalysisService(), live)
+    dialog._add_arrangement(part)
+    editors = [editor for _, _, group in dialog.part_editors.values() for editor in group]
+    before = {editor: editor.timeline.timing for editor in editors}
+    assert all(editor.double_yellow.text() == "DY" for editor in editors)
+    assert all(not editor.double_yellow.isChecked() for editor in editors)
+    selected = dialog.part_editors[part][2][-1]
+    selected.double_yellow.setChecked(True)
+    assert selected.arrangement().double_yellow
+    assert selected.timeline.timing.latest_start_s == before[selected].latest_start_s - 290
+    assert selected.timeline.timing.double_yellow_allowance_s == 290
+    assert "4 min 50 s earlier" in selected.release_summary.text()
+    assert "without DY" in selected.release_summary.text()
+    assert "leave with at least 7 min 0 s remaining" in selected.release_summary.text()
+    assert "without DY, leave with at least 2 min 10 s remaining" in selected.release_summary.text()
+    for editor in editors:
+        if editor is not selected:
+            assert editor.timeline.timing == before[editor]
+            assert "DY off" in editor.release_summary.text()
+    selected.double_yellow.setChecked(False)
+    assert selected.timeline.timing == before[selected]
+    assert "DY off" in selected.release_summary.text()
+    dialog.close()
+    app.processEvents()
+
+
+def test_plan_dy_recalculates_first_prep_and_timing_edits_with_full_precision():
+    from PySide6 import QtWidgets
+    from woplanner.quali.planning import QualiTimingValues
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    class AnalysisService:
+        result = None
+        def effective_fp_track_rate(self):
+            return 0.0, "No usable FP estimate", 0
+
+    live = QualiLiveService()
+    live.set_operational_timings(
+        QualiTimingValues(113.186, 141.7465, 132.118, 94.865), source="test policy",
+    )
+    dialog = QualiPlanDialog(AnalysisService(), live)
+    editor = dialog.part_editors["Q1"][2][0]
+    editor.double_yellow.setChecked(True)
+    assert editor.timeline.timing.double_yellow_allowance_s == pytest.approx(349.7975)
+    editor.runs[0][0].setChecked(True)
+    assert editor.timeline.timing.double_yellow_allowance_s == pytest.approx(481.9155)
+    assert "OUT + PREP + PUSH + IN" in editor.release_summary.text()
+    editor.add_run()
+    editor.runs[1][0].setChecked(True)
+    editor.runs[1][1].setValue(3)
+    assert editor.timeline.timing.double_yellow_allowance_s == pytest.approx(481.9155)
+    dialog.timing_inputs["out_lap_s"][0].setValue(120)
+    assert editor.timeline.timing.double_yellow_allowance_s == pytest.approx(488.7295)
+    editor.remove_run(editor.runs[0][2])
+    editor.runs[0][0].setChecked(False)
+    assert editor.timeline.timing.double_yellow_allowance_s == pytest.approx(356.6115)
     dialog.close()
     app.processEvents()
 

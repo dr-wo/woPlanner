@@ -358,6 +358,118 @@ def test_effective_finish_requires_a_new_push_and_is_independent_of_session_fini
     assert not next(d for d in normal.drivers if d.driver == "D2").effective_finished
 
 
+@pytest.mark.parametrize("cool", [50.0, 200.0, None])
+@pytest.mark.parametrize("remaining,expected", [(101, False), (100, False), (99, True)])
+def test_pit_no_time_marker_uses_existing_out_threshold_without_a_new_push(cool, remaining, expected):
+    service = QualiLiveService(out_lap_s=100, cool_lap_s=cool, eliminated_counts={"Q1": 0})
+    service.set_manual_operational_timing("out_lap_s", 100)
+    pit = replace(
+        driver(1, None, laps=0, in_pit=True),
+        pit_state=QualiPitState.IN_PIT, structural_state=QualiPitState.IN_PIT,
+    )
+    service.consume(raw([pit], remaining=300))
+    snapshot = service.consume(raw([pit], remaining=remaining))
+    state = snapshot.drivers[0]
+    assert state.effective_finished is expected
+    assert state.finished is expected
+    assert state.finished_reason == (FinishedReason.IN_PIT_NO_OUTLAP_TIME if expected else None)
+    assert snapshot.cutoff.unfinished_driver_count == (0 if expected else 1)
+    assert not snapshot.normal_finished
+    assert not service._track_samples
+    if expected:
+        assert state.effective_finish_remaining_s == remaining
+        assert state.effective_finish_recovery_s == 100
+        assert state.effective_finish_timing_source == "manual override"
+    else:
+        assert state.effective_finish_remaining_s is None
+        assert state.effective_finish_recovery_s is None
+        assert state.effective_finish_timing_source is None
+
+
+@pytest.mark.parametrize("push_s", [90.0, 300.0])
+def test_pit_has_a_new_push_opportunity_even_when_its_completion_is_after_zero(push_s):
+    service = with_test_pace_reference(QualiLiveService(
+        out_lap_s=100, cool_lap_s=200, eliminated_counts={"Q1": 0},
+    ))
+    service.set_manual_operational_timing("push_lap_s", push_s)
+    pit = replace(
+        driver(1, None, laps=0, in_pit=True),
+        pit_state=QualiPitState.IN_PIT, structural_state=QualiPitState.IN_PIT,
+    )
+    # OUT fits before zero, although OUT + PUSH does not. In the existing
+    # qualifying model the resulting PUSH can complete after session zero.
+    snapshot = service.consume(raw([pit], remaining=150))
+    assert service.out_lap_s < 150 < service.out_lap_s + push_s
+    state = snapshot.drivers[0]
+    assert not state.effective_finished
+    assert not state.finished
+    assert state.finished_reason is None
+    assert snapshot.cutoff.unfinished_driver_count == 1
+
+    final = service.consume(replace(
+        raw([driver(1, push_s, laps=1)], remaining=0),
+        normal_finished=True, normal_finish_source="clock_zero",
+    ))
+    assert final.drivers[0].last_lap_s == push_s
+    assert final.drivers[0].finished_reason == FinishedReason.FINAL_LAP_COMPLETED
+    assert final.cutoff.unfinished_driver_count == 0
+
+
+@pytest.mark.parametrize("remaining,expected", [(109, True), (110, False), (150, False)])
+def test_on_track_orange_uses_recovery_to_push_start_not_recovery_plus_push(remaining, expected):
+    service = with_test_pace_reference(QualiLiveService(cool_lap_s=110))
+    service.consume(raw([driver(1, 90, laps=1)], remaining=300))
+    snapshot = service.consume(raw([driver(1, 89, laps=2)], remaining=remaining))
+    assert remaining < service.cool_lap_s + service.operational_timings.push_lap_s
+    state = snapshot.drivers[0]
+    assert state.effective_finished is expected
+    assert state.finished is expected
+    assert state.finished_reason == (FinishedReason.NO_TIME_FOR_NEXT_PUSH if expected else None)
+
+
+@pytest.mark.parametrize("remaining", [None, 0])
+def test_pit_no_time_marker_keeps_missing_and_presession_clock_guards(remaining):
+    service = QualiLiveService()
+    state = service.consume(raw([driver(1, None, laps=0, in_pit=True)], remaining=remaining)).drivers[0]
+    assert not state.effective_finished
+    assert not state.finished
+    assert state.finished_reason is None
+
+
+@pytest.mark.parametrize("pit_state", [
+    QualiPitState.NOT_ACTIVE, QualiPitState.FIRE_UP, QualiPitState.IN_PIT,
+    QualiPitState.PIT_LANE, QualiPitState.QUEUE,
+])
+def test_pit_no_time_marker_reuses_in_pit_detection_and_out_provenance(pit_state):
+    service = QualiLiveService(out_lap_s=100)
+    service._fp_timing_values["out_lap_s"] = 113.186
+    service._fp_timing_sources["out_lap_s"] = "FP-derived (n=4)"
+    service._apply_operational_sources()
+    pit = replace(driver(1, 90, in_pit=True), pit_state=pit_state)
+    state = service.consume(raw([pit], remaining=110)).drivers[0]
+    assert state.effective_finished
+    assert state.effective_finish_recovery_s == 113.186
+    assert state.effective_finish_timing_source == "FP-derived (n=4)"
+    assert state.pit_state == pit_state
+    assert state.finished_reason == FinishedReason.IN_PIT_NO_OUTLAP_TIME
+
+
+def test_pit_no_time_marker_latches_and_resets_for_next_segment():
+    service = QualiLiveService(eliminated_counts={"Q1": 0})
+    pit = driver(1, 90, in_pit=True)
+    first = service.consume(raw([pit], remaining=50)).drivers[0]
+    later = service.consume(raw([replace(pit, pit_state=QualiPitState.FIRE_UP)], remaining=40)).drivers[0]
+    assert first.effective_finished and later.effective_finished
+    assert later.effective_finish_remaining_s == first.effective_finish_remaining_s == 50
+    assert later.effective_finish_recovery_s == first.effective_finish_recovery_s == 100
+    service.transition_to("Q2")
+    state = service.snapshot.drivers[0]
+    assert state.active and not state.finished and not state.effective_finished
+    assert state.effective_finish_remaining_s is None
+    assert state.effective_finish_recovery_s is None
+    assert state.effective_finish_timing_source is None
+
+
 def test_current_official_best_retraction_is_not_a_historical_minimum():
     service = QualiLiveService(eliminated_counts={"Q1": 1})
     service.consume(raw([driver(1, 95.149, position=1), driver(2, 95.4, position=2)]))

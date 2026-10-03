@@ -53,16 +53,14 @@ FAST/PUSH classification.
 
 ## Conditional double-yellow release
 
-The Plan displays a latest-safe release as *time remaining*. It sums one
-invalidated OUT/PREP/PUSH attempt, IN, turnaround, replacement OUT/PREP, and
-the next-PUSH margin. Timing provenance is shown alongside every component.
-Red-flag waiting is excluded because a red flag pauses the qualifying clock;
-the result is conditional on the local/double-yellow scenario, not a guarantee.
-
-For the default R13 FP-derived Plan values with a prepared first run,
-the required remaining countdown is 817.198 s: 315.189 invalidated attempt +
-120.289 IN + 120 turnaround + 104.380 replacement OUT + 127.340 replacement
-PREP + 30 s margin.
+The original separate conditional recovery panel has been replaced by a **DY**
+checkbox on each run arrangement. It shifts that arrangement's existing latest
+release earlier by one OUT + PUSH + IN allowance, with PREP when its first run
+requires it. It does not add another turnaround or margin. Each arrangement
+shows its release as *time remaining*, the allowance and its DY-off comparison.
+The allowance applies once across all planned runs and PUSH laps; disabling DY
+preserves the original calculation. This is a fixed contingency, without a
+yellow probability, red-flag waiting or other strategy model.
 
 ## Verification
 

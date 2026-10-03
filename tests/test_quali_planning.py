@@ -1,4 +1,5 @@
 import pytest
+from dataclasses import replace
 
 from woplanner.quali.planning import (
     DEFAULT_SESSION_DURATIONS_S,
@@ -69,3 +70,56 @@ def test_double_yellow_latest_safe_release_lists_each_non_overlapping_component(
     assert result.invalidated_attempt_s == 300  # OUT + PREP + invalidated PUSH
     assert result.latest_safe_release_remaining_s == 760
     assert dict(result.sources)["cool_lap_s"] == "FP-derived (n=4)"
+
+
+@pytest.mark.parametrize("first_prep", [False, True])
+@pytest.mark.parametrize("later_prep", [False, True])
+@pytest.mark.parametrize("turnaround,margin", [(120, 30), (75, 45)])
+def test_arrangement_dy_reserves_one_attempt_using_only_first_run_prep(
+    first_prep, later_prep, turnaround, margin,
+):
+    arrangement = QualiArrangement(
+        (QualiRunPlan(first_prep, 2), QualiRunPlan(later_prep, 3)),
+        turnaround, margin,
+    )
+    baseline = calculate_arrangement_timing(arrangement, T, 2000)
+    enabled = calculate_arrangement_timing(replace(arrangement, double_yellow=True), T, 2000)
+    allowance = 100 + 90 + 100 + (110 if first_prep else 0)
+    assert baseline.double_yellow_allowance_s == 0
+    assert enabled.double_yellow_allowance_s == allowance
+    assert enabled.latest_start_s == baseline.latest_start_s - allowance
+    assert enabled.duration_s == baseline.duration_s
+    assert enabled.final_push_start_offset_s == baseline.final_push_start_offset_s
+    assert enabled.segments == tuple(
+        replace(segment, start_s=segment.start_s - allowance, end_s=segment.end_s - allowance)
+        for segment in baseline.segments
+    )
+    assert calculate_arrangement_timing(
+        replace(arrangement, double_yellow=False), T, 2000,
+    ) == baseline
+
+
+@pytest.mark.parametrize("prep,allowance", [(False, 290), (True, 400)])
+def test_single_run_dy_shifts_release_by_one_out_prep_push_in(prep, allowance):
+    arrangement = QualiArrangement((QualiRunPlan(prep),))
+    baseline = calculate_arrangement_timing(arrangement, T, 1080)
+    result = calculate_arrangement_timing(replace(arrangement, double_yellow=True), T, 1080)
+    assert result.double_yellow_allowance_s == allowance
+    assert result.latest_start_s == baseline.latest_start_s - allowance
+
+
+def test_dy_can_make_arrangement_infeasible_without_clamping():
+    arrangement = QualiArrangement((QualiRunPlan(True),))
+    baseline = calculate_arrangement_timing(arrangement, T, 600)
+    result = calculate_arrangement_timing(replace(arrangement, double_yellow=True), T, 600)
+    assert baseline.latest_start_s == 360 and baseline.feasible
+    assert result.latest_start_s == -40 and not result.feasible
+    assert result.segments[0].start_s == -40
+
+
+@pytest.mark.parametrize("double_yellow", [False, True])
+def test_dy_keeps_unavailable_cool_prep_policy(double_yellow):
+    with pytest.raises(ValueError, match="manual override required"):
+        calculate_arrangement_timing(
+            QualiArrangement(double_yellow=double_yellow), QualiTimingValues(), 1080,
+        )
