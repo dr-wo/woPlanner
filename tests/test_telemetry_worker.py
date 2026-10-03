@@ -489,7 +489,8 @@ def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
                     "LapNumber": lap.lap_number,
                     "TrafficGapAheadSeconds": 3.0 if has_traffic else pd.NA,
                     "TrafficGapBehindSeconds": 2.0 if has_traffic else pd.NA,
-                    "TrafficStatus": "ok" if has_traffic else "unknown",
+                    "TrafficStatus": "sector_fallback" if has_traffic else "unknown",
+                    "TrafficMethod": "SECTOR_BOUNDARY_FALLBACK",
                 }
                 for lap in snapshot.completed_laps
             ]
@@ -522,7 +523,7 @@ def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
     worker.enqueue_message(completed_lap_message(3, 1, session_time=10))
     worker.request_analysis_input(
         leader_lap=1,
-        use_sector_boundary_traffic=False,
+        use_sector_boundary_traffic=True,
     )
     first = []
     wait_until(lambda: bool(first.extend(worker.poll_analysis_inputs()) or first))
@@ -531,12 +532,13 @@ def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
     worker.enqueue_message(completed_lap_message(5, 2, session_time=20))
     worker.request_analysis_input(
         leader_lap=2,
-        use_sector_boundary_traffic=False,
+        use_sector_boundary_traffic=True,
     )
     second = []
     wait_until(lambda: bool(second.extend(worker.poll_analysis_inputs()) or second))
 
     common = {
+        "use_sector_boundary_traffic": True,
         "quick_lap_threshold": 1.1,
         "min_clean_laps": 1,
         "min_gap_ahead_seconds": 2.5,

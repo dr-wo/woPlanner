@@ -72,6 +72,13 @@ class ModelSummary:
         return str(self.manifest.get("status") or "unavailable")
 
 
+LIVE_TRAFFIC_QUARANTINE_REASON = (
+    "Automatic Race traffic is unavailable: position-derived gap decisions are not validated; "
+    "the zero-origin estimator is disabled. Existing model state is retained; no Race update "
+    "was produced. Sector-boundary mode requires explicit selection."
+)
+
+
 @dataclass(frozen=True)
 class LiveRecalculationResult:
     status: str
@@ -85,6 +92,8 @@ class LiveRecalculationResult:
     runtime_breakdown: tuple[tuple[str, float], ...] = ()
     sampler_quality: tuple[tuple[str, object], ...] = ()
     exclusion_diagnostics: tuple[tuple[str, int], ...] = ()
+    traffic_unavailable_reason: str | None = None
+    model_state_retained: bool = False
 
 
 class OfflineAnalysisService:
@@ -937,6 +946,18 @@ class OfflineAnalysisService:
     ) -> LiveRecalculationResult:
         started_at = time.perf_counter()
         leader_lap = _leader_lap(snapshot)
+        if not use_sector_boundary_traffic:
+            # Quarantine is an availability state, not a newly fitted empty input.
+            # Do not mutate fingerprints, counts, model/run/parameter history.
+            return LiveRecalculationResult(
+                "traffic-unavailable", leader_lap, 0,
+                previous_clean_lap_count=self._last_clean_lap_count,
+                clean_lap_sources=self._last_clean_lap_sources,
+                elapsed_seconds=time.perf_counter() - started_at,
+                sample_count=int(sample_count),
+                traffic_unavailable_reason=LIVE_TRAFFIC_QUARANTINE_REASON,
+                model_state_retained=True,
+            )
         scheduled_total_laps, scheduled_total_laps_source = _resolve_scheduled_total_laps(
             snapshot,
             manual_override=scheduled_total_laps_override,
@@ -1840,8 +1861,10 @@ def live_position_traffic_shadow(snapshot, *, reference, coordinate_frame, cutof
 
 def _live_traffic_gaps(snapshot, *, force_sector: bool = False) -> pd.DataFrame:
     prepared_rows = getattr(snapshot, "traffic_rows", ())
-    if prepared_rows:
-        return pd.DataFrame(list(prepared_rows))
+    if prepared_rows and force_sector:
+        prepared = pd.DataFrame(list(prepared_rows))
+        if "TrafficMethod" in prepared and prepared["TrafficMethod"].eq(SECTOR_BOUNDARY_FALLBACK).all():
+            return prepared
     if force_sector:
         sector = _sector_boundary_traffic_gaps(snapshot)
         forced = _sector_as_selected_traffic(sector, reason="sector mode forced")
@@ -1855,7 +1878,7 @@ def _live_traffic_gaps(snapshot, *, force_sector: bool = False) -> pd.DataFrame:
     # Never auto-promote missing geometry or diagnostic gaps to clean evidence.
     return _unknown_live_traffic(
         snapshot,
-        reason="position traffic gaps not validated; zero-origin live reconstruction disabled",
+        reason=LIVE_TRAFFIC_QUARANTINE_REASON,
     )
 
 

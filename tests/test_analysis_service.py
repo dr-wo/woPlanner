@@ -697,7 +697,7 @@ def test_missing_live_telemetry_and_sector_data_is_explicitly_unknown():
     traffic = _live_traffic_gaps(snapshot)
     assert traffic["TrafficStatus"].tolist() == ["unknown"]
     assert traffic["CoverageFraction"].tolist() == [0.0]
-    assert "zero-origin live reconstruction disabled" in traffic["TrafficStatusReason"].iloc[0]
+    assert "zero-origin estimator is disabled" in traffic["TrafficStatusReason"].iloc[0]
 
 
 def test_live_zero_origin_gaps_are_unavailable_even_with_speed_coverage():
@@ -1746,3 +1746,88 @@ def test_tyre_history_does_not_fabricate_missing_compound_delta():
              "degradation_source": "race_evidence"}]
     segments = tyre_history_source_segments(rows)
     assert ("compound_delta", "HARD") not in segments
+
+
+def test_quarantine_repeats_explicitly_and_retains_model_and_history(tmp_path):
+    write_model_snapshot(model_snapshot(),year=2026,round_number=5,data_root=tmp_path)
+    service=OfflineAnalysisService(tmp_path)
+    service._last_live_fingerprint='retained-fingerprint'
+    service._last_clean_lap_count=7
+    service._last_clean_lap_sources=(('R',7),)
+    service._ephemeral_parameter_rows=[{'parameter':'sentinel'}]
+    service._ephemeral_run_rows=[{'run':'sentinel'}]
+    old_model=service.load_model(2026,5)
+    before={str(p.relative_to(tmp_path)):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    snapshot=snapshot_with_clear_sector_traffic(tuple(CompletedLap(
+        '1','AAA','Team',lap,90.+lap*.1,90.*lap,1,None,'MEDIUM',float(lap),1,True,
+    ) for lap in range(1,5)))
+    for _ in range(2):
+        result=service.recalculate_from_live_snapshot(year=2026,round_number=5,snapshot=snapshot,
+            sample_count=100,quick_lap_threshold=1.1,min_clean_laps=3)
+        assert result.status=='traffic-unavailable'
+        assert result.model_state_retained
+        assert 'retained' in result.traffic_unavailable_reason
+        assert result.previous_clean_lap_count==7
+        assert result.clean_lap_sources==(('R',7),)
+        assert service._last_live_fingerprint=='retained-fingerprint'
+        assert service._last_clean_lap_count==7
+        assert service._ephemeral_parameter_rows==[{'parameter':'sentinel'}]
+        assert service._ephemeral_run_rows==[{'run':'sentinel'}]
+        assert service.load_model(2026,5)==old_model
+    assert before=={str(p.relative_to(tmp_path)):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+
+
+def test_quarantine_first_update_without_a_model_is_explicit(tmp_path):
+    service=OfflineAnalysisService(tmp_path)
+    snapshot=LiveSessionSnapshot.empty()
+    for _ in range(2):
+        result=service.recalculate_from_live_snapshot(year=2026,round_number=5,snapshot=snapshot,
+            sample_count=100,quick_lap_threshold=1.1,min_clean_laps=3)
+        assert result.status=='traffic-unavailable'
+        assert service._last_live_fingerprint is None
+        assert 'no Race update' in result.traffic_unavailable_reason
+    assert list(tmp_path.iterdir())==[]
+
+
+def test_quarantine_ui_explains_retention_without_publishing_history(tmp_path, monkeypatch):
+    app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    service=OfflineAnalysisService(tmp_path)
+    window=StrategyPredictionWindow(year=2026,round_number=5,service=service)
+    window._analysis_worker.shutdown(wait=False)
+    worker=_FakeAnalysisWorker()
+    result=service.recalculate_from_live_snapshot(year=2026,round_number=5,
+        snapshot=LiveSessionSnapshot.empty(),sample_count=100,quick_lap_threshold=1.1,min_clean_laps=3)
+    worker.completed=PublishedModelSnapshot(1,result,None)
+    window._analysis_worker=worker
+    def unexpected_publication(*args, **kwargs):
+        pytest.fail("Unavailable update must not load or publish a model/history")
+    monkeypatch.setattr(window, "_load_model", unexpected_publication)
+    monkeypatch.setattr(service, "publish_temporary_worker_snapshot", unexpected_publication)
+    assert 'unavailable' in window.traffic_source.itemText(0)
+    assert 'quarantined' in window.live_note.text()
+    assert 'no automatic fallback' in window.clean_definition_label.text()
+    window._poll_analysis_worker()
+    assert 'model retained' in window.status_label.text()
+    assert 'no Race update' in window.calculation_log.toPlainText()
+    assert 'retained evidence' in window.calculation_log.toPlainText()
+    window.traffic_source.setCurrentIndex(window.traffic_source.findData('sector'))
+    assert window._force_sector_traffic()
+    assert 'forced sector gaps' in window.clean_definition_label.text()
+    window.close();app.processEvents()
+
+
+def test_quarantine_rejects_prepared_automatic_traffic_rows():
+    from types import SimpleNamespace
+
+    snapshot = SimpleNamespace(
+        completed_laps=(SimpleNamespace(driver_code="AAA", lap_number=10),),
+        traffic_rows=({
+            "Driver": "AAA", "LapNumber": 10, "TrafficStatus": "ok",
+            "TrafficGapAheadSeconds": 5.0, "TrafficGapBehindSeconds": 5.0,
+        },),
+    )
+    row = _live_traffic_gaps(snapshot).iloc[0]
+    assert row.TrafficStatus == "unknown"
+    assert pd.isna(row.TrafficGapAheadSeconds)
+    assert pd.isna(row.TrafficGapBehindSeconds)
+    assert "not validated" in row.TrafficStatusReason

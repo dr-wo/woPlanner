@@ -169,8 +169,10 @@ repair fundamental origin or suspension errors itself. Rows without safely
 anchored canonical timing are preserved, shown as timing unavailable, and
 excluded from false zero/order comparisons until timing becomes available. The
 shared **Strategy Prediction** window can consume the same
-canonical live snapshot: when the leader lap advances it checks for newly
-eligible sector-filtered clean laps. Replay expands batched leader-lap jumps
+canonical live snapshot: when the leader lap advances it requests recalculation.
+Default automatic traffic returns `traffic-unavailable` and retains model state;
+checking newly eligible sector-filtered laps requires explicit sector mode.
+Replay expands batched leader-lap jumps
 into point-in-time snapshots and processes them through a FIFO recalculation
 queue. Replay-state reduction and Cumulative Delta rendering do not wait for
 that FIFO: the UI reports the number of historical cuts still awaiting input
@@ -178,8 +180,8 @@ preparation while the race view continues to advance. Prepared inputs and the
 process queue are bounded, but lightweight causal cut requests are retained
 until every historical result has been evaluated. Live mode does not queue an
 update received while calculation is active; the newest accumulated data is picked
-up by the next leader-lap trigger. Unchanged clean-lap fingerprints are skipped
-quickly. Updated models record their version and refresh sequence-level strategy
+up by the next leader-lap trigger. In explicit sector mode, unchanged clean-lap
+fingerprints are skipped quickly. Updated models record their version and refresh sequence-level strategy
 predictions after replay's queued model updates drain. Missing internal lap
 timing still invalidates later cumulative deltas
 for that driver instead of assuming the missing lap took zero time.
@@ -314,19 +316,19 @@ missing compound delta remains absent rather than becoming zero.
 The Live recalculation page's **Clean-lap details** dialog exposes required
 tyre/stint metadata, allowed compounds, driver-relative quick-lap threshold,
 consecutive-run minimum, run-start/end exclusions, and configurable clear-ahead
-and clear-behind gaps. **Traffic source** defaults to **Automatic telemetry with
-sector fallback**. Live and archive `CarData.z` samples are normalized and passed
-to the same continuous direct and circular-physical traffic evaluator used by
-retrospective analysis. `Position.z` can be archived but is not required by this
-calculation. Completed-lap direct, physical, and selected values remain separate;
-the selected telemetry value currently uses the versioned conservative
-`compatibility_min` rule.
+and clear-behind gaps. **Traffic source** defaults to **Automatic Race traffic
+unavailable (model retained)**. Automatic telemetry traffic is quarantined and
+reports `traffic-unavailable`; it produces no new Race update. Existing Race
+model state, evidence counts and run/parameter history are retained. Repeated
+requests report the same availability reason rather than an unexplained lack
+of new clean laps. Position-derived traffic remains diagnostic and is not
+activated for clean-lap decisions.
 
-If telemetry is unavailable or below its coverage requirements, the calculation
-automatically uses lap-start/S1/S2/lap-end crossing gaps and marks the result as
-`SECTOR_BOUNDARY_FALLBACK`; sector gaps are never blended into telemetry means.
-**Force sector-boundary only** is a diagnostic override, not the normal fallback
-switch. Each processed leader-lap update logs previous and new clean-lap counts
+There is **no automatic sector fallback**. **Force sector-boundary only** remains
+an explicitly selected existing mode using lap-start/S1/S2/lap-end crossing gaps,
+marked as `SECTOR_BOUNDARY_FALLBACK`. Sector gaps are not blended into telemetry
+means. Quarantined updates log new eligible laps separately from retained
+evidence. In explicit sector mode, updates log previous and new clean-lap counts
 and the FP/R source breakdown, total wall-clock calculation time, and remaining
 queue length. The elapsed time can be compared directly with a normal lap time
 when tuning the live Monte Carlo sample count. That sample count affects fitting,
