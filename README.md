@@ -340,8 +340,11 @@ unavailable (model retained)**. Automatic telemetry traffic is quarantined and
 reports `traffic-unavailable`; it produces no new Race update. Existing Race
 model state, evidence counts and run/parameter history are retained. Repeated
 requests report the same availability reason rather than an unexplained lack
-of new clean laps. Position-derived traffic remains diagnostic and is not
-activated for clean-lap decisions.
+of new clean laps. The old zero-origin telemetry reconstruction is no longer used for default live
+Race clean-lap decisions. Position-derived traffic remains a diagnostic shadow;
+position gaps are **not production-active**. Fresh traffic-derived FP evidence
+requires `unified-traffic-v4` and `compatibility_min` provenance. Saved models and
+calibrations remain historical artefacts, without retroactive v4 certification.
 
 There is **no automatic sector fallback**. **Force sector-boundary only** remains
 an explicitly selected existing mode using lap-start/S1/S2/lap-end crossing gaps,
@@ -579,7 +582,11 @@ Curve clicks, driver-name clicks and map-marker clicks share the Planner's
 selected driver across the timing plot, embedded map and detached map. The map
 shows actual `Position.z` coordinates. A completed non-pit lap's recorded spatial
 trajectory supplies the approximate reference for the selected driver's time
-offset markers; unavailable reference geometry is shown explicitly.
+offset markers; unavailable reference geometry is shown explicitly. The same
+position store serves the track map and causal diagnostic replay: each driver
+retains at most 6,000 samples from the latest 1,200 sample-time seconds. Delayed
+batches are ordered by embedded time. Analysis uses only packets received by its
+cut and samples at or before that cut; raw positions never enter MC inputs.
 
 GREEN, SC and VSC window values resolve independently from current-event inputs.
 An unresolved state produces no markers or bands. These spatial windows are

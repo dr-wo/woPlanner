@@ -156,7 +156,11 @@ analysis request receives a causal cut at that lap's completion; a max-speed
 replay cannot accidentally include packets from a later lap. The worker retains
 raw messages for the active replay generation so it can rebuild that immutable
 cut. Reset increments the generation, making late results from an older replay
-ineligible.
+ineligible. Track-map and causal replay stores share one position policy: the
+latest 1,200 sample-time seconds and at most 6,000 samples per driver. Embedded
+timestamps order delayed batches. Diagnostic cuts additionally filter sample
+time after ingress-bounded reconstruction; later materialized snapshots cannot
+establish arrival causality. Raw position history is omitted from MC inputs.
 
 `LiveAnalysisProcessService` owns the CPU-heavy Monte Carlo process lane:
 
@@ -228,8 +232,9 @@ scheduled distance from maximum completed `LapNumber` when `TotalLaps` exists.
 
 ## Traffic assumptions
 
-Default automatic telemetry traffic is currently quarantined. First and repeated
-requests return `traffic-unavailable`, with no new Race update; existing Race
+The old zero-origin telemetry reconstruction is disabled for default live Race
+clean-lap decisions. Default automatic telemetry traffic is currently quarantined.
+First and repeated requests return `traffic-unavailable`, with no new Race update; existing Race
 model state and run/parameter history are retained when no new clean evidence
 can be produced. There is no automatic sector fallback.
 
@@ -237,9 +242,15 @@ can be produced. There is no automatic sector fallback.
 Its crossing gaps are a separate source and are not blended into telemetry
 means. Position-derived traffic remains diagnostic and is not activated for
 clean-lap decisions. Correct physical neighbours alone do not validate time-gap
-threshold decisions. Raw live recordings are the full-fidelity source when the
-in-memory telemetry window has
-trimmed older laps.
+threshold decisions. Position.z history supports the track map and a diagnostic
+position-traffic shadow; position-derived gaps are not production-active. Raw
+live recordings remain the full-fidelity source after memory windows trim data.
+
+Fresh traffic-derived FP evidence requires `unified-traffic-v4` with
+`compatibility_min`, including cached and materialized lap frames, diagnostic
+inputs and reused calibration history. Incompatible or unversioned evidence must
+be genuinely recomputed, never relabelled. Saved models and calibrations remain
+historical artefacts and are not retroactively certified as v4.
 
 ## Numerical quality versus confidence
 

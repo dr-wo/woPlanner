@@ -1,6 +1,7 @@
 """Track-map and diagnostic cuts share the same bounded position store."""
 from datetime import datetime, timedelta, timezone
 import math
+from types import SimpleNamespace
 
 import pytest
 
@@ -44,12 +45,14 @@ def test_shared_store_keeps_real_track_reference_after_sample_cap_is_reached():
     assert len(samples) == 6000
     assert samples[0].session_time_seconds == pytest.approx(100.1)
     assert samples[-1].session_time_seconds == 700
-    store._drivers = {"1": {"Tla": "AAA"}}
-    store._laps = {"1": {
-        1: {"lap_end_time_s": 600},
-        2: {"lap_end_time_s": 700},
-    }}
-    reference = _reference_from_store(store, store._drivers)
+    reference_input = SimpleNamespace(
+        _position_samples=store._position_samples,
+        _laps={"1": {
+            1: {"lap_end_time_s": 600},
+            2: {"lap_end_time_s": 700},
+        }},
+    )
+    reference = _reference_from_store(reference_input, {"1": {"Tla": "AAA"}})
     assert reference is not None
     assert reference.lap_number == 2
     assert reference.lap_time_s == 100
