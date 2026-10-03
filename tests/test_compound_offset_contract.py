@@ -199,3 +199,138 @@ def test_effective_resolver_and_persisted_raw_model_round_trip(tmp_path):
     assert manual == resolved.strategy_overrides()
     # Serialization retains original fitting coordinates, not a rewritten model.
     assert [float(r["median"]) for r in loaded.parameters] == [r.median for r in parameters]
+
+
+def test_canonical_csv_ignores_unrelated_missing_or_invalid_references(tmp_path):
+    path = tmp_path / "latest_parameters.csv"
+    path.write_text(
+        "parameter,compound,median,usable_lap_count,reference_compound,unit\n"
+        "degradation,SOFT,0.2,10,,s/lap\n"
+        "degradation,HARD,0.08,10,NaN,s/lap\n"
+        "degradation,MEDIUM,0.1,10,UNRELATED,s/lap\n"
+        "fuel_rate,,0.04,30,,s/lap\n"
+        "compound_delta,HARD,0,10,HARD,s\n"
+        "compound_delta,MEDIUM,-0.6,10,HARD,s\n"
+    )
+    rows, reference = OfflineAnalysisService().load_tyre_information_files([path])
+    assert reference == "HARD"
+    assert {r["compound"]: r["degradation"] for r in rows} == (DEGRADATION | {"SOFT": .2})
+    assert {r["compound"]: r["compound_delta"] for r in rows if "compound_delta" in r} == {
+        "HARD": 0., "MEDIUM": -.6,
+    }
+
+
+@pytest.mark.parametrize("reference", (None, "MEDIUM"))
+def test_legacy_r15_l6_resolved_csv_is_rejected_even_with_reference(tmp_path, reference):
+    import csv
+
+    path = tmp_path / "legacy_history.csv"
+    fields = ["parameter", "compound", "median", "compound_delta_source"]
+    if reference is not None:
+        fields.append("reference_compound")
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for compound, value, source in (
+            ("SOFT", -.32380563412992786, "resolved_pre_race_baseline"),
+            ("MEDIUM", -.6001978479198112, "race_evidence"),
+            ("HARD", .3258440819351384, "resolved_pre_race_baseline"),
+        ):
+            row = dict(parameter="compound_delta", compound=compound, median=value,
+                       compound_delta_source=source)
+            if reference is not None:
+                row["reference_compound"] = reference
+            writer.writerow(row)
+    with pytest.raises(ValueError, match="Unverified.*compound offsets"):
+        OfflineAnalysisService().load_tyre_information_files([path])
+
+
+@pytest.mark.parametrize("reference", ("", "NaN", "MEDIUM"))
+def test_current_contract_csv_is_importable_with_missing_reference(tmp_path, reference):
+    from woplanner.analysis.compound_offsets import COMPOUND_OFFSET_CONTRACT
+
+    path = tmp_path / "current_history.csv"
+    path.write_text(
+        "parameter,compound,median,reference_compound,compound_offset_contract,compound_delta_source\n"
+        + "".join(f"compound_delta,{c},{v},{reference},{COMPOUND_OFFSET_CONTRACT},race_evidence\n"
+                  for c, v in (("HARD", .6), ("MEDIUM", 0.), ("SOFT", -.5)))
+    )
+    rows, loaded_reference = OfflineAnalysisService().load_tyre_information_files([path])
+    assert {r["compound"]: r["compound_delta"] for r in rows} == {
+        "HARD": .6, "MEDIUM": 0., "SOFT": -.5,
+    }
+    assert loaded_reference == ("MEDIUM" if reference == "MEDIUM" else None)
+
+
+@pytest.mark.parametrize("include_reference_column", (False, True))
+def test_anonymous_external_csv_does_not_inherit_in_memory_trust(tmp_path, include_reference_column):
+    path = tmp_path / "anonymous.csv"
+    # Exercise both an absent column and a blank reference cell.
+    path.write_text(
+        "parameter,compound,median" + (",reference_compound" if include_reference_column else "")
+        + "\ncompound_delta,SOFT,-0.5" + ("," if include_reference_column else "") + "\n"
+    )
+    with pytest.raises(ValueError, match="Unverified"):
+        OfflineAnalysisService().load_tyre_information_files([path])
+    assert_predictions(
+        resolve({"HARD": .4, "MEDIUM": 0., "SOFT": -.5}, {"MEDIUM": 0., "SOFT": -.7}, None),
+        {"HARD": .4, "MEDIUM": 0., "SOFT": -.7},
+    )
+
+
+@pytest.mark.parametrize("reference,contract,match", [
+    ("UNKNOWN", "shared_compound_alignment_v1", "Unsupported"),
+    ("MEDIUM", "old_contract", "Unverified"),
+    ("MEDIUM", "", "Unverified"),
+])
+def test_declared_invalid_csv_metadata_is_not_bypassed(tmp_path, reference, contract, match):
+    path = tmp_path / "invalid.csv"
+    path.write_text(
+        "parameter,compound,median,reference_compound,compound_offset_contract\n"
+        f"compound_delta,MEDIUM,0,{reference},{contract}\n"
+    )
+    with pytest.raises(ValueError, match=match):
+        OfflineAnalysisService().load_tyre_information_files([path])
+
+
+@pytest.mark.parametrize("layout", ("combined", "review"))
+@pytest.mark.parametrize("verified", (False, True))
+def test_other_csv_layouts_enforce_the_same_provenance_boundary(tmp_path, layout, verified):
+    from woplanner.analysis.compound_offsets import COMPOUND_OFFSET_CONTRACT
+
+    if layout == "combined":
+        path = tmp_path / "tyre_information.csv"
+        header = "Compound,DegradationMedianSecondsPerLap,CompoundDeltaMedianSeconds"
+        value = "SOFT,0.2,-0.5"
+    else:
+        path = tmp_path / "summary_compound_delta.csv"
+        header = "Compound,Median"
+        value = "SOFT,-0.5"
+    if verified:
+        header += ",compound_offset_contract"
+        value += "," + COMPOUND_OFFSET_CONTRACT
+    path.write_text(header + "\n" + value + "\n")
+    service = OfflineAnalysisService()
+    if not verified:
+        with pytest.raises(ValueError, match="Unverified"):
+            service.load_tyre_information_files([path])
+    else:
+        rows, reference = service.load_tyre_information_files([path])
+        assert rows[0]["compound_delta"] == -.5
+        assert reference is None
+
+
+def test_shared_pivot_preserves_untouched_connection_not_every_old_contrast():
+    from woplanner.analysis.compound_offsets import merge_compound_offsets
+
+    retained = {"MEDIUM": 0., "HARD": .4, "SOFT": -.5}
+    incoming = {"MEDIUM": 0., "HARD": .7}
+    merged = merge_compound_offsets(retained, incoming)
+    assert merged["HARD"] - merged["MEDIUM"] == pytest.approx(.7)  # new contrast
+    assert merged["SOFT"] - merged["MEDIUM"] == pytest.approx(-.5)  # pivot connection
+    assert merged["SOFT"] - merged["HARD"] == pytest.approx(-1.2)  # old -0.9 changes
+    # HARD anchoring would instead retain S-H=-0.9 and yield S-M=-0.8.
+    assert merged["SOFT"] - merged["MEDIUM"] != pytest.approx(-.8)
+    shifted = merge_compound_offsets({c: v + 5 for c, v in retained.items()},
+                                     {c: v - 3 for c, v in incoming.items()})
+    assert shifted == pytest.approx(merged)  # changing coordinates alone is harmless

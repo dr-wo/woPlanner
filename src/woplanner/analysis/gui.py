@@ -18,7 +18,8 @@ from wodata.artifacts import weekend_model_root
 from ..common.visual_styles import COMPOUND_COLOURS
 from ..operational_inputs import load_operational_race_inputs
 from .compound_offsets import (
-    COMPOUND_OFFSET_CONTRACT, merge_compound_offsets, validate_offset_rows,
+    COMPOUND_OFFSET_CONTRACT, has_current_offset_contract,
+    merge_compound_offsets, validate_offset_rows,
 )
 from .service import OfflineAnalysisService, leader_lap_snapshots
 from .worker import AnalysisQueuePolicy, LiveAnalysisProcessService
@@ -2535,7 +2536,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             parameter_rows = []
         unverified = any(
             row.get("parameter") == "compound_delta"
-            and row.get("compound_offset_contract") != COMPOUND_OFFSET_CONTRACT
+            and not has_current_offset_contract(row)
             for row in parameter_rows
         )
         self._show_plot_rows(parameter_rows, offsets_unverified=unverified)

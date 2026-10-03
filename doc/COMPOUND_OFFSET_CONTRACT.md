@@ -32,8 +32,13 @@ coherent files separately remains supported. Aggregation weights are unchanged.
   not an inferred HARD/MEDIUM zero. An unobserved reference is never synthesized.
 - Align on the first shared **observed/updated** compound in MEDIUM, HARD, SOFT
   order. Shift the incoming vector by retained[pivot] - incoming[pivot], then
-  replace only incoming entries. Retained-to-pivot and incoming-to-pivot physical
-  differences are preserved. One observed compound provides no new contrast.
+  replace only incoming entries. Untouched-to-pivot differences are preserved;
+  incoming contrasts among updated compounds replace their old contrasts.
+  Pivot preference is a physical update policy, not just a choice of coordinates:
+  with retained M=0, H=0.4, S=-0.5 and incoming M=0, H=0.7, MEDIUM anchoring
+  preserves S-M=-0.5 and changes S-H to -1.2. HARD anchoring would instead
+  preserve S-H=-0.9 and change S-M to -0.8. One observed compound provides no
+  new contrast. Only the final whole-vector normalization is coordinate-only.
 - Rebase the result to MEDIUM = 0, otherwise HARD = 0, otherwise SOFT = 0.
   This is reference selection only; degradation ordering and sampling are untouched.
 - Empty updates retain contrasts; full updates replace all contrasts. Nonempty
@@ -100,6 +105,18 @@ Partial API overrides now denote a coherent vector: a lone compound value cannot
 change a physical contrast. Supply a shared compound plus the desired contrast.
 Mixed-reference CSV batches are rejected rather than guessed or reweighted.
 
+CSV provenance is checked before aggregation in all three supported layouts.
+Only compound-offset rows contribute offset references; blank/pandas-missing
+reference cells are absent metadata, including unrelated degradation rows.
+Raw canonical and race-review exports may declare their fitting reference
+without the resolved contract. Resolved exports (identified by the
+`compound_delta_source` or `compound_offset_contract` column) must carry the
+current contract on every offset row, using the same contract check as saved
+history. A reference label alone does not certify legacy resolved values.
+Anonymous external offsets with neither a reference nor a current contract are
+rejected; internal caller-supplied coherent vectors keep their metadata-free API.
+No legacy values are rebased into trust or automatically repaired.
+
 ## Validation
 
 Python 3.11: `/Users/zhxutong/dr-wo/.venv/bin/python`. PYTHONPATH puts this Planner
@@ -108,8 +125,12 @@ worktree first, then the isolated woStrategy source at
 Set `PYTHONDONTWRITEBYTECODE=1`, `QT_QPA_PLATFORM=offscreen`,
 `OPENBLAS_NUM_THREADS=1`, `MPLBACKEND=Agg`, and a writable `MPLCONFIGDIR`.
 
-- Planner: `pytest tests/test_compound_offset_contract.py tests/test_tyre_inputs.py tests/test_tyre_inputs_gui.py tests/test_analysis_service.py -q`: **137 passed**.
-  Includes 67 focused contract cases and 3 new GUI/import/legacy-history tests.
+- Planner: `pytest tests/test_compound_offset_contract.py tests/test_tyre_inputs.py tests/test_tyre_inputs_gui.py tests/test_analysis_service.py -q`: **153 passed**.
+  Includes all original 137 cases plus 16 import/provenance/pivot regressions:
+  real-shaped blank/NaN canonical metadata; R15/lap-6 legacy resolved CSVs with
+  and without a reference; current contract CSVs with blank/NaN/valid references;
+  anonymous external versus internal coherent-vector semantics; invalid/obsolete
+  declarations; combined/review CSV provenance; and conflicting pivot contrasts.
 - woStrategy: `pytest tests/test_exact_strategy_search.py tests/test_live_retro_performance_model.py tests/test_race_specific_performance_model.py tests/test_pre_race_performance_model.py tests/test_joint_pre_race_performance_model.py tests/test_race_performance_weight_predict.py -q`: **28 passed**.
 - woWeekend: `pytest tests/test_live_mc_replay.py -q`: **5 passed**.
 - The latter two runs initially aborted in macOS's interactive Matplotlib backend;
@@ -117,6 +138,16 @@ Set `PYTHONDONTWRITEBYTECODE=1`, `QT_QPA_PLATFORM=offscreen`,
   warning. No production code was changed for these environment limitations.
 - An existing test fixture incorrectly labelled a compound offset `s/lap`; its
   fixture unit was corrected to `s`, preserving the weighted-mean assertion.
+
+The import follow-up was reproduced against preceding head `baf5e865` and the
+fixed service. Real R13/R15 aggregate CSVs previously raised unsupported `NAN`;
+both now load two compound rows with reference HARD. CSV-encoding the actual
+R15/lap-6 saved rows previously accepted S-M=+0.27639221378988343; it now raises
+unverified imported compound offsets before aggregation. The R13/lap-25 result
+remains -0.31964500240628674, and all 14 R&D origins / 42 cells retain the
+5.56e-17 maximum discrepancy from the expected coherent merge. Input hashes and
+the read-only reproduction runner are retained outside the repository at
+`/private/tmp/compound-offset-import-fix-validation.json` and the matching `.py`.
 
 woData HEAD was `df04eef9235b77a4d64382ec93178fa966e8be81` and woWeekend HEAD was
 `20dce7b59a4affc00ddc86ebfa07639923793512`. Both had pre-existing local changes;
