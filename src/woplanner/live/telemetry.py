@@ -649,6 +649,7 @@ def _analysis_store() -> LiveSessionStore:
 
 
 def _snapshot_at_cut(snapshot, cut: CausalAnalysisCut):
+    """Build an analysis cut from committed history, excluding live display state."""
     return replace(
         snapshot,
         drivers=tuple(
@@ -670,6 +671,8 @@ def _snapshot_at_cut(snapshot, cut: CausalAnalysisCut):
             if _value_is_within_cut(sample, cut)
         ),
         position_samples=(),
+        provisional_sectors=(),
+        live_timing=(),
     )
 
 

@@ -53,7 +53,20 @@ def test_saved_2026_r12_overlap_recovers_full_race_and_retro_clean_laps():
 
     assert max(lap.lap_number for lap in snapshot.completed_laps) == 72
     assert len(snapshot.completed_laps) == 1344
-    assert len(snapshot.completed_sectors) == 3909
+    # Initial lap-2 reconnect registers have no preceding source boundary.
+    # HAD lap 5 also contains S1 published before its retained lap-4 counter.
+    # Those 22 complete tuples remain uncertified; retained values are checked
+    # against the full baseline by the recording acceptance audit.
+    assert len(snapshot.completed_sectors) == 3909 - 66
+    uncertified_laps = {
+        (number, 2) for number in (
+            "1", "10", "11", "12", "14", "16", "18", "22", "23", "27",
+            "30", "31", "41", "43", "44", "5", "55", "63", "77", "81", "87",
+        )
+    } | {("41", 5)}
+    assert not uncertified_laps.intersection(
+        (sector.driver_number, sector.lap_number) for sector in snapshot.completed_sectors
+    )
     nor_restart = [
         lap
         for lap in snapshot.completed_laps
@@ -103,7 +116,7 @@ def test_saved_2026_r12_overlap_recovers_full_race_and_retro_clean_laps():
     actual_restart = actual.loc[
         actual["driver"].eq("NOR") & actual["lap"].isin([2, 3, 4])
     ]
-    assert actual_restart["delta_s"].tolist() == pytest.approx([0.0] * 5)
+    assert actual_restart["delta_s"].tolist() == pytest.approx([0.0] * 3)
     averaged = restart_service.build_plot_data(
         "NOR", reference_mode=REFERENCE_MODE_AVERAGED_PACE
     )

@@ -10,6 +10,7 @@ from types import MappingProxyType
 from wodata.live import (
     CompletedLap,
     CompletedSector,
+    ProvisionalSector,
     LiveSessionSnapshot,
     LiveTimingController,
     ReplayConfig,
@@ -348,6 +349,189 @@ def test_averaged_reference_continues_same_definition_after_reference_retires():
     service.shutdown()
 
 
+@pytest.fixture
+def r15_rus_lap2_sectors():
+    # R15 recording, seq 4213: the first committed RUS lap is logical lap 2.
+    return tuple(
+        CompletedSector("63", "RUS", "Mercedes", 2, f"S{sector}", 3 + sector,
+                        duration, cumulative, 1, None)
+        for sector, duration, cumulative in (
+            (1, 39.418, 151.826), (2, 44.492, 196.318), (3, 25.625, 221.943)
+        )
+    )
+
+
+def test_r15_averaged_reference_keeps_origin_when_peer_early_rows_disappear(
+    r15_rus_lap2_sectors,
+):
+    service = LivePlannerService()
+    # Preserve the diagnosed canonical input shapes independently of the reducer
+    # fix: STR's old pseudo-lap-1 rows disappear on its lap-2 commit at seq 4593.
+    # These STR rows must never define the origin of the selected RUS reference.
+    peer_cuts = (
+        (1, ((40.512, 40.512), (45.788, 86.300), (26.149, 112.449))),
+        (2, ((40.512, 168.802), (45.788, 214.590), (25.853, 240.443))),
+    )
+    retained = []
+    try:
+        for lap, values in peer_cuts:
+            peer_sectors = tuple(
+                CompletedSector("18", "STR", "Aston Martin", lap, f"S{sector}",
+                                (lap - 1) * 3 + sector, duration, cumulative, 21, None)
+                for sector, (duration, cumulative) in enumerate(values, 1)
+            )
+            service.snapshot = LiveSessionSnapshot(
+                MappingProxyType({}), "Started", (), (), MappingProxyType({}), None,
+                r15_rus_lap2_sectors + peer_sectors,
+            )
+            plot = service.build_plot_data("RUS", REFERENCE_MODE_AVERAGED_PACE)
+            rus = plot.loc[plot.driver.eq("RUS")].reset_index(drop=True)
+            assert rus["segment_index"].tolist() == [4, 5, 6]
+            assert rus["segment_time_s"].tolist() == pytest.approx([39.418, 44.492, 25.625])
+            assert rus["cumulative_time_s"].tolist() == pytest.approx([151.826, 196.318, 221.943])
+            assert rus["reference_cumulative_time_s"].tolist() == pytest.approx(
+                [148.953, 193.445, 219.070]
+            )
+            assert rus["delta_s"].tolist() == pytest.approx([2.873] * 3)
+            retained.append(rus)
+        assert retained[0]["reference_cumulative_time_s"].equals(
+            retained[1]["reference_cumulative_time_s"]
+        )
+        assert retained[0]["delta_s"].equals(retained[1]["delta_s"])
+    finally:
+        service.shutdown()
+
+
+def test_r15_new_reference_sector_sample_updates_historical_average(
+    r15_rus_lap2_sectors,
+):
+    service = LivePlannerService()
+    plots = []
+    # R15 seq 4808: a valid lap-3 S1 sample changes the S1 mean to 39.135.
+    new_sample = CompletedSector(
+        "63", "RUS", "Mercedes", 3, "S1", 7, 38.852, 260.795, 1, None
+    )
+    try:
+        for added_sectors in ((), (new_sample,)):
+            service.snapshot = LiveSessionSnapshot(
+                MappingProxyType({}), "Started", (), (), MappingProxyType({}), None,
+                r15_rus_lap2_sectors + added_sectors,
+            )
+            plot = service.build_plot_data("RUS", REFERENCE_MODE_AVERAGED_PACE)
+            plots.append(plot.loc[plot.lap.eq(2)].reset_index(drop=True))
+        before, after = plots
+        assert before["cumulative_time_s"].equals(after["cumulative_time_s"])
+        assert before["reference_cumulative_time_s"].tolist() == pytest.approx(
+            [148.953, 193.445, 219.070]
+        )
+        assert after["reference_cumulative_time_s"].tolist() == pytest.approx(
+            [148.387, 192.879, 218.504]
+        )
+        assert after["delta_s"].tolist() == pytest.approx([3.439] * 3)
+    finally:
+        service.shutdown()
+
+
+def test_averaged_lap_fallback_uses_logical_lap_with_missing_early_history():
+    service = LivePlannerService()
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}), "Started", (),
+        (CompletedLap("63", "RUS", "Mercedes", 2, 109.535, 221.943, 1, None),),
+        MappingProxyType({}), None,
+    )
+    try:
+        plot = service.build_plot_data("RUS", REFERENCE_MODE_AVERAGED_PACE)
+        assert plot["segment_index"].tolist() == [6]
+        assert plot["reference_cumulative_time_s"].tolist() == pytest.approx([219.070])
+        assert plot["delta_s"].tolist() == pytest.approx([2.873])
+    finally:
+        service.shutdown()
+
+
+def test_unavailable_peer_lap_does_not_change_valid_reference_lap_fallbacks():
+    service = LivePlannerService()
+    reference_laps = (
+        CompletedLap("1", "AAA", "A", 1, 90.0, 90.0, 1, None),
+        CompletedLap("1", "AAA", "A", 2, 90.0, 180.0, 1, None),
+    )
+    # Source-less restart: the peer's lap duration and race-time base are unknown.
+    unavailable_peer = CompletedLap("2", "BBB", "B", 3, float("nan"), None, 2, None)
+    try:
+        for mode in (REFERENCE_MODE_AVERAGED_PACE, REFERENCE_MODE_ACTUAL_PACE):
+            results = []
+            for laps in (reference_laps, reference_laps + (unavailable_peer,)):
+                service.snapshot = LiveSessionSnapshot(
+                    MappingProxyType({}), "Started", (), laps, MappingProxyType({}), None,
+                )
+                plot = service.build_plot_data("AAA", reference_mode=mode)
+                results.append(plot)
+
+            before, after = results
+            aaa_before = before.loc[before.driver.eq("AAA")].reset_index(drop=True)
+            aaa_after = after.loc[after.driver.eq("AAA")].reset_index(drop=True)
+            assert aaa_before["reference_cumulative_time_s"].tolist() == pytest.approx(
+                [90.0, 180.0]
+            )
+            assert aaa_after["reference_cumulative_time_s"].tolist() == pytest.approx(
+                [90.0, 180.0]
+            )
+            assert aaa_before["delta_s"].tolist() == pytest.approx([0.0, 0.0])
+            assert aaa_after["delta_s"].tolist() == pytest.approx([0.0, 0.0])
+            assert aaa_after["timing_available"].all()
+
+            peer = after.loc[after.driver.eq("BBB")].iloc[0]
+            assert peer.segment_index == 9
+            assert math.isnan(float(peer.lap_time_s))
+            assert math.isnan(float(peer.cumulative_time_s))
+            assert math.isnan(float(peer.delta_s))
+            assert not peer.timing_available
+    finally:
+        service.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("samples", "expected"),
+    [
+        ((("S1", 1, 20.0),), {1: 20.0}),
+        ((("S1", 1, 20.0), ("S2", 2, 30.0)), {1: 20.0, 2: 50.0}),
+        # A genuine S3 sector cannot be treated as a full lap fallback.
+        ((("S3", 3, 50.0),), {}),
+        # cumsum must not silently skip a missing S2 mean to make S3 finite.
+        ((("S1", 1, 20.0), ("S3", 3, 50.0)), {1: 20.0}),
+    ],
+)
+def test_partial_sector_reference_requires_only_means_through_logical_coordinate(
+    samples, expected,
+):
+    service = LivePlannerService()
+    reference_sectors = tuple(
+        CompletedSector("1", "AAA", "A", 1, sector, index, duration, index * 30, 1, None)
+        for sector, index, duration in samples
+    )
+    # Peers can expose later coordinates but cannot supply missing reference means.
+    peer_sectors = tuple(
+        CompletedSector("2", "BBB", "B", (index - 1) // 3 + 1,
+                        f"S{(index - 1) % 3 + 1}", index, 30.0, index * 30.0, 2, None)
+        for index in range(1, 7)
+    )
+    service.snapshot = LiveSessionSnapshot(
+        MappingProxyType({}), "Started", (), (), MappingProxyType({}), None,
+        reference_sectors + peer_sectors,
+    )
+    try:
+        plot = service.build_plot_data("AAA", REFERENCE_MODE_AVERAGED_PACE)
+        for row in plot.itertuples():
+            if row.segment_index in expected:
+                assert row.reference_cumulative_time_s == pytest.approx(expected[row.segment_index])
+                assert row.timing_available
+            else:
+                assert math.isnan(float(row.reference_cumulative_time_s))
+                assert math.isnan(float(row.delta_s))
+                assert not row.timing_available
+    finally:
+        service.shutdown()
+
+
 def test_live_plot_consumes_canonical_cumulative_time_without_repairing_it():
     service = LivePlannerService()
     service.snapshot = LiveSessionSnapshot(
@@ -537,3 +721,50 @@ def test_driver_styles_and_ranks_are_stable():
     assert first[["driver", "colour", "line_style"]].equals(second[["driver", "colour", "line_style"]])
     assert service.default_reference_driver() == "AAA"
     assert set(service.build_driver_ranks()["driver"]) == {"AAA", "BBB"}
+
+
+def test_plot_requires_explicit_provisional_opt_in_and_clears_cached_overlay_data():
+    from dataclasses import replace
+
+    service = LivePlannerService()
+    provisional = ProvisionalSector(
+        "1", "AAA", "A", 1, "S1", 1, 30.0, 30.0, 1, None, source_time_s=30.0
+    )
+    service.snapshot = replace(LiveSessionSnapshot.empty(), provisional_sectors=(provisional,))
+    try:
+        assert service.build_plot_data("AAA").empty
+        live = service.build_plot_data("AAA", include_provisional=True)
+        assert len(live) == 1
+        assert live.iloc[0].timing_state == "provisional"
+        assert live.iloc[0].delta_s == pytest.approx(0.0)
+        assert service.snapshot.completed_sectors == ()
+        final = service.build_plot_data("AAA", include_provisional=False)
+        assert final.empty and service._last_plot_data.empty
+        assert service.build_pit_window_data("AAA", 20.0).empty
+    finally:
+        service.shutdown()
+
+
+def test_provisional_reference_evolves_live_average_without_changing_canonical_plot(
+    r15_rus_lap2_sectors,
+):
+    from dataclasses import replace
+
+    service = LivePlannerService()
+    service.snapshot = replace(
+        LiveSessionSnapshot.empty(), completed_sectors=r15_rus_lap2_sectors,
+        provisional_sectors=(ProvisionalSector(
+            "63", "RUS", "Mercedes", 3, "S1", 7, 38.852, 260.795, 1, None,
+            source_time_s=260.795,
+        ),),
+    )
+    try:
+        canonical = service.build_plot_data("RUS")
+        live = service.build_plot_data("RUS", include_provisional=True)
+        assert canonical.segment_index.tolist() == [4, 5, 6]
+        assert live.segment_index.tolist() == [4, 5, 6, 7]
+        assert canonical.reference_cumulative_time_s.tolist() == pytest.approx([148.953, 193.445, 219.070])
+        assert live.loc[live.lap.eq(2), "reference_cumulative_time_s"].tolist() == pytest.approx([148.387, 192.879, 218.504])
+        assert service.build_plot_data("RUS").equals(canonical)
+    finally:
+        service.shutdown()

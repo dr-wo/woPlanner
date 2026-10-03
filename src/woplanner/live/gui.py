@@ -36,6 +36,14 @@ PLANNER_VISUAL_CHANGES = frozenset(
 )
 
 
+def _is_final_display(session_status: str | None, connection_statuses) -> bool:
+    """Terminal feed status or completed replay; Aborted remains resumable."""
+    return str(session_status or "").strip().lower() in {"finished", "finalised", "ends"} or any(
+        status.state == "disconnected" and status.message == "Replay completed"
+        for status in connection_statuses
+    )
+
+
 def _metadata_text(value, *keys: str) -> str | None:
     if isinstance(value, Mapping):
         for key in keys:
@@ -85,6 +93,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._metadata_warning_shown = False
         self._session_metadata_signature: tuple[object, ...] | None = None
         self._active_source_mode: str | None = None
+        self._final_display = False
         self.custom_ranges = False
         self._applying_plot_ranges = False
         self.strategy_prediction_window = None
@@ -372,6 +381,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
 
     def _prepare_start(self) -> None:
         self._active_source_mode = None
+        self._final_display = False
         self.connect_button.setEnabled(False)
         self.replay_button.setEnabled(False)
         self._driver_signature = ()
@@ -407,6 +417,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
 
     def _poll(self) -> None:
         update = self.service.poll()
+        final_display = _is_final_display(update.snapshot.session_status, update.statuses)
+        presentation_changed = final_display and not self._final_display
+        self._final_display |= final_display
         for status in update.statuses:
             self.connection_status.setText(status.message)
             if status.state in {"disconnected", "error"}:
@@ -448,7 +461,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 True,
                 update.changes.union({"drivers"}),
             )
-        if update.changes.intersection(PLANNER_VISUAL_CHANGES):
+        if presentation_changed or update.changes.intersection(PLANNER_VISUAL_CHANGES):
             self._redraw()
 
     def _warn_for_metadata_mismatch(self, session_info) -> None:
@@ -545,6 +558,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             reference_mode=str(
                 self.reference_mode.currentData() or REFERENCE_MODE_AVERAGED_PACE
             ),
+            include_provisional=not self._final_display,
         )
         calculation_seconds = time.perf_counter() - calculation_started
         if not self.custom_ranges:

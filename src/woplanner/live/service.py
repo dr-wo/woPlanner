@@ -17,6 +17,7 @@ from ..common.reference import (
 )
 from ..common.plot_data import build_pit_window_data, build_tyre_event_data
 from .telemetry import ReplayPipelineConfig, TelemetryAnalysisWorker
+from .presentation import guard_provisional_order
 
 
 
@@ -116,6 +117,7 @@ class LivePlannerService:
         self,
         reference_driver: str,
         reference_mode: str = REFERENCE_MODE_AVERAGED_PACE,
+        *, include_provisional: bool = False,
     ) -> pd.DataFrame:
         reference_mode = _normalize_reference_mode(reference_mode)
         sector_laps = {
@@ -132,15 +134,20 @@ class LivePlannerService:
                 reference_mode == REFERENCE_MODE_AVERAGED_PACE
                 and has_lap_fallbacks
             ),
+            include_provisional=include_provisional,
         )
         columns = [
             "driver", "team", "lap", "sector", "segment_index", "x_lap",
             "lap_time_s", "segment_time_s", "cumulative_time_s", "position", "plot_role",
             "compound", "tyre_age", "stint", "scenario_id", "is_simulated", "is_faded",
+            "timing_state", "source_time_s",
         ]
         plot_rows = pd.DataFrame(rows, columns=columns)
         if plot_rows.empty:
-            return plot_rows.assign(delta_s=pd.Series(dtype="float64"))
+            self._last_plot_data = plot_rows.assign(
+                delta_s=pd.Series(dtype="float64"), timing_available=pd.Series(dtype="bool")
+            )
+            return self._last_plot_data
         reference = _reference_cumulative_time(
             plot_rows,
             reference_driver=reference_driver,
@@ -158,6 +165,10 @@ class LivePlannerService:
                 output["reference_cumulative_time_s"], errors="coerce"
             ).notna()
         )
+        if include_provisional:
+            output = guard_provisional_order(
+                output, self.snapshot.live_timing, reference_driver=reference_driver
+            )
         self._last_plot_data = output.sort_values(
             ["driver", "segment_index"], kind="mergesort"
         ).reset_index(drop=True)
@@ -166,77 +177,50 @@ class LivePlannerService:
         return self._last_plot_data
 
     def _plot_rows(
-        self, reference_driver: str, *, force_lap_resolution: bool = False
+        self, reference_driver: str, *, force_lap_resolution: bool = False,
+        include_provisional: bool = False,
     ) -> tuple[list[dict], dict[str, float], str]:
-        fractions, fraction_source = _sector_progress_fractions(
-            self.snapshot.completed_sectors, reference_driver
-        )
-        if self.snapshot.completed_sectors and not force_lap_resolution:
-            rows = [
-                {
-                    "driver": sector.driver_code,
-                    "team": sector.team,
-                    "lap": sector.lap_number,
-                    "sector": sector.sector,
-                    "segment_index": sector.segment_index,
-                    "x_lap": _sector_x_for_lap(
-                        sector.lap_number, sector.sector, fractions
-                    ),
-                    "lap_time_s": pd.NA,
-                    "segment_time_s": sector.sector_time_s,
-                    "cumulative_time_s": sector.cumulative_time_s,
-                    "position": sector.position,
-                    "compound": sector.compound,
-                    "tyre_age": sector.tyre_life,
-                    "stint": sector.stint,
-                    "plot_role": "actual",
-                    "scenario_id": pd.NA,
-                    "is_simulated": False,
-                    "is_faded": False,
-                }
-                for sector in self.snapshot.completed_sectors
-            ]
-            laps_with_real_sectors = {
-                (sector.driver_code, sector.lap_number)
-                for sector in self.snapshot.completed_sectors
-            }
-            rows.extend(
-                {
-                    "driver": lap.driver_code, "team": lap.team,
-                    "lap": lap.lap_number, "sector": "S3",
-                    "segment_index": lap.lap_number * 3, "x_lap": lap.lap_number,
-                    "lap_time_s": lap.lap_time_s, "segment_time_s": lap.lap_time_s,
-                    "cumulative_time_s": lap.cumulative_time_s, "position": lap.position,
-                    "compound": lap.compound, "tyre_age": lap.tyre_life, "stint": lap.stint,
-                    "plot_role": "actual", "scenario_id": pd.NA,
-                    "is_simulated": False, "is_faded": False,
-                }
-                for lap in self.snapshot.completed_laps
-                if (lap.driver_code, lap.lap_number) not in laps_with_real_sectors
-            )
-            return rows, fractions, fraction_source
-        return [
-            {
-                "driver": lap.driver_code,
-                "team": lap.team,
-                "lap": lap.lap_number,
-                "sector": "S3",
-                "segment_index": lap.lap_number * 3,
-                "x_lap": lap.lap_number,
-                "lap_time_s": lap.lap_time_s,
-                "segment_time_s": lap.lap_time_s,
-                "cumulative_time_s": lap.cumulative_time_s,
-                "position": lap.position,
-                "compound": lap.compound,
-                "tyre_age": lap.tyre_life,
-                "stint": lap.stint,
-                "plot_role": "actual",
-                "scenario_id": pd.NA,
-                "is_simulated": False,
-                "is_faded": False,
-            }
-            for lap in self.snapshot.completed_laps
-        ], fractions, fraction_source
+        committed = self.snapshot.completed_sectors
+        provisional = self.snapshot.provisional_sectors if include_provisional else ()
+        fractions, fraction_source = _sector_progress_fractions(committed, reference_driver)
+        sectors = (() if force_lap_resolution else committed) + provisional
+        rows = []
+        for sector in sectors:
+            is_provisional = hasattr(sector, "source_time_s")
+            source_time = (sector.source_time_s if is_provisional else
+                           sector.session_time_seconds if sector.session_time_seconds is not None else
+                           sector.source_timestamp_utc.timestamp() if sector.source_timestamp_utc else None)
+            rows.append({
+                "driver": sector.driver_code, "team": sector.team,
+                "lap": sector.lap_number, "sector": sector.sector,
+                "segment_index": sector.segment_index,
+                "x_lap": _sector_x_for_lap(sector.lap_number, sector.sector, fractions),
+                "lap_time_s": pd.NA, "segment_time_s": sector.sector_time_s,
+                "cumulative_time_s": sector.cumulative_time_s, "position": sector.position,
+                "compound": sector.compound, "tyre_age": sector.tyre_life, "stint": sector.stint,
+                "plot_role": "actual", "scenario_id": pd.NA,
+                "is_simulated": False, "is_faded": False,
+                "timing_state": "provisional" if is_provisional else "committed",
+                "source_time_s": source_time,
+            })
+        sector_laps = {(sector.driver_code, sector.lap_number) for sector in sectors
+                       if not hasattr(sector, "source_time_s")}
+        for lap in self.snapshot.completed_laps:
+            if (lap.driver_code, lap.lap_number) in sector_laps:
+                continue
+            rows.append({
+                "driver": lap.driver_code, "team": lap.team, "lap": lap.lap_number,
+                "sector": "S3", "segment_index": lap.lap_number * 3,
+                "x_lap": lap.lap_number, "lap_time_s": lap.lap_time_s,
+                "segment_time_s": lap.lap_time_s, "cumulative_time_s": lap.cumulative_time_s,
+                "position": lap.position, "compound": lap.compound,
+                "tyre_age": lap.tyre_life, "stint": lap.stint,
+                "plot_role": "actual", "scenario_id": pd.NA,
+                "is_simulated": False, "is_faded": False, "timing_state": "committed",
+                "source_time_s": (lap.session_time_seconds if lap.session_time_seconds is not None else
+                                  lap.source_timestamp_utc.timestamp() if lap.source_timestamp_utc else None),
+            })
+        return rows, fractions, fraction_source
 
     def build_driver_ranks(self) -> pd.DataFrame:
         drivers = self.available_drivers()
@@ -331,15 +315,31 @@ def _reference_cumulative_time(
     if reference_rows.empty:
         return pd.DataFrame(columns=["segment_index", "reference_cumulative_time_s"])
     if reference_mode == REFERENCE_MODE_AVERAGED_PACE:
+        lap_samples = reference_rows.loc[reference_rows["lap_time_s"].notna()]
+        reference_is_lap_resolution = not lap_samples.empty
+        lap_average = lap_samples["segment_time_s"].mean() if reference_is_lap_resolution else None
         sector_averages = reference_rows.groupby("sector")["segment_time_s"].mean()
         segment_indexes = sorted(plot_rows["segment_index"].dropna().astype(int).unique())
         reference_rows = pd.DataFrame({"segment_index": segment_indexes})
         reference_rows["sector"] = reference_rows["segment_index"].map(
             lambda value: {1: "S1", 2: "S2", 0: "S3"}[int(value) % 3]
         )
-        reference_rows["reference_cumulative_time_s"] = (
-            reference_rows["sector"].map(sector_averages).astype(float).cumsum()
-        )
+        if reference_is_lap_resolution:
+            # Homogeneous lap fallbacks carry full lap times, not S3 durations.
+            reference_rows["reference_cumulative_time_s"] = (
+                reference_rows["segment_index"] / 3 * lap_average
+            )
+        else:
+            sector_prefix = sector_averages.reindex(["S1", "S2", "S3"]).cumsum(
+                skipna=False
+            )
+            completed_laps = (reference_rows["segment_index"] - 1) // 3
+            # Integrate from the logical race origin, independent of peer rows.
+            # A missing mean makes only coordinates requiring that sector unavailable.
+            reference_rows["reference_cumulative_time_s"] = (
+                completed_laps.mul(sector_prefix["S3"]).where(completed_laps.gt(0), 0.0)
+                + reference_rows["sector"].map(sector_prefix)
+            )
     else:
         reference_rows["reference_cumulative_time_s"] = reference_rows["cumulative_time_s"]
     return reference_rows.loc[:, ["segment_index", "reference_cumulative_time_s"]]

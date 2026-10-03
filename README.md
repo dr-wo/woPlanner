@@ -122,11 +122,25 @@ canonical raw message before applying it. The replay picker accepts both merged
 archive `*.jsonl` files and legacy live `*.txt` recordings for max-speed, 1x, 5x,
 or 20x replay.
 
-Live mode plots sector-level deltas as soon as S1, S2, or S3 arrives in
-`TimingData.Lines[*].Sectors`; it does not wait for the whole lap to complete. If
-a recording only contains completed-lap timing, or if the app connects late and
-earlier sector timing is unavailable or unreliable, it retains woData's
-canonical completed-lap fallback rather than inventing sector timing.
+Live mode can plot provisional sector-level deltas as soon as S1, S2, or S3
+arrives, before the whole lap completes. These display points may appear, move,
+change lap assignment, or disappear as evidence changes. Certified sectors and
+completed-lap fallbacks come from woData's committed history; provisional
+display timing does not certify that history.
+
+Fresh official gaps guard the newest shared-coordinate provisional points
+against materially reversed ordering. Gap observations must postdate the
+points, be at most **5 seconds** old, and be within **2 seconds** of each other.
+Contradictory provisional deltas are suppressed only when both the official and
+displayed differences exceed **0.1 seconds**. This is a presentation-only rule.
+Where a pace reference is still unavailable, a same-coordinate provisional
+reference comparison may provide a revisable live estimate.
+
+`Finished`, `Finalised`, `Ends`, or completed replay switches the display to
+canonical-only timing and rebuilds the plot. Suspension, red flag, aborted or
+transient states, and ordinary disconnect do not finalise the display. MC,
+traffic, tyre fitting, and persisted analytical inputs use committed/reconciled
+data only; provisional timing and display gap corrections never enter analysis.
 After the feed explicitly marks a running driver `Retired`, that driver's curve
 ends at the last completed lap instead of accumulating later placeholder timing.
 Both live and post-race planners default to averaged reference mode; the mode
@@ -143,10 +157,12 @@ recovery; a corrected compound assignment replaces the corresponding marker.
 Live and standard mode share the same detailed hover matching. Clicking a live
 curve selects and emphasises that driver without changing the top-bar reference.
 Both modes use the common curve-click binding, hover-label overlay, pit-window
-overlay, and Lap/Y range-control component. Selecting a driver therefore draws
-the same grey normal and SC/VSC pit-loss windows in either mode; the **Pit** and
-**SC/VSC** inputs control their widths. Applied ranges remain fixed across timing
-updates and **Auto range** resumes data-driven bounds.
+overlay, and Lap/Y range-control component. Native curve selection drives the
+selected driver's pit-loss overlay using independently resolved **GREEN**,
+**SC**, and **VSC** values. An unresolved state produces no band. The overlay
+follows current selected-driver timing through refresh, driver switch,
+deselection/reselection, and the final canonical redraw. Applied ranges remain
+fixed across timing updates and **Auto range** resumes data-driven bounds.
 
 Live Cumulative Delta uses one fixed intra-lap geometry for every driver and
 lap. The current live snapshot has no circuit sector-distance boundaries, so it
@@ -154,7 +170,11 @@ uses the selected reference driver's earliest complete lap to derive cumulative
 S1/S2/S3 time fractions; equal thirds are the final fallback. The averaged
 reference uses the selected driver's positive observed mean time for each sector
 and repeats those same three means after that driver retires. It does not switch
-to a surviving-driver population. When completed-lap fallbacks are present,
+to a surviving-driver population. Its cumulative origin follows logical timing
+coordinates, so unrelated peer rows disappearing cannot reset historical
+reference timing. Legitimate new reference-driver samples can still update the
+averages; live provisional samples participate only in the live display. When
+completed-lap fallbacks are present,
 averaged-reference mode uses one homogeneous timing resolution rather than
 mixing sector-level and lap-level reference samples.
 
@@ -164,12 +184,11 @@ To replay a completed archive, click **Browse**, select
 choose Max/1x/5x/20x, and click **Replay**. The same reducers and rendering path are
 used for JSONL archive replay and live SignalR messages.
 
-The live timing plot consumes woData's canonical racing-time axis and does not
-repair fundamental origin or suspension errors itself. Rows without safely
-anchored canonical timing are preserved, shown as timing unavailable, and
-excluded from false zero/order comparisons until timing becomes available. The
-shared **Strategy Prediction** window can consume the same
-canonical live snapshot: when the leader lap advances it checks for newly
+Committed plot history uses woData's canonical racing-time axis. Missing
+canonical anchors remain unavailable rather than becoming zero; a provisional
+live comparison does not repair or replace those historical anchors. The
+shared **Strategy Prediction** window consumes the committed portion of the
+live snapshot: when the leader lap advances it checks for newly
 eligible sector-filtered clean laps. Replay expands batched leader-lap jumps
 into point-in-time snapshots and processes them through a FIFO recalculation
 queue. Replay-state reduction and Cumulative Delta rendering do not wait for
@@ -545,6 +564,14 @@ orientation notes.
 This project is developed extensively with coding agents. Durable context
 documents preserve architecture, assumptions, interfaces, known compromises and
 validation requirements across development sessions.
+
+### Track / Lap Position Map integration status
+
+The Track / Lap Position Map is complete and acceptance-tested in the
+`codex/live-strategy-track-map-integration` worktree: open/reuse, selected-driver
+synchronisation, live/replay data refresh, and close/reopen work there. It is
+**not yet merged to main**, so the main checkout does not expose its control.
+Integration remains a separate task from the reviewed live-timing changes.
 
 ### Strategy Prediction: History Info
 

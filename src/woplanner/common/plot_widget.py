@@ -161,10 +161,19 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
             points["_plot_x"] = x.loc[valid].to_numpy()
             points["_plot_y"] = y.loc[valid].to_numpy()
             self._curve_points[driver] = points
+            # A line alone cannot show the first provisional observation.
+            singleton_provisional = (
+                len(points) == 1 and "timing_state" in points
+                and points.iloc[0]["timing_state"] == "provisional"
+            )
             curve = self.plot.plot(
                 x.loc[valid].to_numpy(), y.loc[valid].to_numpy(),
                 pen=self._curve_pen(driver),
                 clickable=True,
+                symbol="o" if singleton_provisional else None,
+                symbolSize=7,
+                symbolBrush=style.get("colour", "#333333"),
+                symbolPen=style.get("colour", "#333333"),
             )
             bind_driver_curve_click(curve, driver, self._curve_clicked)
             self.curves[driver] = curve

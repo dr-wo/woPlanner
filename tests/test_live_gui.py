@@ -34,6 +34,211 @@ def test_live_window_constructs_and_disconnects_before_connect():
     app.processEvents()
 
 
+def test_single_provisional_observation_is_visible_and_selectable():
+    from PySide6 import QtCore, QtTest
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    widget = RelativeDeltaPlotWidget()
+    widget.resize(1000, 500)
+    widget.set_session_drivers(pd.DataFrame([{"driver": "AAA", "colour": "#123456"}]))
+    widget.set_plot_data(pd.DataFrame([
+        {"driver": "AAA", "lap": 2, "x_lap": 1.33, "delta_s": 1.0,
+         "timing_state": "provisional"},
+    ]))
+    widget.plot.setXRange(1.0, 2.0)
+    widget.plot.setYRange(-5.0, 5.0)
+    widget.show()
+    app.processEvents()
+    try:
+        assert widget.curves["AAA"].opts["symbol"] == "o"
+        assert len(widget.curves["AAA"].scatter.points()) == 1
+        view = widget.plot.getViewBox()
+        QtTest.QTest.mouseClick(
+            widget.plot.viewport(), QtCore.Qt.MouseButton.LeftButton,
+            pos=widget.plot.mapFromScene(view.mapViewToScene(QtCore.QPointF(1.33, 1.0))),
+        )
+        app.processEvents()
+        assert widget.selected_driver == "AAA"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_live_redraw_revises_relabels_and_removes_provisional_points_and_overlays(tmp_path):
+    from dataclasses import replace
+    from wodata.live.models import CompletedSector, ProvisionalSector
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    service = LivePlannerService()
+    service.snapshot = replace(
+        LiveSessionSnapshot.empty(),
+        drivers=(LiveDriver("1", "AAA", "A", "A Driver", 1, None),),
+        completed_sectors=tuple(
+            CompletedSector("1", "AAA", "A", 1, f"S{s}", s, 30.0, s * 30.0, 1, None)
+            for s in (1, 2, 3)
+        ),
+        provisional_sectors=(
+            ProvisionalSector("1", "AAA", "A", 2, "S1", 4, 30.0, 120.0, 1, None,
+                              source_time_s=120.0),
+        ),
+    )
+    window = LivePlannerWindow(service=service, event_config_path=tmp_path / "absent.json")
+    window.reference_driver.addItem("AAA")
+    window.normal_pit_loss.setValue(10.0)
+    window._select_driver("AAA")
+    try:
+        window._redraw()
+        old_curve = window.relative_plot.curves["AAA"]
+        old_overlay = list(window.pit_window.items)
+        assert service._last_plot_data["segment_index"].tolist() == [1, 2, 3, 4]
+        assert old_overlay
+
+        service.snapshot = replace(service.snapshot, provisional_sectors=(
+            ProvisionalSector("1", "AAA", "A", 3, "S1", 7, 31.0, 211.0, 1, None,
+                              source_time_s=211.0),
+        ))
+        window._redraw()
+        assert old_curve.scene() is None
+        assert all(item.scene() is None for item in old_overlay)
+        assert service._last_plot_data["segment_index"].tolist() == [1, 2, 3, 7]
+        assert window.relative_plot.selected_driver == "AAA"
+
+        service.snapshot = replace(service.snapshot, provisional_sectors=())
+        window._redraw()
+        assert service._last_plot_data["segment_index"].tolist() == [1, 2, 3]
+        service.snapshot = replace(service.snapshot, completed_sectors=())
+        window._redraw()
+        assert service._last_plot_data.empty
+        assert window.relative_plot.curves == {}
+        assert window.pit_window.items == []
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_replay_completion_without_new_timing_removes_live_only_display(tmp_path):
+    from dataclasses import replace
+    from wodata.live.models import LiveConnectionStatus, ProvisionalSector
+    from woplanner.live.service import LivePlannerUpdate
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    service = LivePlannerService()
+    service.snapshot = replace(
+        LiveSessionSnapshot.empty(),
+        drivers=(LiveDriver("1", "AAA", "A", "A Driver", 1, None),),
+        provisional_sectors=(
+            ProvisionalSector("1", "AAA", "A", 1, "S1", 1, 30.0, 30.0, 1, None,
+                              source_time_s=30.0),
+        ),
+    )
+    window = LivePlannerWindow(service=service, event_config_path=tmp_path / "absent.json")
+    window.reference_driver.addItem("AAA")
+    window._driver_signature = ("AAA",)
+    window._active_source_mode = "replay"
+    try:
+        window._redraw()
+        assert service._last_plot_data["timing_state"].tolist() == ["provisional"]
+        service.poll = lambda: LivePlannerUpdate(
+            service.snapshot, (LiveConnectionStatus("disconnected", "Replay completed"),),
+            False, frozenset(),
+        )
+        window._poll()
+        assert window._final_display
+        assert service._last_plot_data.empty
+        assert window.relative_plot.curves == {}
+        window._prepare_start()
+        assert not window._final_display
+        window._redraw()
+        assert service._last_plot_data["timing_state"].tolist() == ["provisional"]
+    finally:
+        window.close()
+        app.processEvents()
+
+
+@pytest.mark.parametrize("terminal_status", ["Finished", "Finalised", "Ends"])
+def test_real_live_completion_rebuilds_reference_and_overlay_and_survives_disconnect(
+    tmp_path, terminal_status,
+):
+    from dataclasses import replace
+    from wodata.live.models import CompletedSector, LiveConnectionStatus, ProvisionalSector
+    from woplanner.live.service import LivePlannerUpdate
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    service = LivePlannerService()
+    service.snapshot = replace(
+        LiveSessionSnapshot.empty(), session_status="Started",
+        drivers=(LiveDriver("1", "AAA", "A", "A Driver", 1, None),),
+        completed_laps=(CompletedLap("1", "AAA", "A", 1, 90.0, 90.0, 1, None),),
+        completed_sectors=tuple(
+            CompletedSector("1", "AAA", "A", 1, f"S{s}", s, 30.0, s * 30.0, 1, None)
+            for s in (1, 2, 3)
+        ),
+        provisional_sectors=(
+            ProvisionalSector("1", "AAA", "A", 2, "S1", 4, 60.0, 150.0, 1, None,
+                              source_time_s=150.0),
+        ),
+    )
+    window = LivePlannerWindow(service=service, event_config_path=tmp_path / "absent.json")
+    window._active_source_mode = "live"
+    window.reference_driver.addItem("AAA")
+    window._driver_signature = ("AAA",)
+    window.normal_pit_loss.setValue(10.0)
+    window._select_driver("AAA")
+    try:
+        window._redraw()
+        assert service._last_plot_data["timing_state"].tolist() == ["committed"] * 3 + ["provisional"]
+        assert service._last_plot_data["reference_cumulative_time_s"].tolist() == [45.0, 75.0, 105.0, 150.0]
+
+        # Race interruption/restart and transport disconnection are not final.
+        for temporary_status in ("Inactive", "Aborted", "Started"):
+            service.snapshot = replace(service.snapshot, session_status=temporary_status)
+            service.poll = lambda: LivePlannerUpdate(
+                service.snapshot, (LiveConnectionStatus("disconnected", "Connection closed"),),
+                True, frozenset({"session", "track_status"}),
+            )
+            window._poll()
+            assert not window._final_display
+            assert len(service._last_plot_data) == 4
+        window._disconnect()
+        assert not window._final_display
+
+        old_curve = window.relative_plot.curves["AAA"]
+        old_overlay = list(window.pit_window.items)
+        service.snapshot = replace(service.snapshot, session_status=terminal_status)
+        # Completion itself must trigger rebuilding, even without a timing diff.
+        service.poll = lambda: LivePlannerUpdate(service.snapshot, (), False, frozenset())
+        window._poll()
+        assert window._final_display
+        assert service._last_plot_data["timing_state"].tolist() == ["committed"] * 3
+        assert service._last_plot_data["reference_cumulative_time_s"].tolist() == [30.0, 60.0, 90.0]
+        assert service._last_plot_data["delta_s"].tolist() == [0.0] * 3
+        assert old_curve.scene() is None
+        assert old_overlay and all(item.scene() is None for item in old_overlay)
+        assert window.relative_plot.selected_driver == "AAA"
+        assert len(window.pit_window.items[0].getData()[0]) == 3
+
+        canonical_plot = service._last_plot_data.copy(deep=True)
+        window._disconnect()
+        # A later status snapshot cannot unlatch final display for this source.
+        service.snapshot = replace(service.snapshot, session_status="Started")
+        service.poll = lambda: LivePlannerUpdate(
+            service.snapshot, (LiveConnectionStatus("disconnected", "Connection closed"),),
+            True, frozenset({"session"}),
+        )
+        window._poll()
+        pd.testing.assert_frame_equal(service._last_plot_data, canonical_plot)
+        assert window._final_display
+        assert len(window.pit_window.items[0].getData()[0]) == 3
+
+        window._prepare_start()
+        assert not window._final_display
+        window._redraw()
+        assert service._last_plot_data["timing_state"].tolist() == ["committed"] * 3 + ["provisional"]
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def test_live_window_updates_round_from_received_session_info():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = LivePlannerWindow()
