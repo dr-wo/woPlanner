@@ -23,6 +23,101 @@ from woplanner.common.plot_widget import (
 from woplanner.common.axis_controls import AxisRangeControls
 
 
+def test_r15_native_curve_selection_keeps_green_overlay_through_replay_refresh(tmp_path):
+    from pathlib import Path
+
+    from PySide6 import QtCore, QtTest
+    from wodata.live import load_recording
+
+    # Original R15 messages, projected to the first-lap timing transitions.
+    fixture = Path(__file__).parents[2] / "woData/tests/fixtures/r15_first_laps.jsonl"
+    messages = [record.message for record in load_recording(fixture)]
+    config = tmp_path / "race.json"
+    config.write_text(json.dumps({
+        "season": 2026, "round_number": 15, "race": {"total_laps": 51},
+        "pit_loss": {"green": {"total": 19.3}, "sc": {"total": None},
+                     "vsc": {"total": None}},
+    }))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    service = LivePlannerService()
+    # This tests the timing/rendering path without dispatching analysis work.
+    service.controller.set_telemetry_sink(lambda message: None)
+    window = LivePlannerWindow(service=service, event_config_path=config)
+    selected = []
+    window.relative_plot.driver_selected.connect(selected.append)
+    window.show()
+    app.processEvents()
+    plot = window.relative_plot.plot
+    view = plot.getViewBox()
+
+    def click_curve(driver):
+        x, y = window.relative_plot.curves[driver].getData()
+        assert len(x) >= 2
+        point = QtCore.QPointF(float((x[0] + x[1]) / 2), float((y[0] + y[1]) / 2))
+        QtTest.QTest.mouseClick(
+            plot.viewport(), QtCore.Qt.MouseButton.LeftButton,
+            pos=plot.mapFromScene(view.mapViewToScene(point)),
+        )
+        app.processEvents()
+        assert window.relative_plot.selected_driver == driver
+
+    def assert_green_overlay():
+        items = window.pit_window.items
+        assert len(items) == 4
+        assert items[3].toPlainText() == "GREEN pit window"
+        assert all(item in plot.getPlotItem().items and item.scene() is plot.scene()
+                   and item.isVisible() for item in items)
+        assert not items[2].path().isEmpty()
+        assert items[2].path().intersects(view.viewRect())
+        _, lower = items[0].getData()
+        _, upper = items[1].getData()
+        assert (upper - lower).tolist() == pytest.approx([38.6] * len(lower))
+
+    try:
+        for message in messages:
+            if message.sequence <= 4213:
+                service.controller._enqueue_message(message)
+        window._poll()
+        window.reference_driver.setCurrentText("RUS")
+        app.processEvents()
+        assert [window._pit_loss_value(field) for field in (
+            window.normal_pit_loss, window.sc_pit_loss, window.vsc_pit_loss,
+        )] == [19.3, None, None]
+        click_curve("RUS")
+        assert_green_overlay()
+        old_items = list(window.pit_window.items)
+        old_curves = list(window.relative_plot.curves.values())
+        old_data = service._last_plot_data
+
+        for message in messages:
+            if 4213 < message.sequence <= 4269:
+                service.controller._enqueue_message(message)
+        window._poll()
+        app.processEvents()
+        assert window.relative_plot.selected_driver == "RUS"
+        assert service._last_plot_data is not old_data
+        assert all(item.scene() is None for item in old_items + old_curves)
+        assert_green_overlay()
+        click_curve("LEC")
+        assert_green_overlay()
+
+        # Empty space before the first real plotted sector clears selection.
+        point = QtCore.QPointF(view.viewRect().left() + 0.05, view.viewRect().center().y())
+        QtTest.QTest.mouseClick(
+            plot.viewport(), QtCore.Qt.MouseButton.LeftButton,
+            pos=plot.mapFromScene(view.mapViewToScene(point)),
+        )
+        app.processEvents()
+        assert window.relative_plot.selected_driver is None
+        assert window.pit_window.items == []
+        click_curve("RUS")
+        assert_green_overlay()
+        assert selected == ["RUS", "LEC", "RUS"]
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def test_live_window_constructs_and_disconnects_before_connect():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = LivePlannerWindow()
