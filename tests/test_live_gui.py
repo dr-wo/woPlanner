@@ -7,7 +7,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from wodata.event_operational import read_event_operational_inputs
 from wodata.live import CompletedLap, LiveDriver, LiveSessionSnapshot
@@ -122,7 +122,9 @@ def test_live_window_constructs_and_disconnects_before_connect():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = LivePlannerWindow()
     assert window.reference_mode.currentData() == REFERENCE_MODE_AVERAGED_PACE
-    assert window.strategy_prediction_button.text() == "Strategy Prediction"
+    assert window.strategy_prediction_button.text() == "Strategy"
+    assert window.track_map_button.text() == "Track Map"
+    assert window.track_map_collapse_button.text() == "Embedded Map"
     window._disconnect()
     assert "Disconnected" in window.connection_status.text()
     window.close()
@@ -993,4 +995,107 @@ def test_different_event_does_not_reuse_current_event_values(tmp_path):
     assert window.vsc_pit_loss.value() == -1.0
     assert "config is 2026-14" in window.pit_loss_status.text()
     window.close()
+    app.processEvents()
+
+
+def test_track_map_window_reuses_current_presentation_and_embedded_map_can_collapse():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = LivePlannerWindow()
+    window._select_driver("AAA")
+    window.sc_pit_loss.setValue(8.9)
+    window._show_track_map_window()
+
+    detached = window.track_map_window
+    assert detached is not None
+    assert detached.isVisible()
+    assert detached.track_map.selected_driver == "AAA"
+    assert detached.track_map._windows == window.track_map._windows
+
+    # Closing hides the reusable, non-modal window; it does not clear the
+    # selection or recreate a separate map state on the next opening.
+    detached.close()
+    app.processEvents()
+    assert not detached.isVisible()
+    detached.track_map.clear()
+    window._show_track_map_window()
+    assert window.track_map_window is detached
+    assert detached.track_map.selected_driver == "AAA"
+    assert detached.track_map._snapshot == window.service.latest_track_map_snapshot()
+
+    window.track_map_collapse_button.click()
+    assert window.track_map.isHidden()
+    assert window.track_map_collapse_button.text() == "Embedded Map"
+    assert not window.track_map_collapse_button.isChecked()
+    window.track_map_collapse_button.click()
+    assert not window.track_map.isHidden()
+    assert window.track_map_collapse_button.isChecked()
+    assert window.track_map._snapshot == window.service.latest_track_map_snapshot()
+    window.close()
+    app.processEvents()
+    assert not detached.isVisible()
+
+def test_narrow_window_keeps_two_control_rows_scrollable():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = LivePlannerWindow()
+    window.resize(720, 640)
+    window.show()
+    app.processEvents()
+
+    bar = window.controls_scroll.horizontalScrollBar()
+    assert bar.maximum() > 0
+    window.controls_scroll.ensureWidgetVisible(window.apply_pit_loss_button)
+    app.processEvents()
+    assert bar.value() > 0
+    assert window.strategy_prediction_button.text() == "Strategy"
+    assert window.track_map_button.text() == "Track Map"
+    assert window.track_map_collapse_button.text() == "Embedded Map"
+    assert window.track_map_button.isEnabled()
+    assert window.track_map_collapse_button.isEnabled()
+    window.close()
+    app.processEvents()
+
+def test_validated_normal_window_fits_both_control_rows_without_scrolling():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = LivePlannerWindow()
+    window.resize(1549, 900)
+    window.show()
+    app.processEvents()
+
+    assert window.controls_scroll.horizontalScrollBar().maximum() == 0
+    for control in (
+        window.strategy_prediction_button,
+        window.track_map_button,
+        window.track_map_collapse_button,
+        window.apply_pit_loss_button,
+    ):
+        assert control.isVisible()
+        assert control.isEnabled()
+    window.close()
+    app.processEvents()
+
+@pytest.mark.parametrize("list_name", ["start_rank_list", "latest_rank_list"])
+def test_rank_name_click_uses_shared_selection_and_survives_refresh(list_name):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    widget = RelativeDeltaPlotWidget()
+    ranks = pd.DataFrame([
+        {"rank": 1, "driver": "AAA", "colour": "#123456"},
+        {"rank": 2, "driver": "BBB", "colour": "#654321"},
+    ])
+    widget.set_rank_data(ranks, ranks)
+    selected = []
+    widget.driver_selected.connect(selected.append)
+
+    target = getattr(widget, list_name).item(1)
+    widget._rank_item_clicked(target)
+    widget.set_rank_data(ranks.iloc[::-1], ranks.iloc[::-1])
+
+    assert widget.selected_driver == "BBB"
+    assert selected == ["BBB"]
+    assert widget.start_rank_list.currentItem().data(
+        QtCore.Qt.ItemDataRole.UserRole
+    ) == "BBB"
+    assert widget.latest_rank_list.currentItem().data(
+        QtCore.Qt.ItemDataRole.UserRole
+    ) == "BBB"
+    widget.close()
     app.processEvents()

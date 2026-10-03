@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 import queue
+import statistics
 import threading
 import time
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from wodata.live.models import LiveTimingMessage
@@ -25,6 +26,27 @@ class TrackMapDriver:
     sample_time_seconds: float
     sample_timestamp: datetime | None
     valid: bool = True
+    driver_code: str = ""
+    team: str = ""
+    in_pit: bool | None = None
+    fresh_age_s: float | None = None
+
+
+@dataclass(frozen=True)
+class TrackMapReferencePoint:
+    x: float
+    y: float
+    elapsed_s: float
+
+
+@dataclass(frozen=True)
+class TrackMapReference:
+    driver_id: str
+    driver_code: str
+    lap_number: int
+    lap_time_s: float
+    points: tuple[TrackMapReferencePoint, ...]
+    source: str = "actual clean-lap Position.z trajectory"
 
 
 @dataclass(frozen=True)
@@ -33,6 +55,7 @@ class TrackMapSnapshot:
     source_timestamp: datetime | None
     position_visual_version: int
     drivers: tuple[TrackMapDriver, ...]
+    reference: TrackMapReference | None = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +163,10 @@ class TelemetryAnalysisWorker:
         self._processed_ingress_sequence = 0
         self._state_lock = threading.Lock()
         self._track_map = TrackMapSnapshot(0, None, 0, ())
+        self._track_map_reference: TrackMapReference | None = None
+        self._track_reference_lap_signature: tuple = ()
+        self._track_clock_position_s: float | None = None
+        self._track_clock_event_s: float | None = None
         self._telemetry_messages_processed = 0
         self._position_messages_processed = 0
         self._pending_build_count = 0
@@ -161,6 +188,10 @@ class TelemetryAnalysisWorker:
             self._generation += 1
             generation = self._generation
             self._track_map = TrackMapSnapshot(generation, None, 0, ())
+            self._track_map_reference = None
+            self._track_reference_lap_signature = ()
+            self._track_clock_position_s = None
+            self._track_clock_event_s = None
             self._telemetry_messages_processed = 0
             self._position_messages_processed = 0
             self._pending_build_count = 0
@@ -414,6 +445,12 @@ class TelemetryAnalysisWorker:
                             message=message,
                             cuts=cuts,
                         )
+                        self._publish_track_reference(store, generation, message)
+                        # TimingData owns the pit flag and also advances the
+                        # session clock when Position.z pauses.  Republish the
+                        # same coordinates so pit/freshness state cannot lag
+                        # until the next position packet.
+                        self._publish_track_map(store, generation, message)
                 processed_ingress = ingress_sequence
                 with self._state_lock:
                     if generation == self._generation:
@@ -488,11 +525,56 @@ class TelemetryAnalysisWorker:
         generation: int,
         message: LiveTimingMessage,
     ) -> None:
+        official = {
+            str(number): data
+            for number, data in store._drivers.items()
+            if isinstance(data, dict) and str(data.get("Tla") or "").strip()
+        }
+        official_sample_times = [
+            samples[-1].session_time_seconds
+            for number, samples in store._position_samples.items()
+            if str(number) in official and samples
+        ]
+        event_clock_s = _message_clock_seconds(message)
+        with self._state_lock:
+            prior_position_clock_s = self._track_clock_position_s
+            prior_event_clock_s = self._track_clock_event_s
+        if (
+            event_clock_s is not None
+            and prior_event_clock_s is not None
+            and event_clock_s < prior_event_clock_s
+        ):
+            event_clock_s = prior_event_clock_s
+        position_clock_s = prior_position_clock_s
+        if official_sample_times:
+            if prior_position_clock_s is None or prior_event_clock_s is None:
+                # A median gives a safe initial anchor if one driver's first
+                # sample carries a malformed future timestamp.
+                position_clock_s = float(statistics.median(official_sample_times))
+            elif event_clock_s is not None:
+                expected_clock_s = prior_position_clock_s + max(
+                    0.0, float(event_clock_s - prior_event_clock_s)
+                )
+                if message.topic == "Position.z":
+                    # Once anchored, packet/session chronology is authoritative.
+                    # A partial packet advances the clock for omitted cars; an
+                    # arbitrary future sample can invalidate only itself.
+                    position_clock_s = expected_clock_s
+                else:
+                    position_clock_s = expected_clock_s
         latest = []
         for driver_number, samples in store._position_samples.items():
-            if not samples:
+            identity = official.get(str(driver_number))
+            if not samples or identity is None:
                 continue
             sample = samples[-1]
+            age_s = (
+                None
+                if position_clock_s is None
+                else float(position_clock_s - sample.session_time_seconds)
+            )
+            timing = store._timing.get(str(driver_number), {})
+            in_pit = _optional_bool(timing.get("InPit"))
             latest.append(
                 TrackMapDriver(
                     driver_number,
@@ -501,19 +583,183 @@ class TelemetryAnalysisWorker:
                     sample.z,
                     sample.on_track,
                     sample.session_time_seconds,
-                    message.source_timestamp_utc,
+                    _timestamp_from_sample_time(sample.session_time_seconds),
+                    valid=bool(
+                        age_s is not None
+                        and -1.0 <= age_s <= 5.0
+                        and (sample.x != 0.0 or sample.y != 0.0)
+                    ),
+                    driver_code=str(identity.get("Tla") or "").strip(),
+                    team=str(identity.get("TeamName") or "").strip(),
+                    in_pit=in_pit,
+                    fresh_age_s=age_s,
                 )
             )
         with self._state_lock:
             if generation != self._generation:
                 return
+            if position_clock_s is not None and event_clock_s is not None:
+                self._track_clock_position_s = float(position_clock_s)
+                self._track_clock_event_s = float(event_clock_s)
             version = self._track_map.position_visual_version + 1
             self._track_map = TrackMapSnapshot(
                 generation,
                 message.source_timestamp_utc,
                 version,
                 tuple(sorted(latest, key=lambda item: item.driver_id)),
+                self._track_map_reference,
             )
+
+    def _publish_track_reference(
+        self,
+        store: LiveSessionStore,
+        generation: int,
+        message: LiveTimingMessage,
+    ) -> None:
+        if self._track_map_reference is not None:
+            return
+        lap_signature = tuple(
+            (str(number), max(laps, default=0), len(laps))
+            for number, laps in sorted(store._laps.items())
+        )
+        if lap_signature == self._track_reference_lap_signature:
+            return
+        self._track_reference_lap_signature = lap_signature
+        official = {
+            str(number): data
+            for number, data in store._drivers.items()
+            if isinstance(data, dict) and str(data.get("Tla") or "").strip()
+        }
+        reference = _reference_from_store(store, official)
+        if reference is None:
+            return
+        with self._state_lock:
+            if generation != self._generation or self._track_map_reference is not None:
+                return
+            self._track_map_reference = reference
+            self._track_map = replace(
+                self._track_map,
+                source_timestamp=message.source_timestamp_utc,
+                position_visual_version=self._track_map.position_visual_version + 1,
+                reference=reference,
+            )
+
+
+def _reference_from_store(
+    store: LiveSessionStore,
+    official: dict[str, dict],
+) -> TrackMapReference | None:
+    """Extract one completed non-pit lap in the Position.z time domain."""
+    for driver_number in sorted(official):
+        laps = store._laps.get(driver_number, {})
+        samples = store._position_samples.get(driver_number, ())
+        if not laps or len(samples) < 30:
+            continue
+        lap_numbers = sorted(laps)
+        for lap_number in reversed(lap_numbers):
+            previous = laps.get(lap_number - 1)
+            current = laps.get(lap_number)
+            if not isinstance(current, dict):
+                continue
+            if any(
+                bool(row.get(key))
+                for row in (previous, current)
+                if isinstance(row, dict)
+                for key in ("pit_in", "pit_out")
+            ):
+                continue
+            end_s = current.get("lap_end_time_s")
+            start_s = (
+                previous.get("lap_end_time_s")
+                if isinstance(previous, dict)
+                else None
+            )
+            if start_s is None and end_s is not None:
+                observed_lap_time_s = current.get("source_lap_time_s")
+                if observed_lap_time_s is not None:
+                    start_s = float(end_s) - float(observed_lap_time_s)
+            if start_s is None or end_s is None or float(end_s) <= float(start_s):
+                continue
+            lap_samples = [
+                sample for sample in samples
+                if float(start_s) <= sample.session_time_seconds <= float(end_s)
+            ]
+            if len(lap_samples) < 30:
+                continue
+            raw_points = tuple(
+                TrackMapReferencePoint(
+                    float(sample.x), float(sample.y),
+                    float(sample.session_time_seconds - float(start_s)),
+                )
+                for sample in lap_samples
+            )
+            lap_duration_s = float(end_s) - float(start_s)
+            points = raw_points
+            if raw_points[0].elapsed_s > 0.0:
+                points = (
+                    TrackMapReferencePoint(raw_points[0].x, raw_points[0].y, 0.0),
+                    *points,
+                )
+            if points[-1].elapsed_s < lap_duration_s:
+                points = (*points, TrackMapReferencePoint(
+                    points[0].x, points[0].y, lap_duration_s,
+                ))
+            extent = max(
+                max(point.x for point in raw_points) - min(point.x for point in raw_points),
+                max(point.y for point in raw_points) - min(point.y for point in raw_points),
+            )
+            closure = (
+                (raw_points[0].x - raw_points[-1].x) ** 2
+                + (raw_points[0].y - raw_points[-1].y) ** 2
+            ) ** 0.5
+            if extent <= 0.0 or closure > extent * 0.2:
+                continue
+            identity = official[driver_number]
+            return TrackMapReference(
+                driver_id=driver_number,
+                driver_code=str(identity.get("Tla") or "").strip(),
+                lap_number=int(lap_number),
+                lap_time_s=lap_duration_s,
+                points=points,
+            )
+    return None
+
+
+def _optional_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().casefold()
+    if normalized in {"true", "1", "yes"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    return None
+
+
+def _timestamp_from_sample_time(value: float) -> datetime | None:
+    # Archive Position.Timestamp values are UTC epoch seconds.  Synthetic/live
+    # sources may use a relative session clock, in which case no wall timestamp
+    # is claimed.
+    if not 946684800.0 <= float(value) <= 4102444800.0:
+        return None
+    return datetime.fromtimestamp(float(value), tz=timezone.utc)
+
+
+def _message_clock_seconds(message: LiveTimingMessage) -> float | None:
+    """Return a monotonic event clock independent of Position sample units."""
+    if message.session_time_seconds is not None:
+        try:
+            return float(message.session_time_seconds)
+        except (TypeError, ValueError):
+            pass
+    # Raw live recordings often have no topic source timestamp.  ReplayPlayer
+    # preserves their original recorded receive time, so Max playback speed and
+    # pause duration cannot distort this monotonic ingestion clock.  Source
+    # timestamps are intentionally not mixed in: late topic corrections can
+    # move that clock backwards.
+    if message.received_at_utc is not None:
+        return float(message.received_at_utc.timestamp())
+    return None
 
 
 def _partition_ready_builds(
@@ -644,7 +890,10 @@ def _apply_replay_message(store: LiveSessionStore, message: LiveTimingMessage) -
 def _analysis_store() -> LiveSessionStore:
     return LiveSessionStore(
         telemetry_lap_window=None,
-        position_sample_limit=1,
+        # Track-map reference extraction needs one recent real lap.  The store
+        # already bounds unlimited Position.z history to the latest 1,200 s;
+        # causal MC snapshots still omit raw position samples entirely.
+        position_sample_limit=None,
     )
 
 

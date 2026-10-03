@@ -114,7 +114,10 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
             rank_list.setFixedWidth(190)
             rank_list.setIconSize(QtCore.QSize(28, 28))
             rank_list.setAlternatingRowColors(True)
-            rank_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+            rank_list.setSelectionMode(
+                QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
+            )
+            rank_list.itemClicked.connect(self._rank_item_clicked)
         start_panel = QtWidgets.QVBoxLayout()
         self.start_rank_label = QtWidgets.QLabel("Start")
         start_panel.addWidget(self.start_rank_label)
@@ -185,6 +188,7 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
         self._selected_driver = normalized
         for curve_driver, curve in self.curves.items():
             curve.setPen(self._curve_pen(curve_driver))
+        self._sync_rank_selection()
 
     @property
     def selected_driver(self) -> str | None:
@@ -252,6 +256,7 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
     def set_rank_data(self, start: pd.DataFrame, current: pd.DataFrame) -> None:
         self._fill_rank_list(self.start_rank_list, start, tyre_prefix="start")
         self._fill_rank_list(self.latest_rank_list, current, tyre_prefix="latest")
+        self._sync_rank_selection()
 
     @staticmethod
     def _fill_rank_list(widget, ranks: pd.DataFrame, *, tyre_prefix: str) -> None:
@@ -263,11 +268,32 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
             compound = row.get(f"{tyre_prefix}_tyre_compound")
             age = row.get(f"{tyre_prefix}_tyre_age_label")
             item = QtWidgets.QListWidgetItem(text)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, str(row["driver"]))
             item.setForeground(QtGui.QColor(str(row.get("colour", "#333333"))))
             if pd.notna(compound) and pd.notna(age):
                 item.setIcon(RelativeDeltaPlotWidget._tyre_icon(str(compound), str(age)))
                 item.setToolTip(f"{str(compound).upper()}, tyre age {age}")
             widget.addItem(item)
+
+    def _sync_rank_selection(self) -> None:
+        for widget in (self.start_rank_list, self.latest_rank_list):
+            target = None
+            for index in range(widget.count()):
+                item = widget.item(index)
+                if str(item.data(QtCore.Qt.ItemDataRole.UserRole)) == str(
+                    self._selected_driver
+                ):
+                    target = item
+                    break
+            widget.setCurrentItem(target)
+
+    def _rank_item_clicked(self, item: QtWidgets.QListWidgetItem) -> None:
+        driver = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        if driver is None:
+            return
+        driver = str(driver)
+        self.set_selected_driver(driver)
+        self.driver_selected.emit(driver)
 
     @staticmethod
     def _tyre_icon(compound: str, age: str) -> QtGui.QIcon:

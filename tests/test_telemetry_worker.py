@@ -70,6 +70,14 @@ def car_message(sequence, speed=200, *, session_time=None):
     )
 
 
+def driver_list_message(sequence=1):
+    return message(
+        "DriverList",
+        {"1": {"Tla": "AAA", "TeamName": "Team A"}},
+        sequence,
+    )
+
+
 def position_message(
     sequence,
     x=None,
@@ -202,6 +210,7 @@ def test_timing_messages_still_dirty_lightweight_planner_state():
 def test_position_visual_output_coalesces_to_latest_without_losing_analysis_packets():
     worker = TelemetryAnalysisWorker()
     generation = worker.reset()
+    worker.enqueue_message(driver_list_message(0))
     for sequence in range(1, 51):
         worker.enqueue_message(position_message(sequence, x=sequence))
     wait_until(lambda: worker.diagnostics().position_messages_processed == 50)
@@ -214,11 +223,96 @@ def test_position_visual_output_coalesces_to_latest_without_losing_analysis_pack
     worker.shutdown()
 
 
+def test_timing_and_partial_position_updates_refresh_pit_and_freshness():
+    worker = TelemetryAnalysisWorker()
+    worker.reset()
+    worker.enqueue_message(message(
+        "DriverList",
+        {
+            "1": {"Tla": "AAA", "TeamName": "Team A"},
+            "2": {"Tla": "BBB", "TeamName": "Team B"},
+            "3": {"Tla": "CCC", "TeamName": "Team C"},
+        },
+        1,
+        session_time=1,
+    ))
+    worker.enqueue_message(message(
+        "Position.z",
+        {"Position": [{
+            "Timestamp": "2026-08-09T00:00:00Z",
+            "Entries": {
+                number: {"X": 10, "Y": 20, "Z": 0, "Status": "OnTrack"}
+                for number in ("1", "2", "3")
+            },
+        }]},
+        10,
+        session_time=10,
+    ))
+    wait_until(lambda: worker.track_map_snapshot().position_visual_version == 1)
+
+    worker.enqueue_message(message(
+        "TimingData",
+        {"Lines": {"1": {"Position": "1", "InPit": True}}},
+        20,
+        session_time=20,
+    ))
+    wait_until(lambda: worker.track_map_snapshot().position_visual_version == 2)
+    after_timing = {
+        driver.driver_id: driver for driver in worker.track_map_snapshot().drivers
+    }
+    assert after_timing["1"].in_pit is True
+    assert after_timing["1"].fresh_age_s == pytest.approx(10.0)
+    assert after_timing["1"].valid is False
+
+    worker.enqueue_message(message(
+        "Position.z",
+        {"Position": [{
+            "Timestamp": "2026-08-09T00:00:00Z",
+            "Entries": {
+                "2": {"X": 20, "Y": 21, "Z": 0, "Status": "OnTrack"},
+            },
+        }]},
+        21,
+        session_time=20,
+    ))
+    wait_until(lambda: worker.track_map_snapshot().position_visual_version == 3)
+    after_partial = {
+        driver.driver_id: driver for driver in worker.track_map_snapshot().drivers
+    }
+    assert after_partial["2"].fresh_age_s == pytest.approx(0.0)
+    assert after_partial["2"].valid is True
+    assert after_partial["1"].fresh_age_s == pytest.approx(10.0)
+    assert after_partial["3"].fresh_age_s == pytest.approx(10.0)
+    assert after_partial["1"].valid is after_partial["3"].valid is False
+
+    worker.enqueue_message(message(
+        "Position.z",
+        {"Position": [{
+            "Timestamp": "2026-08-09T00:16:40Z",
+            "Entries": {
+                "3": {"X": 30, "Y": 31, "Z": 0, "Status": "OnTrack"},
+            },
+        }]},
+        22,
+        session_time=21,
+    ))
+    wait_until(lambda: worker.track_map_snapshot().position_visual_version == 4)
+    after_outlier = {
+        driver.driver_id: driver for driver in worker.track_map_snapshot().drivers
+    }
+    assert after_outlier["2"].fresh_age_s == pytest.approx(1.0)
+    assert after_outlier["2"].valid is True
+    assert after_outlier["3"].fresh_age_s < -900.0
+    assert after_outlier["3"].valid is False
+    worker.shutdown()
+
+
 def test_live_and_replay_messages_use_identical_telemetry_pipeline():
     outputs = []
     for source in ("signalr_live", "f1_archive_replay"):
         worker = TelemetryAnalysisWorker()
         worker.reset()
+        worker.enqueue_message(driver_list_message(1))
         worker.enqueue_message(position_message(7, source=source))
         wait_until(lambda: worker.diagnostics().position_messages_processed == 1)
         outputs.append(worker.track_map_snapshot().drivers)

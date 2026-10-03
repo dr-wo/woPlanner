@@ -21,6 +21,7 @@ from .service import (
 from ..common.plot_widget import RelativeDeltaPlotWidget
 from ..common.axis_controls import AxisRangeControls
 from ..common.pit_window import PitWindowOverlay
+from ..common.windows import resolve_effective_windows
 from ..common.session_info import resolve_session_identity
 from ..analysis.service import OfflineAnalysisService
 from ..operational_inputs import (
@@ -28,6 +29,7 @@ from ..operational_inputs import (
     load_operational_race_inputs,
     save_operational_pit_losses,
 )
+from .track_map_widget import TrackMapWidget
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
@@ -72,6 +74,24 @@ def _stable_identity_conflicts(left: object, right: object) -> bool:
     return bool(all((*left_pair, *right_pair)) and left_pair != right_pair)
 
 
+class TrackMapWindow(QtWidgets.QMainWindow):
+    """A reusable, non-modal home for the same live track-map presentation."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("woPlanner Track Map")
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.resize(820, 620)
+        self.track_map = TrackMapWidget()
+        self.setCentralWidget(self.track_map)
+
+    def closeEvent(self, event) -> None:
+        # Hiding keeps the current snapshot, selected driver, and effective
+        # descriptors intact for the next invocation of Track Map.
+        self.hide()
+        event.ignore()
+
+
 class LivePlannerWindow(QtWidgets.QMainWindow):
     def __init__(
         self,
@@ -101,11 +121,15 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._profile_redraw_seconds = 0.0
         self._profile_last_log = time.monotonic()
         self._tyre_event_signature: tuple = ()
+        self._track_map_signature: tuple | None = None
+        self.track_map_window: TrackMapWindow | None = None
         self.setWindowTitle("woPlanner Live")
         self.resize(1200, 760)
         central = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(central)
-        controls = QtWidgets.QHBoxLayout()
+        controls = QtWidgets.QVBoxLayout()
+        connection_controls = QtWidgets.QHBoxLayout()
+        presentation_controls = QtWidgets.QHBoxLayout()
         self.year_input = QtWidgets.QSpinBox()
         self.year_input.setRange(1950, 2100)
         self.year_input.setValue(datetime.now().year)
@@ -118,7 +142,14 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.session_input.setMaximumWidth(50)
         self.connect_button = QtWidgets.QPushButton("Connect")
         self.disconnect_button = QtWidgets.QPushButton("Disconnect")
-        self.strategy_prediction_button = QtWidgets.QPushButton("Strategy Prediction")
+        self.strategy_prediction_button = QtWidgets.QPushButton("Strategy")
+        self.track_map_button = QtWidgets.QPushButton("Track Map")
+        self.track_map_collapse_button = QtWidgets.QPushButton("Embedded Map")
+        self.track_map_collapse_button.setCheckable(True)
+        self.track_map_collapse_button.setChecked(True)
+        self.track_map_collapse_button.setToolTip(
+            "Show or hide the embedded Track Map"
+        )
         self.replay_path = QtWidgets.QLineEdit()
         self.replay_path.setPlaceholderText("Replay file")
         self.replay_browse_button = QtWidgets.QPushButton("Browse")
@@ -146,20 +177,43 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         for label, widget in (
             ("Year", self.year_input), ("Round", self.round_input),
             ("Session", self.session_input), ("Replay", self.replay_path),
-            ("Speed", self.replay_speed), ("Reference", self.reference_driver),
-            ("Mode", self.reference_mode), ("Width", self.line_width),
-            ("Pit", self.normal_pit_loss), ("SC", self.sc_pit_loss),
-            ("VSC", self.vsc_pit_loss),
         ):
-            controls.addWidget(QtWidgets.QLabel(label))
-            controls.addWidget(widget)
-        controls.addWidget(self.replay_browse_button)
-        controls.addWidget(self.replay_directory_button)
-        controls.addWidget(self.connect_button)
-        controls.addWidget(self.replay_button)
-        controls.addWidget(self.disconnect_button)
-        controls.addWidget(self.strategy_prediction_button)
-        controls.addWidget(self.apply_pit_loss_button)
+            connection_controls.addWidget(QtWidgets.QLabel(label))
+            connection_controls.addWidget(widget)
+        connection_controls.addWidget(self.replay_browse_button)
+        connection_controls.addWidget(self.replay_directory_button)
+        connection_controls.addWidget(QtWidgets.QLabel("Speed"))
+        connection_controls.addWidget(self.replay_speed)
+        connection_controls.addWidget(self.connect_button)
+        connection_controls.addWidget(self.replay_button)
+        connection_controls.addWidget(self.disconnect_button)
+        connection_controls.addStretch(1)
+        for label, widget in (
+            ("Reference", self.reference_driver), ("Mode", self.reference_mode),
+            ("Width", self.line_width), ("Pit", self.normal_pit_loss),
+            ("SC", self.sc_pit_loss), ("VSC", self.vsc_pit_loss),
+        ):
+            presentation_controls.addWidget(QtWidgets.QLabel(label))
+            presentation_controls.addWidget(widget)
+        presentation_controls.addWidget(self.strategy_prediction_button)
+        presentation_controls.addWidget(self.track_map_button)
+        presentation_controls.addWidget(self.track_map_collapse_button)
+        presentation_controls.addWidget(self.apply_pit_loss_button)
+        presentation_controls.addStretch(1)
+        controls.addLayout(connection_controls)
+        controls.addLayout(presentation_controls)
+        controls_widget = QtWidgets.QWidget()
+        controls_widget.setLayout(controls)
+        # The two functional rows stay readable at normal widths.  At a very
+        # narrow width the horizontal scroll bar preserves every control rather
+        # than shrinking fonts or clipping actions.
+        self.controls_scroll = QtWidgets.QScrollArea()
+        self.controls_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self.controls_scroll.setWidgetResizable(False)
+        self.controls_scroll.setVerticalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.controls_scroll.setWidget(controls_widget)
         self.axis_controls = AxisRangeControls()
         self.x_min_input = self.axis_controls.x_min_input
         self.x_max_input = self.axis_controls.x_max_input
@@ -184,10 +238,16 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             self._plot_range_changed
         )
         self.pit_window = PitWindowOverlay(self.relative_plot.plot)
-        layout.addLayout(controls)
+        self.track_map = TrackMapWidget()
+        visual_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        visual_splitter.addWidget(self.relative_plot)
+        visual_splitter.addWidget(self.track_map)
+        visual_splitter.setStretchFactor(0, 3)
+        visual_splitter.setStretchFactor(1, 2)
+        layout.addWidget(self.controls_scroll)
         layout.addWidget(self.axis_controls)
         layout.addLayout(status_row)
-        layout.addWidget(self.relative_plot, stretch=1)
+        layout.addWidget(visual_splitter, stretch=1)
         self.setCentralWidget(central)
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(100)
@@ -202,6 +262,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.line_width.valueChanged.connect(self._redraw)
         self.relative_plot.driver_selected.connect(self._select_driver)
         self.relative_plot.selection_cleared.connect(self._clear_selection)
+        self.track_map.driver_selected.connect(self._select_driver)
         self.normal_pit_loss.valueChanged.connect(self._update_pit_window)
         self.sc_pit_loss.valueChanged.connect(self._update_pit_window)
         self.vsc_pit_loss.valueChanged.connect(self._update_pit_window)
@@ -213,6 +274,8 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.strategy_prediction_button.clicked.connect(
             self._show_strategy_prediction_window
         )
+        self.track_map_button.clicked.connect(self._show_track_map_window)
+        self.track_map_collapse_button.toggled.connect(self._set_embedded_map_visible)
         self._load_operational_inputs()
 
     @staticmethod
@@ -386,6 +449,10 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.replay_button.setEnabled(False)
         self._driver_signature = ()
         self._tyre_event_signature = ()
+        self._track_map_signature = None
+        self.track_map.clear()
+        if self.track_map_window is not None:
+            self.track_map_window.track_map.clear()
         self._metadata_warning_shown = False
         self._session_metadata_signature = None
         self.connection_status.setText("Starting…")
@@ -463,6 +530,21 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             )
         if presentation_changed or update.changes.intersection(PLANNER_VISUAL_CHANGES):
             self._redraw()
+        track_snapshot = self.service.latest_track_map_snapshot()
+        track_signature = (
+            track_snapshot.generation,
+            track_snapshot.position_visual_version,
+            signature,
+        )
+        if track_signature != self._track_map_signature:
+            if self.track_map.isVisible():
+                self.track_map.update_snapshot(track_snapshot, drivers)
+            if (
+                self.track_map_window is not None
+                and self.track_map_window.isVisible()
+            ):
+                self.track_map_window.track_map.update_snapshot(track_snapshot, drivers)
+            self._track_map_signature = track_signature
 
     def _warn_for_metadata_mismatch(self, session_info) -> None:
         if self._metadata_warning_shown or not session_info:
@@ -637,13 +719,24 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
 
     def _select_driver(self, driver: str) -> None:
         self.relative_plot.set_selected_driver(driver)
+        self.track_map.set_selected_driver(driver)
+        if self.track_map_window is not None:
+            self.track_map_window.track_map.set_selected_driver(driver)
         self._update_pit_window()
 
     def _clear_selection(self) -> None:
         self.relative_plot.set_selected_driver(None)
+        self.track_map.set_selected_driver(None)
+        if self.track_map_window is not None:
+            self.track_map_window.track_map.set_selected_driver(None)
         self._update_pit_window()
 
     def _update_pit_window(self) -> None:
+        windows = resolve_effective_windows(
+            green_pit_loss_s=self._pit_loss_value(self.normal_pit_loss),
+            sc_pit_loss_s=self._pit_loss_value(self.sc_pit_loss),
+            vsc_pit_loss_s=self._pit_loss_value(self.vsc_pit_loss),
+        )
         self.pit_window.update(
             self.service._last_plot_data,
             self.relative_plot.selected_driver,
@@ -652,6 +745,35 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             vsc_pit_loss_s=self._pit_loss_value(self.vsc_pit_loss),
             x_column="x_lap",
         )
+        self.track_map.set_windows(windows)
+        if self.track_map_window is not None:
+            self.track_map_window.track_map.set_windows(windows)
+
+    def _set_embedded_map_visible(self, visible: bool) -> None:
+        self.track_map.setVisible(visible)
+        if visible:
+            self.track_map.update_snapshot(
+                self.service.latest_track_map_snapshot(),
+                self.service.available_drivers(),
+            )
+
+    def _show_track_map_window(self) -> None:
+        if self.track_map_window is None:
+            self.track_map_window = TrackMapWindow(self)
+            self.track_map_window.track_map.driver_selected.connect(self._select_driver)
+        # Re-synchronise on every open. Hidden windows deliberately skip replay
+        # redraws, but never own a separate snapshot, selection or window state.
+        self.track_map_window.show()
+        self.track_map_window.track_map.update_snapshot(
+            self.service.latest_track_map_snapshot(),
+            self.service.available_drivers(),
+        )
+        self.track_map_window.track_map.set_windows(self.track_map._windows)
+        self.track_map_window.track_map.set_selected_driver(
+            self.track_map.selected_driver
+        )
+        self.track_map_window.raise_()
+        self.track_map_window.activateWindow()
 
     def _update_range_controls_from_data(self, plot_data: pd.DataFrame) -> None:
         self.axis_controls.update_from_data(plot_data)
@@ -745,6 +867,8 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         return None
 
     def closeEvent(self, event) -> None:
+        if self.track_map_window is not None:
+            self.track_map_window.hide()
         if self.strategy_prediction_window is not None:
             try:
                 self.strategy_prediction_window.close()

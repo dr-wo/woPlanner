@@ -565,13 +565,24 @@ This project is developed extensively with coding agents. Durable context
 documents preserve architecture, assumptions, interfaces, known compromises and
 validation requirements across development sessions.
 
-### Track / Lap Position Map integration status
+### Track / Lap Position Map
 
-The Track / Lap Position Map is complete and acceptance-tested in the
-`codex/live-strategy-track-map-integration` worktree: open/reuse, selected-driver
-synchronisation, live/replay data refresh, and close/reopen work there. It is
-**not yet merged to main**, so the main checkout does not expose its control.
-Integration remains a separate task from the reviewed live-timing changes.
+The Track / Lap Position Map is available in main. **Track Map** opens a reusable,
+non-modal window; closing hides it, and reopening synchronises the latest data
+and selection. **Embedded Map** shows or hides the same presentation below the
+timing plot. Live/replay refresh and the final canonical timing redraw preserve
+the map window.
+
+Curve clicks, driver-name clicks and map-marker clicks share the Planner's
+selected driver across the timing plot, embedded map and detached map. The map
+shows actual `Position.z` coordinates. A completed non-pit lap's recorded spatial
+trajectory supplies the approximate reference for the selected driver's time
+offset markers; unavailable reference geometry is shown explicitly.
+
+GREEN, SC and VSC window values resolve independently from current-event inputs.
+An unresolved state produces no markers or bands. These spatial windows are
+visual aids, not a new projected-rejoin or race-order prediction authority, and
+map state does not enter MC or tyre analysis.
 
 ### Strategy Prediction: History Info
 
