@@ -890,10 +890,10 @@ def _apply_replay_message(store: LiveSessionStore, message: LiveTimingMessage) -
 def _analysis_store() -> LiveSessionStore:
     return LiveSessionStore(
         telemetry_lap_window=None,
-        # Track-map reference extraction needs one recent real lap.  The store
-        # already bounds unlimited Position.z history to the latest 1,200 s;
-        # causal MC snapshots still omit raw position samples entirely.
-        position_sample_limit=None,
+        # One retention policy serves the track map and causal replay builder:
+        # latest 1,200 sample-time seconds, capped at 6,000 samples per driver.
+        # Cuts retain diagnostic positions; raw positions never enter MC inputs.
+        position_sample_limit=6000,
     )
 
 
@@ -919,7 +919,10 @@ def _snapshot_at_cut(snapshot, cut: CausalAnalysisCut):
             sample for sample in snapshot.telemetry_samples
             if _value_is_within_cut(sample, cut)
         ),
-        position_samples=(),
+        position_samples=tuple(
+            sample for sample in snapshot.position_samples
+            if _value_is_within_cut(sample, cut)
+        ),
         provisional_sectors=(),
         live_timing=(),
     )

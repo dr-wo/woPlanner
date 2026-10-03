@@ -77,7 +77,7 @@ def test_display_revisions_do_not_change_clean_laps_or_traffic_for_fitting():
     pd.testing.assert_frame_equal(
         _live_traffic_gaps(canonical), _live_traffic_gaps(display),
     )
-    options = dict(quick_lap_threshold=1.1, min_clean_laps=1)
+    options = dict(quick_lap_threshold=1.1, min_clean_laps=1, use_sector_boundary_traffic=True)
     expected = _live_analysis_laps(canonical, **options)
     assert not expected.empty
     assert "TARGET" in expected["Driver"].values
@@ -192,3 +192,12 @@ def test_reducer_supported_sector_interval_reaches_clean_laps_and_mc_payload():
     assert gaps.loc[("TARGET", 2), "TrafficGapAheadSeconds"] == pytest.approx(5)
     assert target_lap2_selected(supported)
     assert target_lap2_selected(_serializable_live_snapshot(supported))
+
+
+def test_materialized_later_snapshot_does_not_claim_position_arrival_causality():
+    from wodata.live.models import LivePositionSample
+    snapshot = replace(committed_snapshot(), position_samples=(
+        LivePositionSample('1', 100., 10., 20., 0., True),
+    ))
+    # Its event clock is before the boundary, but receipt could have been later.
+    assert snapshot_as_of_leader_lap(snapshot, 2).position_samples == ()

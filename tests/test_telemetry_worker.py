@@ -583,7 +583,8 @@ def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
                     "LapNumber": lap.lap_number,
                     "TrafficGapAheadSeconds": 3.0 if has_traffic else pd.NA,
                     "TrafficGapBehindSeconds": 2.0 if has_traffic else pd.NA,
-                    "TrafficStatus": "ok" if has_traffic else "unknown",
+                    "TrafficStatus": "sector_fallback" if has_traffic else "unknown",
+                    "TrafficMethod": "SECTOR_BOUNDARY_FALLBACK",
                 }
                 for lap in snapshot.completed_laps
             ]
@@ -616,7 +617,7 @@ def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
     worker.enqueue_message(completed_lap_message(3, 1, session_time=10))
     worker.request_analysis_input(
         leader_lap=1,
-        use_sector_boundary_traffic=False,
+        use_sector_boundary_traffic=True,
     )
     first = []
     wait_until(lambda: bool(first.extend(worker.poll_analysis_inputs()) or first))
@@ -625,12 +626,13 @@ def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
     worker.enqueue_message(completed_lap_message(5, 2, session_time=20))
     worker.request_analysis_input(
         leader_lap=2,
-        use_sector_boundary_traffic=False,
+        use_sector_boundary_traffic=True,
     )
     second = []
     wait_until(lambda: bool(second.extend(worker.poll_analysis_inputs()) or second))
 
     common = {
+        "use_sector_boundary_traffic": True,
         "quick_lap_threshold": 1.1,
         "min_clean_laps": 1,
         "min_gap_ahead_seconds": 2.5,
@@ -670,3 +672,27 @@ def test_malformed_packet_does_not_kill_telemetry_worker(monkeypatch):
     assert diagnostics.thread_alive
     assert diagnostics.last_error == "RuntimeError: bad packet"
     worker.shutdown()
+
+
+def test_position_history_survives_real_worker_cut_without_late_packet_leakage(monkeypatch):
+    observed=[]
+    def capture(snapshot, *, force_sector=False):
+        observed.extend(snapshot.position_samples)
+        return pd.DataFrame()
+    monkeypatch.setattr('woplanner.live.telemetry._live_traffic_gaps', capture)
+    worker=TelemetryAnalysisWorker()
+    try:
+        worker.reset()
+        worker.enqueue_message(message('DriverList', {'1': {'Tla': 'AAA'}}, 1))
+        # Embedded sample UTC is NOW + sequence, so adjusted clock = session_time + sequence.
+        worker.enqueue_message(position_message(2, x=101, session_time=3))  # t=5
+        worker.enqueue_message(position_message(3, x=202, session_time=12)) # t=15
+        worker.enqueue_message(completed_lap_message(4, 1, session_time=10))
+        worker.enqueue_message(position_message(5, x=303, session_time=1))  # late t=6
+        worker.request_analysis_input(leader_lap=1, use_sector_boundary_traffic=False)
+        results=[]
+        wait_until(lambda: bool(results.extend(worker.poll_analysis_inputs()) or results))
+        assert results[0].error is None
+        assert [(s.session_time_seconds,s.x) for s in observed] == [(5.,101.)]
+    finally:
+        worker.shutdown()

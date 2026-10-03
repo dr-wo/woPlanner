@@ -1041,7 +1041,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.exclude_stint_end_laps.setRange(0, 10)
         self.traffic_source = QtWidgets.QComboBox()
         self.traffic_source.addItem(
-            "Automatic telemetry with sector fallback", "automatic"
+            "Automatic Race traffic unavailable (model retained)", "automatic"
         )
         self.traffic_source.addItem("Force sector-boundary only", "sector")
         self.min_gap_ahead = QtWidgets.QDoubleSpinBox()
@@ -1070,8 +1070,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         controls.addRow("Clean-lap definition", self.clean_details_button)
         controls.addRow("Traffic source", self.traffic_source)
         self.live_note = QtWidgets.QLabel(
-            "Traffic uses rolling car telemetry when coverage is sufficient and "
-            "falls back to sector-boundary crossing times automatically."
+            "Automatic Race traffic is quarantined: gap decisions are not validated. "
+            "Existing model state is retained without a new Race update. "
+            "Sector-boundary mode remains available only when explicitly selected."
         )
         self.live_note.setWordWrap(True)
         self.calculation_log = QtWidgets.QPlainTextEdit()
@@ -1103,9 +1104,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(dialog)
         fixed = QtWidgets.QLabel(
             "A lap must have a positive completed lap time plus compound, tyre-life, "
-            "and stint metadata. Traffic proximity uses rolling car telemetry around "
-            "the lap when coverage is sufficient. Sector-boundary crossing times are "
-            "used automatically when telemetry is unavailable or fails coverage checks."
+            "and stint metadata. Automatic Race traffic is unavailable while position gaps "
+            "remain unvalidated. Existing model state is retained. "
+            "Sector-boundary traffic requires explicit selection; there is no automatic fallback."
         )
         fixed.setWordWrap(True)
         layout.addWidget(fixed)
@@ -1125,8 +1126,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         explanation = QtWidgets.QLabel(
             "Filtering order: required metadata → allowed compound → lap-time threshold "
             "→ selected traffic gaps → consecutive driver/stint run → start/end "
-            "exclusions → minimum run length. Normally, physical gaps come from rolling "
-            "telemetry with automatic sector fallback. Forcing sector fallback requires "
+            "exclusions → minimum run length. Automatic traffic remains quarantined. "
+            "Explicit sector-boundary mode requires "
             "all four boundaries: lap start, S1, S2 and lap end."
         )
         explanation.setWordWrap(True)
@@ -1157,9 +1158,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 f"≥{self.min_gap_behind.value():.1f}s behind."
                 if self._force_sector_traffic()
                 else (
-                    f"automatic telemetry traffic ≥{self.min_gap_ahead.value():.1f}s "
-                    f"ahead / ≥{self.min_gap_behind.value():.1f}s behind, with sector "
-                    "fallback when required."
+                    "automatic Race traffic unavailable; existing model retained, "
+                    "no new Race update and no automatic fallback."
                 )
             )
         )
@@ -1351,11 +1351,17 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             source_text = ", ".join(
                 f"{session}={count}" for session, count in result.clean_lap_sources
             ) or "none"
+            evidence_text = (
+                f"new eligible laps {result.eligible_lap_count}; "
+                f"retained evidence {result.previous_clean_lap_count}"
+                if result.model_state_retained
+                else f"clean laps {result.previous_clean_lap_count} → {result.eligible_lap_count}"
+            )
             self._append_log(
                 f"Analysis V{completed.model_version}: leader lap "
                 f"{completed.prepared_leader_lap if completed.prepared_leader_lap is not None else result.leader_lap}, "
                 f"cut={_cut_text(completed.prepared_cut)}; "
-                f"clean laps {result.previous_clean_lap_count} → {result.eligible_lap_count}; "
+                f"{evidence_text}; "
                 f"sources [{source_text}]; {result.status}; samples={result.sample_count}; "
                 f"time={result.elapsed_seconds:.2f}s; "
                 f"IPC={completed.ipc_elapsed_seconds * 1000.0:.0f}ms"
@@ -1370,6 +1376,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                         for name, count in result.exclusion_diagnostics
                     )
                 )
+            if result.status == "traffic-unavailable":
+                self.status_label.setText(
+                    "Automatic Race traffic unavailable; existing model retained (no Race update)."
+                )
+                self._append_log(result.traffic_unavailable_reason or "Traffic unavailable; model retained.")
             if result.status == "updated":
                 if self.persistence_mode == "temporary":
                     self.service.publish_temporary_worker_snapshot(

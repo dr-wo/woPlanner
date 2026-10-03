@@ -228,15 +228,17 @@ scheduled distance from maximum completed `LapNumber` when `TotalLaps` exists.
 
 ## Traffic assumptions
 
-Automatic traffic selection prefers rolling car telemetry when coverage is
-sufficient and otherwise uses sector-boundary crossing gaps. The fallback is a
-separate source; it is not blended into telemetry means. **Force sector-boundary
-only** is a diagnostic override.
+Default automatic telemetry traffic is currently quarantined. First and repeated
+requests return `traffic-unavailable`, with no new Race update; existing Race
+model state and run/parameter history are retained when no new clean evidence
+can be produced. There is no automatic sector fallback.
 
-The selected telemetry gap retains the versioned conservative
-`compatibility_min` rule. `Position.z` remains useful for visualization and
-diagnosis but is not a substitute for calibrated along-track distance. Raw live
-recordings are the full-fidelity source when the in-memory telemetry window has
+**Force sector-boundary only** remains an explicitly selected existing mode.
+Its crossing gaps are a separate source and are not blended into telemetry
+means. Position-derived traffic remains diagnostic and is not activated for
+clean-lap decisions. Correct physical neighbours alone do not validate time-gap
+threshold decisions. Raw live recordings are the full-fidelity source when the
+in-memory telemetry window has
 trimmed older laps.
 
 ## Numerical quality versus confidence
