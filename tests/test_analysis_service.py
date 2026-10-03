@@ -857,7 +857,8 @@ def test_strategy_model_uses_usable_lap_weighted_session_mean(tmp_path):
             rows.append(
                 ParameterEstimate(
                     "joint", "bank", "aggregate", 0, parameter, session, None, "HARD",
-                    "HARD", median, median, median, "s/lap", "measured", usable_laps, 2,
+                    "HARD", median, median, median,
+                    "s" if parameter == "compound_delta" else "s/lap", "measured", usable_laps, 2,
                     50, 0.1, 0, 0, session, "config", created,
                 )
             )

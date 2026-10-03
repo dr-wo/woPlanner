@@ -59,6 +59,7 @@ from wostrategy.analysis.long_run_performance import (
     select_consecutive_clean_air_runs,
 )
 
+from .compound_offsets import merge_compound_offsets, validate_offset_rows
 from .tyre_inputs import ResolvedTyreInputs, TyreInputService
 
 
@@ -260,12 +261,12 @@ class OfflineAnalysisService:
                 ):
                     resolved_degradation[compound] = medium_scale * ratio
                     degradation_states[compound] = "live_derived"
-        for coordinate in informed_coordinates:
-            parameter, compound = coordinate
-            if coordinate not in model_values:
-                continue
-            if parameter == "compound_delta":
-                baseline_deltas[compound] = model_values[coordinate]
+        direct_deltas = {
+            compound: model_values[(parameter, compound)]
+            for parameter, compound in informed_coordinates
+            if parameter == "compound_delta" and (parameter, compound) in model_values
+        }
+        baseline_deltas = merge_compound_offsets(baseline_deltas, direct_deltas)
         fastest = min(baseline_deltas.values(), default=0.0)
         rows = []
         for compound in ("SOFT", "MEDIUM", "HARD"):
@@ -1535,6 +1536,7 @@ def _race_informed_coordinates(summary: ModelSummary) -> set[tuple[str, str]]:
 def _summary_tyre_coordinates(
     summary: ModelSummary,
 ) -> dict[tuple[str, str], float]:
+    validate_offset_rows(summary.parameters)
     weighted: dict[tuple[str, str], list[tuple[float, float]]] = {}
     for row in summary.parameters:
         parameter = str(row.get("parameter") or "")
