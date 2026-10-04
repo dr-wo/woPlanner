@@ -9,7 +9,7 @@ of operational truth.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import math
@@ -40,6 +40,8 @@ class OperationalRaceInputs:
     sc_pit_loss: float | None
     vsc_pit_loss: float | None
     legacy_sc_vsc_pit_loss: float | None
+    pit_loss_sources: Mapping[str, str] = field(default_factory=dict)
+    pit_loss_override_bases: Mapping[str, float | None] = field(default_factory=dict)
 
     @property
     def event_id(self) -> str | None:
@@ -81,6 +83,19 @@ def _operational_race_inputs_from_payload(
         legacy_sc_vsc_pit_loss=_effective_total(
             pit_loss.get("sc_vsc"), "pit_loss.sc_vsc"
         ),
+        pit_loss_sources={
+            state: str(record["_provenance"].get("source", ""))
+            for state, record in pit_loss.items()
+            if isinstance(record, Mapping)
+            and isinstance(record.get("_provenance"), Mapping)
+        },
+        pit_loss_override_bases={
+            state: _effective_total(record["_provenance"]["override_base"], f"pit_loss.{state}")
+            for state, record in pit_loss.items()
+            if isinstance(record, Mapping)
+            and isinstance(record.get("_provenance"), Mapping)
+            and "override_base" in record["_provenance"]
+        },
     )
 
 
@@ -97,12 +112,16 @@ def save_operational_pit_losses(
     event_identity_event_key: tuple[int, int] | None = None,
     history_data_root: str | Path | None = None,
     event_resolver=None,
+    manual_overrides: Mapping[str, float | None] | None = None,
 ) -> OperationalRaceInputs:
     """Validate and update the config, then mirror accepted values to woData.
 
     A legacy ``sc_vsc`` record is retained untouched and is never copied into
     either separate field. Immutable run snapshots and empirical observations
     are not changed.
+
+    When supplied, ``manual_overrides`` updates only the named fields. A null
+    override restores the record saved before its first manual edit.
     """
     destination = Path(path)
     original_bytes = destination.read_bytes()
@@ -138,10 +157,26 @@ def save_operational_pit_losses(
         if event_season is not None and event_round is not None
         else None
     )
-    for state, value in (("green", green), ("sc", sc), ("vsc", vsc)):
+    values = {"green": green, "sc": sc, "vsc": vsc}
+    if manual_overrides is not None:
+        if set(manual_overrides).difference(values):
+            raise ValueError("Manual pit-loss overrides must name green, sc or vsc")
+        values = dict(manual_overrides)
+    for state, value in values.items():
         validated = _optional_pit_loss(value, f"pit_loss.{state}.total")
         existing = pit_loss.get(state)
         record = dict(existing) if isinstance(existing, Mapping) else {}
+        provenance = record.get("_provenance")
+        provenance = provenance if isinstance(provenance, Mapping) else {}
+        if manual_overrides is not None and validated is None:
+            base = provenance.get("override_base")
+            pit_loss[state] = dict(base) if isinstance(base, Mapping) else (
+                {} if provenance.get("source") == "manual" else record
+            )
+            continue
+        base = provenance.get("override_base")
+        if manual_overrides is not None and base is None:
+            base = {} if provenance.get("source") == "manual" else dict(record)
         record.update({"total": validated, "pit_in_s3": None, "pit_out_s1": None})
         record["_provenance"] = {
             "source": "manual",
@@ -149,6 +184,8 @@ def save_operational_pit_losses(
             "event_id": event_id,
             "updated_at": timestamp.isoformat(),
         }
+        if base is not None:
+            record["_provenance"]["override_base"] = base
         pit_loss[state] = record
 
     try:

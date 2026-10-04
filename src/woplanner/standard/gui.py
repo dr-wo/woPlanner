@@ -7,7 +7,11 @@ import numpy as np
 import pandas as pd
 
 from ..common.visual_styles import COMPOUND_COLOURS
-from ..operational_inputs import load_operational_race_inputs
+from ..operational_inputs import (
+    DEFAULT_EVENT_CONFIG_PATH,
+    load_operational_race_inputs,
+    save_operational_pit_losses,
+)
 
 from .models import (
     COMPARISON_MODE_LABELS,
@@ -218,6 +222,17 @@ def main() -> int:
                 field.setButtonSymbols(
                     QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons
                 )
+            self.vsc_pit_loss.setReadOnly(False)
+            self.vsc_pit_loss.setToolTip(
+                "Enter a manual VSC pit loss; Apply pit losses saves it. "
+                "Right-click to clear the override and restore the underlying value."
+            )
+            self.clear_vsc_override_action = QtGui.QAction("Clear manual override", self)
+            self.vsc_pit_loss.addAction(self.clear_vsc_override_action)
+            self.vsc_pit_loss.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.ActionsContextMenu)
+            self.apply_pit_loss_button = QtWidgets.QPushButton("Apply pit losses")
+            self.vsc_pit_loss_label = QtWidgets.QLabel("VSC")
+            self._vsc_is_manual = False
             try:
                 event_inputs = load_operational_race_inputs()
             except Exception:
@@ -234,6 +249,8 @@ def main() -> int:
                     (self.vsc_pit_loss, event_inputs.vsc_pit_loss),
                 ):
                     field.setValue(-1.0 if value is None else value)
+                self._vsc_is_manual = event_inputs.pit_loss_sources.get("vsc") == "manual"
+            self._update_vsc_source()
 
             for label, widget in (
                 ("Year", self.year_input),
@@ -246,7 +263,9 @@ def main() -> int:
                 ("SC", self.sc_pit_loss),
                 ("VSC", self.vsc_pit_loss),
             ):
-                controls.addWidget(QtWidgets.QLabel(label))
+                controls.addWidget(
+                    self.vsc_pit_loss_label if widget is self.vsc_pit_loss else QtWidgets.QLabel(label)
+                )
                 controls.addWidget(widget)
             controls.addWidget(self.load_button)
             controls.addWidget(self.latest_button)
@@ -254,6 +273,7 @@ def main() -> int:
             controls.addWidget(self.retro_analysis_button)
             controls.addWidget(self.strategy_prediction_button)
             controls.addWidget(self.clear_sims_button)
+            controls.addWidget(self.apply_pit_loss_button)
             controls.addStretch(1)
 
             self.axis_controls = AxisRangeControls()
@@ -306,7 +326,9 @@ def main() -> int:
             self.line_width.valueChanged.connect(self._redraw)
             self.normal_pit_loss.valueChanged.connect(self._update_pit_window)
             self.sc_pit_loss.valueChanged.connect(self._update_pit_window)
-            self.vsc_pit_loss.valueChanged.connect(self._update_pit_window)
+            self.vsc_pit_loss.valueChanged.connect(self._vsc_pit_loss_edited)
+            self.clear_vsc_override_action.triggered.connect(self._clear_vsc_override)
+            self.apply_pit_loss_button.clicked.connect(self._apply_operational_pit_losses)
             self.year_input.valueChanged.connect(self._sync_operational_inputs_for_event)
             self.round_input.valueChanged.connect(self._sync_operational_inputs_for_event)
             self.retro_assumptions_action.triggered.connect(self._show_assumptions)
@@ -337,7 +359,62 @@ def main() -> int:
                 (self.sc_pit_loss, inputs.sc_pit_loss if matches else None),
                 (self.vsc_pit_loss, inputs.vsc_pit_loss if matches else None),
             ):
+                field.blockSignals(True)
                 field.setValue(-1.0 if value is None else value)
+                field.blockSignals(False)
+            self._vsc_is_manual = matches and inputs.pit_loss_sources.get("vsc") == "manual"
+            self._update_vsc_source()
+            self._update_pit_window()
+
+        def _update_vsc_source(self) -> None:
+            self.vsc_pit_loss_label.setText("VSC (manual)" if self._vsc_is_manual else "VSC")
+            self.clear_vsc_override_action.setEnabled(self._vsc_is_manual)
+
+        def _vsc_pit_loss_edited(self, value: float) -> None:
+            if value < 0.0:
+                self._clear_vsc_override()
+                return
+            self._vsc_is_manual = True
+            self._update_vsc_source()
+            self._update_pit_window()
+
+        def _clear_vsc_override(self) -> None:
+            inputs = self._current_operational_inputs
+            value = None
+            if inputs is not None and (inputs.season, inputs.round_number) == (
+                self.year_input.value(), self.round_input.value(),
+            ):
+                value = (
+                    inputs.pit_loss_override_bases.get("vsc")
+                    if inputs.pit_loss_sources.get("vsc") == "manual"
+                    else inputs.vsc_pit_loss
+                )
+            self._vsc_is_manual = False
+            self.vsc_pit_loss.blockSignals(True)
+            self.vsc_pit_loss.setValue(-1.0 if value is None else value)
+            self.vsc_pit_loss.blockSignals(False)
+            self._update_vsc_source()
+            self._update_pit_window()
+
+        def _apply_operational_pit_losses(self) -> None:
+            self.vsc_pit_loss.interpretText()
+            current = self._current_operational_inputs
+            try:
+                self._current_operational_inputs = save_operational_pit_losses(
+                    current.config_path if current is not None else DEFAULT_EVENT_CONFIG_PATH,
+                    green=self._pit_optional(self.normal_pit_loss),
+                    sc=self._pit_optional(self.sc_pit_loss),
+                    vsc=self._pit_optional(self.vsc_pit_loss),
+                    season=self.year_input.value(),
+                    round_number=self.round_input.value(),
+                    manual_overrides={
+                        "vsc": self._pit_optional(self.vsc_pit_loss) if self._vsc_is_manual else None,
+                    },
+                )
+            except Exception as exc:
+                QtWidgets.QMessageBox.warning(self, "Current-event pit loss", str(exc))
+                return
+            self._sync_operational_inputs_for_event()
 
         def keyReleaseEvent(self, event) -> None:
             super().keyReleaseEvent(event)
@@ -1923,7 +2000,7 @@ def main() -> int:
             items.extend(self.pit_target_items)
             return items
 
-    app = QtWidgets.QApplication(sys.argv)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     window = RacePlannerWindow()
     window.show()
     return app.exec()

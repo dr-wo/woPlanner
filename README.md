@@ -293,6 +293,18 @@ states. GREEN, SC, and VSC remain separate; unresolved values remain unresolved,
 and legacy combined `sc_vsc` is context-only rather than a substitute for either
 SC or VSC.
 
+**R16 DBG-9 quick fix: CLOSED (2026-10-04).** Standard woPlanner accepts a manual
+numeric VSC pit-loss override even when the upstream value is **Unresolved**.
+The value is marked **manual**, immediately used by pit windows and strategy-stop
+defaults, and persisted through the existing **Apply pit losses** path. Right-click
+the VSC field and select **Clear manual override** to restore the underlying value;
+Apply persists that removal. No VSC default, SC substitution, or legacy `sc_vsc`
+reinterpretation was introduced. Validation: **47 focused tests passed**; the
+**17 broader service failures** also reproduced against pre-fix code and are unrelated.
+
+**R16 DBG-5 remains OPEN:** investigate why VSC is unresolved, what source/value
+is expected, and where the proper long-term fix belongs.
+
 Live meeting identity is cached with its `(season, round)` owner. A year, round,
 or conflicting meeting transition invalidates that ownership and requires
 canonical identity for the requested event before durable persistence. Compatible
