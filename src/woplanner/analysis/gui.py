@@ -304,6 +304,8 @@ class StrategyBarWidget(QtWidgets.QWidget):
 
 
 class StrategyPredictionWindow(QtWidgets.QDialog):
+    session_closing = QtCore.Signal(object, object)
+
     def __init__(
         self,
         *,
@@ -315,6 +317,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         persistence_mode: str = "durable",
         auto_save_history: bool = False,
         team_scope_enabled: bool = False,
+        initial_model_summary=None,
         telemetry_worker=None,
         parent=None,
     ) -> None:
@@ -384,7 +387,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._reported_analysis_error: str | None = None
         self._current_model_summary = None
         self._live_snapshot = None
-        self._last_seen_leader_lap = 0
+        # A reopened live dialog must not enqueue earlier cuts and replace the
+        # restored model with lap-zero/early-lap evidence again.
+        self._last_seen_leader_lap = (
+            int(initial_model_summary.manifest.get("as_of_leader_lap") or 0)
+            if initial_model_summary is not None else 0
+        )
         self._manual_overrides: dict[tuple[str, str], float] = {}
         self._selected_team: str | None = None
         self._scope_manual_values: dict[str, dict[tuple[str, str], float]] = {}
@@ -464,9 +472,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._fp_poll_timer = QtCore.QTimer(self)
         self._fp_poll_timer.setInterval(100)
         self._fp_poll_timer.timeout.connect(self._poll_fp_evidence)
-        if self.persistence_mode == "temporary":
+        if self.persistence_mode == "temporary" and initial_model_summary is None:
             self.service.activate_temporary_replay_model(self.year, self.round_number)
-        self._load_model()
+        self._load_model(summary=initial_model_summary)
         self._load_history()
         self._load_model_config()
         self._refresh_tyre_inputs()
@@ -894,6 +902,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             else QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
         )
         self.strategy_input_table.setMaximumHeight(170)
+        if self.team_scope_enabled:
+            # Keep the consumed values and their provenance together in the
+            # initial viewport; comparison columns remain available by scrolling.
+            header = self.strategy_input_table.horizontalHeader()
+            for position, column in enumerate((0, 3, 4, 7, 8, 1, 2, 5, 6)):
+                header.moveSection(header.visualIndex(column), position)
         input_help = QtWidgets.QLabel(
             (
                 "Edit persistent values in Tyre Inputs, or edit Used values for this scope. "
@@ -903,6 +917,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "This table shows the exact current values used by Strategy search."
             )
         )
+        input_help.setWordWrap(True)
         self.operational_status_label = QtWidgets.QLabel()
         self.operational_status_label.setWordWrap(True)
         controls = QtWidgets.QGridLayout()
@@ -1117,7 +1132,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             tint = QtGui.QColor(colour)
             button.setStyleSheet(
                 f"QPushButton {{ color: {colour}; border: {2 if available else 1}px solid {colour}; "
-                "border-radius: 4px; padding: 6px 10px; } "
+                "border-radius: 4px; padding: 3px 8px; } "
                 f"QPushButton:checked {{ border: 3px solid {colour}; font-weight: bold; "
                 f"background-color: rgba({tint.red()}, {tint.green()}, {tint.blue()}, 35); }}"
             )
@@ -2221,7 +2236,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "—" if initial_degradation is None else f"{float(initial_degradation):.4f}",
                 f"{float(estimated['degradation']):.4f}",
                 f"{self._degradation_values[compound]:.4f}",
-                f"D: {estimated.get('degradation_value_source', estimated.get('degradation_source', 'base'))}; "
+                f"D: {estimated.get('degradation_value_source', estimated.get('degradation_source', 'base'))}"
+                + ("\n" if self.team_scope_enabled else "; ") +
                 f"P: {estimated.get('compound_delta_source', 'reference')} (Global model)",
             ]
             for column, value in enumerate(values):
@@ -2237,6 +2253,16 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                     item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
                 self.strategy_input_table.setItem(row_index, column, item)
         self.strategy_input_table.resizeColumnsToContents()
+        if self.team_scope_enabled:
+            self.strategy_input_table.resizeRowsToContents()
+            # A maximum alone lets the results table squeeze this down to one
+            # visible row. Reserve all three compounds plus the horizontal bar.
+            table = self.strategy_input_table
+            height = (
+                table.horizontalHeader().height() + table.verticalHeader().length()
+                + 2 * table.frameWidth() + table.horizontalScrollBar().sizeHint().height()
+            )
+            table.setFixedHeight(height)
         self._strategy_input_loading = False
 
     def _plot_parameter_history(self, rows=None) -> None:
@@ -3040,6 +3066,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
 
     def closeEvent(self, event) -> None:
         self._save_state()
+        self.session_closing.emit(self.service, self._current_model_summary)
         self._poll_timer.stop()
         self._fp_poll_timer.stop()
         if self._telemetry_worker is not None and hasattr(

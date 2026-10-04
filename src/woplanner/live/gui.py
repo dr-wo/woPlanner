@@ -117,6 +117,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.custom_ranges = False
         self._applying_plot_ranges = False
         self.strategy_prediction_window = None
+        self._strategy_resume_context = None
         self._profile_redraw_count = 0
         self._profile_redraw_seconds = 0.0
         self._profile_last_log = time.monotonic()
@@ -399,6 +400,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                     state_directory=self._strategy_state_directory(),
                     auto_save_history=True,
                 )
+                self.strategy_prediction_window._live_context_key = self._strategy_context_key(
+                    self.strategy_prediction_window
+                )
         except Exception as exc:
             self._show_start_error(exc)
 
@@ -437,12 +441,16 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                         state_directory=self._strategy_state_directory(),
                         auto_save_history=False,
                     )
+                    self.strategy_prediction_window._live_context_key = self._strategy_context_key(
+                        self.strategy_prediction_window
+                    )
                 except RuntimeError:
                     self.strategy_prediction_window = None
         except Exception as exc:
             self._show_start_error(exc)
 
     def _prepare_start(self) -> None:
+        self._strategy_resume_context = None
         self._active_source_mode = None
         self._final_display = False
         self.connect_button.setEnabled(False)
@@ -825,6 +833,13 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.replay_button.setEnabled(True)
         self.connection_status.setText("Disconnected by user")
 
+    def _strategy_context_key(self, window=None) -> tuple:
+        return (
+            window.year if window is not None else self.year_input.value(),
+            window.round_number if window is not None else self.round_input.value(),
+            self._active_source_mode, self._strategy_state_directory(),
+        )
+
     def _show_strategy_prediction_window(self) -> None:
         from ..analysis.gui import StrategyPredictionMode, StrategyPredictionWindow
 
@@ -836,6 +851,12 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                     return
             except RuntimeError:
                 self.strategy_prediction_window = None
+        context_key = self._strategy_context_key()
+        resume = self._strategy_resume_context
+        resume_options = (
+            {"service": resume[1], "initial_model_summary": resume[2]}
+            if resume is not None and resume[0] == context_key else {}
+        )
         self.strategy_prediction_window = StrategyPredictionWindow(
             year=self.year_input.value(),
             round_number=self.round_input.value(),
@@ -851,7 +872,16 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             auto_save_history=self._active_source_mode == "live",
             team_scope_enabled=True,
             telemetry_worker=self.service.telemetry_worker,
+            **resume_options,
             parent=self,
+        )
+        # Closing a dialog does not restart the race/replay. Keep its current
+        # model available before saved Team selection is restored on reopening.
+        self.strategy_prediction_window._live_context_key = context_key
+        self.strategy_prediction_window.session_closing.connect(
+            lambda service, summary, dialog=self.strategy_prediction_window: setattr(
+                self, "_strategy_resume_context", (dialog._live_context_key, service, summary)
+            )
         )
         self.strategy_prediction_window.destroyed.connect(
             lambda: setattr(self, "strategy_prediction_window", None)

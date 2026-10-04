@@ -1108,6 +1108,8 @@ def test_live_strategy_entry_explicitly_enables_team_scope(monkeypatch, source_m
     captured = {}
 
     class StrategyDialog(QtWidgets.QDialog):
+        session_closing = QtCore.Signal(object, object)
+
         def __init__(self, **kwargs):
             captured.update(kwargs)
             super().__init__(kwargs.get("parent"))
@@ -1128,4 +1130,37 @@ def test_live_strategy_entry_explicitly_enables_team_scope(monkeypatch, source_m
         )
     finally:
         window.close()
+        app.processEvents()
+
+
+@pytest.mark.parametrize("canonical_x", [34.21, 34.73, 35.0, None])
+def test_tyre_marker_preserves_curve_lap_coordinate_through_event_extraction(canonical_x):
+    from woplanner.common.plot_data import build_tyre_event_data
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    # Stint change at an observation whose lap/sector/segment coordinates differ.
+    # Unequal sector fractions must survive extraction, not be reconstructed.
+    rows = pd.DataFrame([
+        dict(driver="AAA", lap=34, sector="S3", segment_index=101,
+             delta_s=7., compound="MEDIUM", stint=1, tyre_age=15),
+        dict(driver="AAA", lap=35, sector="S1", segment_index=102,
+             delta_s=9., compound="HARD", stint=2, tyre_age=1),
+    ])
+    if canonical_x is not None:
+        rows["x_lap"] = [34., canonical_x]
+    events = build_tyre_event_data(rows)
+    widget = RelativeDeltaPlotWidget()
+    try:
+        for _ in range(2):  # Includes a curve clear/rebuild with unchanged events.
+            widget.set_plot_data(rows)
+            widget.set_tyre_event_data(events)
+            x, y = widget.curves["AAA"].getData()
+            marker = widget._tyre_items[0].points()[0].pos()
+            assert marker.x() == pytest.approx(x[-1])
+            assert marker.y() == pytest.approx(y[-1])
+            assert events.iloc[0]["x_lap"] == pytest.approx(x[-1])
+            label = widget._tyre_items[1].pos()
+            assert label == marker
+    finally:
+        widget.close()
         app.processEvents()

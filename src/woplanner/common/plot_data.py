@@ -105,6 +105,9 @@ def build_tyre_event_data(plot_data: pd.DataFrame) -> pd.DataFrame:
     defaults = {
         "scenario_id": pd.NA, "is_simulated": False, "is_faded": False,
         "stop_after_lap": pd.NA, "sector": pd.NA, "segment_index": pd.NA,
+        # Preserve the curve's canonical coordinate, including unequal sector
+        # fractions. Lap-only curves use the same lap fallback as their markers.
+        "x_lap": output["lap"],
     }
     for column, default in defaults.items():
         if column not in output.columns:
@@ -114,7 +117,7 @@ def build_tyre_event_data(plot_data: pd.DataFrame) -> pd.DataFrame:
 
 def empty_tyre_event_data() -> pd.DataFrame:
     return pd.DataFrame(columns=[
-        "driver", "lap", "sector", "segment_index", "delta_s", "compound",
+        "driver", "lap", "sector", "segment_index", "x_lap", "delta_s", "compound",
         "tyre_age_label", "scenario_id", "is_simulated", "is_faded",
         "stop_after_lap",
     ])

@@ -406,8 +406,6 @@ class RelativeDeltaPlotWidget(QtWidgets.QWidget):
 
 
 def _live_plot_x(row: pd.Series) -> float:
-    lap = float(row["lap"])
-    sector_value = row.get("sector")
-    sector = "" if pd.isna(sector_value) else str(sector_value)
-    sector_number = {"S1": 1, "S2": 2, "S3": 3}.get(sector)
-    return lap if sector_number is None else lap + (sector_number - 2) / 3.0
+    # Use exactly the same coordinate/fallback as set_plot_data. Sector labels
+    # describe the observation; they must not reconstruct a different x axis.
+    return float(row.get("x_lap", row["lap"]))

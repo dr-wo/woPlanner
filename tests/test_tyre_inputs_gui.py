@@ -949,3 +949,105 @@ def test_partial_reference_updates_keep_scope_inputs_and_history_diagnostics(
     finally:
         window.close()
         qt.processEvents()
+
+
+def test_team_mouse_events_update_scope_and_used_values_after_refresh(tmp_path):
+    from PySide6 import QtTest
+
+    write_event(tmp_path)
+    qt = app()
+    window = StrategyPredictionWindow(
+        year=2026, round_number=11, mode=StrategyPredictionMode.HISTORICAL_WHAT_IF,
+        service=OfflineAnalysisService(tmp_path), team_scope_enabled=True,
+    )
+    try:
+        window._load_model(summary=team_model())
+        window.tabs.setCurrentWidget(window.strategy_tab)
+        window.show()
+        qt.processEvents()
+        for team, expected in ((None, .30), ("Ferrari", .15), ("McLaren", .22), ("Ferrari", .15)):
+            QtTest.QTest.mouseClick(window.team_buttons[team], QtCore.Qt.MouseButton.LeftButton)
+            qt.processEvents()
+            for refresh in (False, True):
+                if refresh:
+                    window._load_model(summary=team_model())
+                    qt.processEvents()
+                assert window._selected_team == team
+                assert window.team_button_group.checkedButton() is window.team_buttons[team]
+                assert float(strategy_cell(window, "MEDIUM", 7).text()) == pytest.approx(expected)
+                assert window._manual_overrides[("degradation", "MEDIUM")] == pytest.approx(expected)
+                source = strategy_cell(window, "MEDIUM", 8).text()
+                assert ("team_live_direct" if team else "live_direct") in source
+                assert "Global model" in source
+    finally:
+        window.close()
+        qt.processEvents()
+
+
+@pytest.mark.parametrize("restart", [False, True])
+def test_live_reopen_restores_team_before_consuming_same_replay_cut(tmp_path, monkeypatch, restart):
+    from types import SimpleNamespace
+    from PySide6 import QtTest
+    import woplanner.live.gui as live_gui
+
+    write_event(tmp_path)
+    monkeypatch.setattr(analysis_gui, "WORKSPACE_DATA_ROOT", tmp_path)
+    monkeypatch.setattr(live_gui, "WORKSPACE_DATA_ROOT", tmp_path)
+    qt = app()
+    live = LivePlannerWindow()
+    live.year_input.setValue(2026)
+    live.round_input.setValue(11)
+    live._active_source_mode = "replay"
+    replay = tmp_path / "replay.jsonl"
+    replay.write_text("")
+    live.replay_path.setText(str(replay))
+    try:
+        live._show_strategy_prediction_window()
+        window = live.strategy_prediction_window
+        if restart:
+            # Exercise the real restart/configure path while the dialog exists.
+            next_replay = tmp_path / "next" / "replay.jsonl"
+            next_replay.parent.mkdir()
+            next_replay.write_text("")
+            live.replay_path.setText(str(next_replay))
+            monkeypatch.setattr(live.service, "start_replay", lambda config: None)
+            monkeypatch.setattr(
+                OfflineAnalysisService, "resolve_live_model_config",
+                lambda *args, **kwargs: ({}, "test replay config"),
+            )
+            live._replay()
+            live.timer.stop()
+            assert live._active_source_mode == "replay", live.connection_status.text()
+            assert window._state_path.parent == next_replay.parent, live.connection_status.text()
+        window._load_model(summary=team_model())
+        for team, value in ((None, .1111), ("Ferrari", .2222), ("McLaren", .3333)):
+            choose_team(window, team)
+            strategy_cell(window, "HARD", 7).setText(str(value))
+        choose_team(window, "Ferrari")
+        window.auto_recalculate.setChecked(True)
+        live.service.snapshot = SimpleNamespace(
+            drivers=(), completed_laps=(SimpleNamespace(lap_number=35, position=1),)
+        )
+        requests = []
+        monkeypatch.setattr(
+            live.service.telemetry_worker, "request_analysis_input",
+            lambda **kwargs: requests.append(kwargs) or len(requests),
+        )
+        window.close()
+        QtTest.QTest.qWait(20)
+        live._show_strategy_prediction_window()
+        restored = live.strategy_prediction_window
+        qt.processEvents()
+        assert restored._selected_team == "Ferrari"
+        assert restored._current_model_summary.manifest["as_of_leader_lap"] == 35
+        assert restored._last_seen_leader_lap == 35
+        assert restored.auto_recalculate.isChecked()
+        assert not requests  # No L1–35 replay or early model overwriting Team scope.
+        for team, value in ((None, .1111), ("Ferrari", .2222), ("McLaren", .3333)):
+            choose_team(restored, team)
+            assert restored._degradation_values["HARD"] == value
+        live._prepare_start()
+        assert live._strategy_resume_context is None
+    finally:
+        live.close()
+        qt.processEvents()
