@@ -302,8 +302,23 @@ Apply persists that removal. No VSC default, SC substitution, or legacy `sc_vsc`
 reinterpretation was introduced. Validation: **47 focused tests passed**; the
 **17 broader service failures** also reproduced against pre-fix code and are unrelated.
 
-**R16 DBG-5 remains OPEN:** investigate why VSC is unresolved, what source/value
-is expected, and where the proper long-term fix belongs.
+**R16 DBG-5: CLOSED (2026-10-08) — documentation/readiness only.** Pre-race VSC
+pit loss is an optional, explicitly adopted, event-specific operational assumption;
+**Unresolved** is valid. R16's archived input already contained explicit VSC `null`,
+which Planner correctly preserved. Author `pit_loss.vsc` as a total or complete
+S3/S1 loss pair in `woWeekend/configs/race.json`, or use DBG-9's manual override and
+**Apply pit losses**. The editable config is authoritative; the woData event record
+is its durable operational mirror, not a fallback source. Prior-event operational
+values and post-race empirical evidence remain reference-only and never auto-fill
+the current event. Empirical VSC evidence measures GREEN-relative pit-sector excess;
+it is not semantically interchangeable with the operational Planner VSC loss.
+Legacy `sc_vsc` remains compatibility-only and cannot resolve independent SC/VSC.
+No production behavior change or additional readiness blocking is required.
+
+**Separate debug item — OPEN, not investigated here:** R16's archived identity
+contains suspicious `country=Bahrain`, `location=Kuala Lumpur` values, and historical
+lookup missed matching events. Track that identity/reference issue separately from
+DBG-5; see [the woWeekend debug item](../woWeekend/docs/R16_EVENT_IDENTITY_DEBUG.md).
 
 Live meeting identity is cached with its `(season, round)` owner. A year, round,
 or conflicting meeting transition invalidates that ownership and requires

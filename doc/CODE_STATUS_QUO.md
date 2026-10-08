@@ -357,18 +357,27 @@ are exposed to the GUI for sector-width background bands:
 - SC: light yellow
 - VSC: light orange
 
-Pit-loss source priority:
+Pit-loss resolution uses the separate current-event GREEN, SC, or VSC operational
+input for the applicable status. An explicit manual value takes precedence over
+the loaded value; **Apply pit losses** persists the accepted assumption to
+`woWeekend/configs/race.json` and its event-scoped woData mirror. The editable config
+is authoritative; run snapshots and the mirror are not fallback input sources.
+An unresolved applicable state blocks that calculation instead of borrowing an
+empirical total, another state, legacy combined `sc_vsc`, zero, or a local default.
 
-1. woStrategy `pit_loss_summary` median split for the applicable status
-2. known or estimated real pit loss if available
-3. SC/VSC pit-loss default when track status applies
-4. normal pit-loss default
+For add-pit edits, a supported state-specific woStrategy `pit_loss_summary` may
+supply the S3/S1 split ratio, scaled to the explicitly supplied total. Historical
+operational assumptions and empirical totals do not automatically populate current
+inputs. Empirical VSC evidence is GREEN-relative pit-sector excess, not a
+semantically interchangeable operational VSC pit window.
 
-For add-pit edits, the woStrategy split summary supplies the initial dialog
-value and split ratio only. The applied edit stores the user's requested total.
+If track status itself is unavailable, the service selects the GREEN operational
+input and records a warning. This is not a fallback for a known SC/VSC state whose
+input is unresolved.
 
-If track status is unavailable where it is needed, the normal default is used
-and the simulation records a warning.
+**R16 DBG-5: CLOSED (2026-10-08), documentation/readiness only.** Explicit VSC
+`null` correctly remains **Unresolved**; DBG-9 supplies manual adoption and Apply
+persistence when needed. `sc_vsc` is retained only for legacy compatibility.
 
 For `remove_observed_pit`, the removed pit-loss estimate is included in the
 modelled observed-strategy baseline. It is not added to the simulated no-pit
