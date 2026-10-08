@@ -1800,22 +1800,18 @@ def _resolve_scheduled_total_laps(
     return int(current_leader_lap), "current_leader_lap_fallback"
 
 
-def _live_analysis_laps(
+def _live_individual_clean_laps(
     snapshot,
     *,
     quick_lap_threshold: float,
-    min_clean_laps: int,
     allowed_compounds: tuple[str, ...] = ("SOFT", "MEDIUM", "HARD"),
-    exclude_stint_start_laps: int = 0,
-    exclude_stint_end_laps: int = 0,
     use_sector_boundary_traffic: bool = False,
     min_gap_ahead_seconds: float = 2.5,
     min_gap_behind_seconds: float = 1.0,
 ) -> pd.DataFrame:
+    """Classify individual full laps before MC run/edge eligibility rules."""
     if not allowed_compounds:
         raise ValueError("At least one clean-lap compound must be selected.")
-    if exclude_stint_start_laps < 0 or exclude_stint_end_laps < 0:
-        raise ValueError("Stint edge exclusions must be non-negative.")
     if min_gap_ahead_seconds < 0 or min_gap_behind_seconds < 0:
         raise ValueError("Traffic gaps must be non-negative.")
     rows = []
@@ -1887,6 +1883,34 @@ def _live_analysis_laps(
     diagnostics["disallowed_compound"] = int(
         (~prepared["Compound"].isin(normalized_compounds)).sum()
     )
+    prepared.attrs["exclusion_diagnostics"] = diagnostics
+    return prepared
+
+
+def _live_analysis_laps(
+    snapshot,
+    *,
+    quick_lap_threshold: float,
+    min_clean_laps: int,
+    allowed_compounds: tuple[str, ...] = ("SOFT", "MEDIUM", "HARD"),
+    exclude_stint_start_laps: int = 0,
+    exclude_stint_end_laps: int = 0,
+    use_sector_boundary_traffic: bool = False,
+    min_gap_ahead_seconds: float = 2.5,
+    min_gap_behind_seconds: float = 1.0,
+) -> pd.DataFrame:
+    if exclude_stint_start_laps < 0 or exclude_stint_end_laps < 0:
+        raise ValueError("Stint edge exclusions must be non-negative.")
+    prepared = _live_individual_clean_laps(
+        snapshot, quick_lap_threshold=quick_lap_threshold,
+        allowed_compounds=allowed_compounds,
+        use_sector_boundary_traffic=use_sector_boundary_traffic,
+        min_gap_ahead_seconds=min_gap_ahead_seconds,
+        min_gap_behind_seconds=min_gap_behind_seconds,
+    )
+    if prepared.empty and "IsCleanAirLongRunLap" not in prepared.columns:
+        return prepared
+    diagnostics = dict(prepared.attrs["exclusion_diagnostics"])
     clean_before_edges = int(prepared["IsCleanAirLongRunLap"].sum())
     if exclude_stint_start_laps or exclude_stint_end_laps:
         _exclude_clean_run_edges(

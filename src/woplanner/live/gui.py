@@ -503,7 +503,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         snapshot = update.snapshot
         if (
             self.strategy_prediction_window is not None
-            and update.changes.intersection({"drivers", "timing", "tyres", "lap_count"})
+            and update.changes.intersection({"drivers", "timing", "tyres", "lap_count", "track_status", "session"})
         ):
             try:
                 if self.strategy_prediction_window.isVisible():
@@ -871,6 +871,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             ),
             auto_save_history=self._active_source_mode == "live",
             team_scope_enabled=True,
+            live_operational_controls=True,
             telemetry_worker=self.service.telemetry_worker,
             **resume_options,
             parent=self,

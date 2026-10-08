@@ -22,6 +22,8 @@ from ..operational_inputs import load_operational_race_inputs
 from .service import OfflineAnalysisService, leader_lap_snapshots
 from .worker import AnalysisQueuePolicy, LiveAnalysisProcessService
 from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
+from .live_sensitivity import live_calculation_tyre_inputs, validate_degradation_sensitivity
+from ..live.undercut_widget import ObservedUndercutWidget
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
@@ -317,6 +319,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         persistence_mode: str = "durable",
         auto_save_history: bool = False,
         team_scope_enabled: bool = False,
+        live_operational_controls: bool = False,
         initial_model_summary=None,
         telemetry_worker=None,
         parent=None,
@@ -326,6 +329,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.round_number = int(round_number)
         self.strategy_mode = StrategyPredictionMode(mode)
         self.team_scope_enabled = bool(team_scope_enabled)
+        self.live_operational_controls = bool(live_operational_controls)
+        self._inactive_live_state: dict[str, object] = {}
+        self._strategy_tyre_input_snapshot = None
+        self._last_calculation_tyre_input_snapshot = None
+        self._observed_undercut_signature = None
         self._operational_input_error: str | None = None
         self._operational_race_inputs = None
         if self.strategy_mode is StrategyPredictionMode.CURRENT_EVENT:
@@ -948,14 +956,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         assumptions_header.addStretch(1)
         assumptions_header.addWidget(self.load_tyre_file_button)
         self.strategy_input_table = QtWidgets.QTableWidget()
-        self.strategy_input_table.setColumnCount(9)
+        self.strategy_input_table.setColumnCount(10 if self.live_operational_controls else 9)
         self.strategy_input_table.setHorizontalHeaderLabels(
             [
                 "Compound", "Selected pre-race baseline\n(s vs fastest)",
                 "Latest baseline\n(s vs fastest)", "Used baseline",
                 "Used delta\n(vs MEDIUM)", "Selected pre-race degradation",
                 "Latest degradation", "Used degradation", "Used source",
-            ]
+            ] + (["Final degradation\n(after sensitivity)"] if self.live_operational_controls else [])
         )
         self.strategy_input_table.setEditTriggers(
             (
@@ -969,7 +977,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             # Keep the consumed values and their provenance together in the
             # initial viewport; comparison columns remain available by scrolling.
             header = self.strategy_input_table.horizontalHeader()
-            for position, column in enumerate((0, 3, 4, 7, 8, 1, 2, 5, 6)):
+            order = (0, 3, 4, 7, 9, 8, 1, 2, 5, 6) if self.live_operational_controls else (0, 3, 4, 7, 8, 1, 2, 5, 6)
+            for position, column in enumerate(order):
                 header.moveSection(header.visualIndex(column), position)
         input_help = QtWidgets.QLabel(
             (
@@ -981,6 +990,33 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             )
         )
         input_help.setWordWrap(True)
+        if self.live_operational_controls:
+            input_help.setText(
+                "Edit persistent values in Tyre Inputs, or edit Used values for this scope. "
+                "Final degradation = Used degradation × Live sensitivity. Performance deltas stay unchanged."
+            )
+        self.degradation_sensitivity = QtWidgets.QDoubleSpinBox()
+        self.degradation_sensitivity.setRange(0.0, 10.0)
+        self.degradation_sensitivity.setDecimals(3)
+        self.degradation_sensitivity.setSingleStep(0.05)
+        self.degradation_sensitivity.setSuffix(" ×")
+        self.degradation_sensitivity.setValue(1.0)
+        self.degradation_sensitivity.setToolTip(
+            "Multiply final effective degradation in Global and Team modes, including manual Used values. "
+            "This Live sensitivity does not change Tyre Inputs or MC fitting."
+        )
+        self.reset_degradation_sensitivity = QtWidgets.QPushButton("Reset to 1.0")
+        self.reset_degradation_sensitivity.clicked.connect(lambda: self.degradation_sensitivity.setValue(1.0))
+        self.degradation_sensitivity_status = QtWidgets.QLabel()
+        sensitivity_widget = QtWidgets.QWidget()
+        sensitivity_layout = QtWidgets.QHBoxLayout(sensitivity_widget)
+        sensitivity_layout.setContentsMargins(0, 0, 0, 0)
+        sensitivity_layout.addWidget(QtWidgets.QLabel("Live degradation sensitivity"))
+        sensitivity_layout.addWidget(self.degradation_sensitivity)
+        sensitivity_layout.addWidget(self.reset_degradation_sensitivity)
+        sensitivity_layout.addWidget(self.degradation_sensitivity_status, 1)
+        sensitivity_widget.setVisible(self.live_operational_controls)
+        self.degradation_sensitivity.valueChanged.connect(self._degradation_sensitivity_changed)
         self.operational_status_label = QtWidgets.QLabel()
         self.operational_status_label.setWordWrap(True)
         controls = QtWidgets.QGridLayout()
@@ -1080,6 +1116,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         layout.addWidget(input_help)
         layout.addWidget(self.operational_status_label)
         layout.addWidget(self.strategy_input_table)
+        layout.addWidget(sensitivity_widget)
         layout.addLayout(controls)
         layout.addWidget(self.strategy_table)
         layout.addWidget(self.pin_button)
@@ -1098,7 +1135,25 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.manual_override.toggled.connect(self._manual_override_changed)
         self.load_tyre_file_button.clicked.connect(self._load_tyre_information_from_file)
         self._completed_lap_override_changed(False)
+        self._degradation_sensitivity_changed()
         return widget
+
+    def _live_sensitivity_factor(self) -> float:
+        return self.degradation_sensitivity.value() if self.live_operational_controls else 1.0
+
+    def _degradation_sensitivity_changed(self, *_args) -> None:
+        factor = self._live_sensitivity_factor()
+        active = factor != 1.0
+        self.degradation_sensitivity_status.setText(
+            f"ACTIVE: final degradation × {factor:.3f} in every scope"
+            if active else "Baseline: final degradation unchanged"
+        )
+        self.degradation_sensitivity_status.setStyleSheet(
+            "color: #92400e; background: #fef3c7; font-weight: bold; padding: 4px;"
+            if active else ""
+        )
+        self._render_strategy_inputs()
+        self._save_state()
 
     def _current_operational_block_reason(self) -> str | None:
         if self.strategy_mode is not StrategyPredictionMode.CURRENT_EVENT:
@@ -1368,6 +1423,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         layout.addLayout(controls)
         layout.addWidget(self.clean_definition_label)
         layout.addWidget(self.live_note)
+        self.observed_undercut = ObservedUndercutWidget()
+        self.observed_undercut.setVisible(self.live_operational_controls)
+        layout.addWidget(self.observed_undercut)
         layout.addWidget(self.calculation_log)
         self.clean_details_button.clicked.connect(self.clean_details_dialog.show)
         for control in (
@@ -1451,6 +1509,44 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 )
             )
         )
+        self._refresh_observed_undercut()
+
+    def _refresh_observed_undercut(self) -> None:
+        if not self.live_operational_controls or not hasattr(self, "observed_undercut"):
+            return
+        snapshot = self._live_snapshot
+        if snapshot is None:
+            return
+        from .observed_undercut import build_observed_undercut_estimates
+        from wodata.live.session_identity import parse_session_identity
+
+        options = {
+            "quick_lap_threshold": self.quick_threshold.value(),
+            "allowed_compounds": self._selected_clean_compounds(),
+            "use_sector_boundary_traffic": self._force_sector_traffic(),
+            "min_gap_ahead_seconds": self.min_gap_ahead.value(),
+            "min_gap_behind_seconds": self.min_gap_behind.value(),
+        }
+        summary = self._current_model_summary
+        manifest = summary.manifest if summary is not None else {}
+        signature = (
+            snapshot.completed_laps, getattr(snapshot, "completed_sectors", ()), tuple(options.items()),
+            parse_session_identity(getattr(snapshot, "session_info", {})).session_name.upper(),
+            manifest.get("analysis_id"), manifest.get("status"),
+            manifest.get("as_of_leader_lap"),
+        )
+        if signature == self._observed_undercut_signature:
+            return
+        try:
+            estimates = build_observed_undercut_estimates(
+                snapshot, model_summary=summary, **options,
+            )
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            self.observed_undercut.unavailable(str(exc))
+        else:
+            self.observed_undercut.render(estimates)
+        self._observed_undercut_signature = signature
+        self._save_state()
 
     def _load_model(self, *, summary=None, record_history: bool = False) -> None:
         try:
@@ -1482,6 +1578,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.model_table.resizeColumnsToContents()
         self._loading_model = False
         self._load_strategy_inputs(summary)
+        self._observed_undercut_signature = None
+        self._refresh_observed_undercut()
         if record_history:
             self._record_history_point(summary)
         reason = summary.manifest.get("stale_reason")
@@ -1558,11 +1656,20 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             )
             return
         self._sync_strategy_overrides()
-        tyre_input_snapshot = tyre_snapshot_from_overrides(
-            self._manual_overrides, self._resolved_tyre_inputs,
-            assumptions=list(self._estimated_strategy_inputs.values()),
-            manual_values=self._active_manual_values(),
-        )
+        calculation_overrides = self._manual_overrides
+        if self.live_operational_controls:
+            calculation_overrides, tyre_input_snapshot = live_calculation_tyre_inputs(
+                self._manual_overrides, self._resolved_tyre_inputs,
+                factor=self._live_sensitivity_factor(),
+                assumptions=list(self._estimated_strategy_inputs.values()),
+                manual_values=self._active_manual_values(),
+            )
+        else:
+            tyre_input_snapshot = tyre_snapshot_from_overrides(
+                self._manual_overrides, self._resolved_tyre_inputs,
+                assumptions=list(self._estimated_strategy_inputs.values()),
+                manual_values=self._active_manual_values(),
+            )
         state = StrategySearchState(
             effective_completed_lap, self.total_laps.value(), self.compound.currentText(),
             self.tyre_age.value(), selected_driver=self.driver.currentData(),
@@ -1574,13 +1681,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.service.generate_continuations,
             year=self.year, round_number=self.round_number, state=state,
             pit_loss=self.pit_loss.value(), k=self.result_count.value(),
-            overrides=self._manual_overrides,
+            overrides=calculation_overrides,
             tyre_input_snapshot=tyre_input_snapshot,
             persist=self.persistence_mode == "durable",
             model_summary=self._current_model_summary,
             rules_compliant=self.rules_compliant.isChecked(),
         )
         self._strategy_request_context = self._current_strategy_context()
+        self._strategy_tyre_input_snapshot = tyre_input_snapshot
         self._strategy_started_at = time.perf_counter()
         self._poll_timer.start()
 
@@ -1617,6 +1725,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self._strategy_request_context = None
             return
         self._strategy_request_context = None
+        self._last_calculation_tyre_input_snapshot = self._strategy_tyre_input_snapshot
         self._append_log(f"Strategy calculation completed in {elapsed_ms:.0f} ms")
         self._last_strategy_rows = [
             {
@@ -1796,6 +1905,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def consume_live_snapshot(self, snapshot) -> None:
         """Receive the same canonical snapshot that drives the live timing plot."""
         self._live_snapshot = snapshot
+        self._refresh_observed_undercut()
         current_driver = self.driver.currentData()
         if current_driver is None and self._restored_driver_code:
             current_driver = self._restored_driver_code
@@ -1928,6 +2038,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._load_model()
         self._refresh_history_entries(selected_key="clear")
         self._append_log("Replay restarted: temporary value-lap plot cleared.")
+        self._observed_undercut_signature = None
+        self.observed_undercut.render(())
 
     def configure_session_context(
         self,
@@ -2067,6 +2179,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             manifest.get("analysis_id"),
             manifest.get("as_of_leader_lap"),
             bool(self.manual_override.isChecked()),
+            self._live_sensitivity_factor(),
         )
 
     @staticmethod
@@ -2306,6 +2419,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 + ("\n" if self.team_scope_enabled else "; ") +
                 f"P: {estimated.get('compound_delta_source', 'reference')} (Global model)",
             ]
+            if self.live_operational_controls:
+                values.append(f"{self._degradation_values[compound] * self._live_sensitivity_factor():.4f}")
             for column, value in enumerate(values):
                 item = QtWidgets.QTableWidgetItem(str(value))
                 field = {3: "baseline", 4: "delta", 7: "degradation"}.get(column)
@@ -2902,6 +3017,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         ]
         if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
             controls.extend((self.total_laps, self.pit_loss))
+        if self.live_operational_controls:
+            controls.append(self.degradation_sensitivity)
         for control in controls:
             if isinstance(control, QtWidgets.QAbstractButton):
                 control.toggled.connect(self._save_state)
@@ -2926,6 +3043,17 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             controls = state.get("controls", {})
             if not isinstance(controls, dict):
                 raise ValueError("saved controls must be an object")
+            if self.live_operational_controls:
+                self.degradation_sensitivity.setValue(validate_degradation_sensitivity(
+                    controls.get("live_degradation_sensitivity", 1.0)
+                ))
+                self._last_calculation_tyre_input_snapshot = state.get("last_live_tyre_input_snapshot")
+            else:
+                for key in ("last_live_tyre_input_snapshot", "live_observed_undercut"):
+                    if key in state:
+                        self._inactive_live_state[key] = state[key]
+                if "live_degradation_sensitivity" in controls:
+                    self._inactive_live_state["live_degradation_sensitivity"] = controls["live_degradation_sensitivity"]
             if self.team_scope_enabled:
                 self._restore_scope_manual_values(state.get("scope_manual_values", {}))
             else:
@@ -3100,6 +3228,27 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 state["controls"]["team"] = self._inactive_scope_state["team"]
             if "scope_manual_values" in self._inactive_scope_state:
                 state["scope_manual_values"] = self._inactive_scope_state["scope_manual_values"]
+        if self.live_operational_controls:
+            state["controls"]["live_degradation_sensitivity"] = self._live_sensitivity_factor()
+            state["last_live_tyre_input_snapshot"] = self._last_calculation_tyre_input_snapshot
+            from wodata.live.session_identity import parse_session_identity
+
+            session_name = parse_session_identity(
+                getattr(self._live_snapshot, "session_info", {})
+            ).session_name.upper()
+            session_code = {"RACE": "R", "SPRINT": "S"}.get(session_name, session_name or "R")
+            state["live_observed_undercut"] = {
+                "schema_version": 1,
+                "event": {"year": self.year, "round_number": self.round_number, "session": session_code},
+                "estimates": list(self.observed_undercut.records),
+            }
+        else:
+            if "live_degradation_sensitivity" in self._inactive_live_state:
+                state["controls"]["live_degradation_sensitivity"] = self._inactive_live_state["live_degradation_sensitivity"]
+            if "last_live_tyre_input_snapshot" in self._inactive_live_state:
+                state["last_live_tyre_input_snapshot"] = self._inactive_live_state["last_live_tyre_input_snapshot"]
+            if "live_observed_undercut" in self._inactive_live_state:
+                state["live_observed_undercut"] = self._inactive_live_state["live_observed_undercut"]
         if self.strategy_mode is StrategyPredictionMode.HISTORICAL_WHAT_IF:
             state["controls"].update({
                 "total_laps": self.total_laps.value(),
