@@ -563,6 +563,15 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.tyre_warning_label = QtWidgets.QLabel("")
         self.tyre_warning_label.setWordWrap(True)
         input_layout.addWidget(input_help)
+        self.import_pre_race_button = QtWidgets.QPushButton("Import tyre inputs from pre-race run…")
+        self.import_pre_race_button.setToolTip(
+            "Explicitly copy a successful woWeekend run into Global Planner manual inputs."
+        )
+        self.import_pre_race_button.clicked.connect(self._import_pre_race_tyre_inputs)
+        self.tyre_import_origin_label = QtWidgets.QLabel("")
+        self.tyre_import_origin_label.setWordWrap(True)
+        input_layout.addWidget(self.import_pre_race_button)
+        input_layout.addWidget(self.tyre_import_origin_label)
         input_layout.addWidget(self.tyre_input_table)
         input_layout.addWidget(self.tyre_warning_label)
         input_layout.addWidget(self.clear_all_tyre_inputs_button, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
@@ -624,6 +633,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         }[parameter]
 
     def _refresh_tyre_inputs(self, *, apply_to_strategy: bool = False) -> None:
+        self.import_pre_race_button.setEnabled(
+            self._selected_team is None
+            and not getattr(self, "live_operational_controls", self.team_scope_enabled)
+        )
+        self.tyre_import_origin_label.clear()
+        self.strategy_import_origin_label.clear()
         try:
             resolved = self.service.resolve_tyre_inputs(
                 self.year, self.round_number, team=self._selected_team
@@ -634,6 +649,16 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.tyre_warning_label.setText(f"Tyre inputs unavailable: {exc}")
             return
         self._resolved_tyre_inputs = resolved
+        origin = resolved.semantics.get("manual_import_origin")
+        if origin:
+            description = (
+                f"Persisted Planner manual baseline imported from woWeekend pre-race run: "
+                f"{origin['event']} / {origin['session']} / {origin['run_id']}. "
+                f"Still imported: {', '.join(origin['fields'])}. "
+                f"Effective input SHA256: {origin['effective_input_sha256']}"
+            )
+            self.tyre_import_origin_label.setText(description)
+            self.strategy_import_origin_label.setText(description)
         self._render_tyre_input_table()
         warnings = self.service.tyre_inputs.physical_order_warnings(resolved)
         self.tyre_warning_label.setText(
@@ -647,6 +672,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             return
         self._tyre_input_loading = True
         rows = self._resolved_tyre_inputs.by_parameter()
+        imported = self._resolved_tyre_inputs.semantics.get("manual_import_origin", {}).get("fields", {})
         self.tyre_input_table.setRowCount(len(TYRE_PARAMETERS))
         for row_index, parameter in enumerate(TYRE_PARAMETERS):
             row = rows[parameter]
@@ -662,6 +688,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "" if row.manual_value is None else f"{row.manual_value:.6g}",
                 "—" if row.legacy_value is None else f"{row.legacy_value:+.4f}",
             ]
+            if parameter in imported:
+                values[2] = f"Manual · woWeekend ({imported[parameter]['source']})"
             for column, value in enumerate(values):
                 item = QtWidgets.QTableWidgetItem(value)
                 if column == 3:
@@ -679,6 +707,41 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.tyre_input_table.setCellWidget(row_index, 5, clear)
         self.tyre_input_table.resizeColumnsToContents()
         self._tyre_input_loading = False
+
+    def _import_pre_race_tyre_inputs(self) -> None:
+        if self._selected_team is not None or getattr(self, "live_operational_controls", self.team_scope_enabled):
+            return
+        event = (self.year, self.round_number)
+        try:
+            runs = self.service.tyre_inputs.available_pre_race_runs(*event)
+            if not runs:
+                self.tyre_warning_label.setText("No complete, valid pre-race runs for this event.")
+                return
+            labels = [
+                f"{run.run_id} | S/M/H degradation = "
+                + " / ".join(f"{run.values['Deg_' + c]:.6g}" for c in ("SOFT", "MEDIUM", "HARD"))
+                for run in runs
+            ]
+            selected, accepted = QtWidgets.QInputDialog.getItem(
+                self, "Import pre-race tyre inputs",
+                f"Select an immutable woWeekend run for {event[0]} R{event[1]} (R).\n"
+                "This replaces all five Global manual tyre inputs in Planner.",
+                labels, 0, False,
+            )
+            if not accepted:
+                return
+            if event != (self.year, self.round_number) or self._selected_team is not None or getattr(self, "live_operational_controls", self.team_scope_enabled):
+                raise ValueError("Planner event/scope changed; select the run again.")
+            run_id = runs[labels.index(selected)].run_id
+            self.service.tyre_inputs.import_pre_race_run(*event, run_id)
+        except (OSError, TypeError, ValueError) as exc:
+            self.tyre_warning_label.setText(f"Pre-race import failed: {exc}")
+            return
+        self._active_manual_values().clear()
+        self._restore_scope_manual_sets()
+        self._refresh_tyre_inputs(apply_to_strategy=True)
+        self._save_state()
+        self._append_log(f"Imported woWeekend pre-race tyre inputs: {run_id}")
 
     def _manual_tyre_input_changed(self, item) -> None:
         if self._tyre_input_loading or item.column() != 3:
@@ -1011,6 +1074,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.pin_button = QtWidgets.QPushButton("Pin selected (max 3)")
         self.pinned_label = QtWidgets.QLabel("Pinned: —")
         layout.addLayout(assumptions_header)
+        self.strategy_import_origin_label = QtWidgets.QLabel("")
+        self.strategy_import_origin_label.setWordWrap(True)
+        layout.addWidget(self.strategy_import_origin_label)
         layout.addWidget(input_help)
         layout.addWidget(self.operational_status_label)
         layout.addWidget(self.strategy_input_table)

@@ -409,8 +409,16 @@ not the number of telemetry traffic comparisons.
 
 The **Tyre Inputs** tab separates editable Strategy inputs from read-only FP
 LongRun evidence. Each Selected value is Manual when explicitly supplied and
-otherwise the exact Legacy FP-derived fallback. FP contrasts are advisory and do
+otherwise the canonical pre-race prediction (with Legacy FP-derived fallback
+when unavailable). FP contrasts are advisory and do
 not automatically update Strategy values.
+
+In Global scope, **Import tyre inputs from pre-race run…** explicitly copies all
+five effective tyre values from a selected successful immutable woWeekend run
+into Planner manual inputs. The run/event/session, effective-input hash and
+per-field report sources remain visible and persisted. Clear restores the normal
+Planner defaults; later reports never rebind the copy. Team/live resolution is
+unchanged. See [DBG-1 implementation and R16 verification](doc/DBG1_WEEKEND_TYRE_IMPORT.md).
 
 The **Strategy predictions** tab shows the exact tyre inputs used by the search.
 The Tyre Inputs tab is the authoritative editor for the persisted pre-race

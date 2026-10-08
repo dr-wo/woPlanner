@@ -1,0 +1,286 @@
+{
+  "automatic_artifact_id": "592f2cb2f7841aa69d786c5ce2c65c52c4a7b6c93e5608aa84bb4c0ceec94c60",
+  "automatic_generated_at": "2026-10-03T22:21:08.046001+00:00",
+  "automatic_model_version": "linear_v1.1",
+  "automatic_provenance": {
+    "default_prediction_family": "historical_baseline",
+    "degradation_semantics": {
+      "contract": "canonical_tyre_operational_semantics_v1",
+      "frame": "absolute_rate",
+      "independent_variable": "tyre_age_laps",
+      "numerical_transformation": "none",
+      "positive_sign": "greater tyre age increases modelled lap time",
+      "quantity": "degradation_rate",
+      "reference_compound": null,
+      "uncertainty": "unavailable",
+      "unit": "s/tyre-age-lap"
+    },
+    "operational_normalization": {
+      "contract": "required_smh_finite_nonnegative_degradation_medium_baseline_v2",
+      "input_medium_performance_baseline": -0.2752115388974766,
+      "normalization_count": 1,
+      "source_reference_compound": "HARD",
+      "source_reference_selection_rule": "declared"
+    },
+    "path": "/Users/zhxutong/dr-wo/woData/wostrategy/tyre_prediction/schema_v1/year=2026/predictions/round=16/prediction.json",
+    "performance_semantics": {
+      "contract": "canonical_tyre_operational_semantics_v1",
+      "frame": "relative_to_compound",
+      "independent_variable": "dry_compound_choice",
+      "numerical_transformation": "subtract_source_medium_value_once",
+      "positive_sign": "compound is slower than MEDIUM",
+      "quantity": "compound_performance_delta",
+      "reference_compound": "MEDIUM",
+      "reference_value": 0.0,
+      "uncertainty": "unavailable",
+      "unit": "s"
+    },
+    "pirelli_preview_effect": "compound_allocation_only_for_selected_historical_baseline",
+    "production_policy": {
+      "degradation": {
+        "formulation_code": "D0",
+        "model_name": "degradation_baseline",
+        "weighting_policy": "uniform"
+      },
+      "performance": {
+        "formulation_code": "P0",
+        "model_name": "performance_baseline",
+        "weighting_policy": "uniform"
+      }
+    },
+    "source_performance_semantics": {
+      "contract": "canonical_tyre_source_semantics_v1",
+      "frame": "relative_to_compound",
+      "independent_variable": "dry_compound_choice",
+      "numerical_transformation": "none",
+      "positive_sign": "compound is slower than the comparison compound",
+      "quantity": "compound_performance_delta",
+      "reference_compound": "HARD",
+      "reference_declared": true,
+      "reference_selection_rule": "declared",
+      "unit": "s",
+      "zero_candidates": [
+        "HARD"
+      ]
+    },
+    "source_reference_selection": {
+      "rule": "declared",
+      "zero_candidates": [
+        "HARD"
+      ]
+    },
+    "target_preview_hash": "dab01029dffbf3e54376b384fc3f9b298d7b38d8e3f96b9f04c008f677802d35",
+    "trained_through_round": 15,
+    "training_data_hash": "c7bd7c6cfa35fc6ed21545a8bf91f1f5d53f7bc9bd63a624d46fec809b0a2b83",
+    "training_rounds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ]
+  },
+  "automatic_source_family": "historical_baseline",
+  "compounds": {
+    "HARD": {
+      "degradation_seconds_per_lap": {
+        "automatic_value": 0.09141717826254332,
+        "effective_value": 0.033,
+        "human_source": "manual override",
+        "source": "manual_override",
+        "uncertainty": null
+      },
+      "diagnostics": {
+        "absolute_compound": "C2",
+        "selected_default": "historical_baseline"
+      },
+      "performance_delta_to_medium": {
+        "automatic_value": 0.2752115388974766,
+        "effective_value": 0.2752115388974766,
+        "human_source": "Historical Race-Retro cross-event P0/D0 prediction (default), mapped to the Pirelli-announced compound allocation; current-weekend FP does not modify the production input.",
+        "source": "historical_baseline",
+        "uncertainty": null
+      },
+      "prediction_domain_status": "inside_observed_descriptor_domain"
+    },
+    "MEDIUM": {
+      "degradation_seconds_per_lap": {
+        "automatic_value": 0.14407032425651345,
+        "effective_value": 0.039,
+        "human_source": "manual override",
+        "source": "manual_override",
+        "uncertainty": null
+      },
+      "diagnostics": {
+        "absolute_compound": "C3",
+        "selected_default": "historical_baseline"
+      },
+      "performance_delta_to_medium": {
+        "automatic_value": 0.0,
+        "effective_value": 0.0,
+        "human_source": "Historical Race-Retro cross-event P0/D0 prediction (default), mapped to the Pirelli-announced compound allocation; current-weekend FP does not modify the production input.",
+        "source": "historical_baseline",
+        "uncertainty": null
+      },
+      "prediction_domain_status": "inside_observed_descriptor_domain"
+    },
+    "SOFT": {
+      "degradation_seconds_per_lap": {
+        "automatic_value": 0.20460105651325672,
+        "effective_value": 0.062,
+        "human_source": "manual override",
+        "source": "manual_override",
+        "uncertainty": null
+      },
+      "diagnostics": {
+        "absolute_compound": "C4",
+        "selected_default": "historical_baseline"
+      },
+      "performance_delta_to_medium": {
+        "automatic_value": -0.31214405241230747,
+        "effective_value": -0.31214405241230747,
+        "human_source": "Historical Race-Retro cross-event P0/D0 prediction (default), mapped to the Pirelli-announced compound allocation; current-weekend FP does not modify the production input.",
+        "source": "historical_baseline",
+        "uncertainty": null
+      },
+      "prediction_domain_status": "inside_observed_descriptor_domain"
+    }
+  },
+  "degradation_semantics": {
+    "contract": "canonical_tyre_operational_semantics_v1",
+    "frame": "absolute_rate",
+    "independent_variable": "tyre_age_laps",
+    "numerical_transformation": "none",
+    "positive_sign": "greater tyre age increases modelled lap time",
+    "quantity": "degradation_rate",
+    "reference_compound": null,
+    "uncertainty": "unavailable",
+    "unit": "s/tyre-age-lap"
+  },
+  "manual_fallback_artifact_id": null,
+  "operational_provenance": {
+    "default_prediction_family": "historical_baseline",
+    "degradation_semantics": {
+      "contract": "canonical_tyre_operational_semantics_v1",
+      "frame": "absolute_rate",
+      "independent_variable": "tyre_age_laps",
+      "numerical_transformation": "none",
+      "positive_sign": "greater tyre age increases modelled lap time",
+      "quantity": "degradation_rate",
+      "reference_compound": null,
+      "uncertainty": "unavailable",
+      "unit": "s/tyre-age-lap"
+    },
+    "intermediate_state": {
+      "formal_relative_output": false,
+      "kind": "partial_override_merged_in_source_gauge",
+      "normalization_applied": false,
+      "performance_frame": "relative_to_compound",
+      "reference_compound": "HARD",
+      "reference_zero_required": false
+    },
+    "operational_normalization": {
+      "contract": "required_smh_finite_nonnegative_degradation_medium_baseline_v2",
+      "input_medium_performance_baseline": -0.2752115388974766,
+      "normalization_count": 1,
+      "source_reference_compound": "HARD",
+      "source_reference_selection_rule": "declared"
+    },
+    "partial_override": {
+      "merge_frame": "relative_to_compound",
+      "normalized_before_merge": false,
+      "reference_reinferred_after_merge": false,
+      "source_reference_compound": "HARD"
+    },
+    "path": "/Users/zhxutong/dr-wo/woData/wostrategy/tyre_prediction/schema_v1/year=2026/predictions/round=16/prediction.json",
+    "performance_semantics": {
+      "contract": "canonical_tyre_operational_semantics_v1",
+      "frame": "relative_to_compound",
+      "independent_variable": "dry_compound_choice",
+      "numerical_transformation": "subtract_source_medium_value_once",
+      "positive_sign": "compound is slower than MEDIUM",
+      "quantity": "compound_performance_delta",
+      "reference_compound": "MEDIUM",
+      "reference_value": 0.0,
+      "uncertainty": "unavailable",
+      "unit": "s"
+    },
+    "pirelli_preview_effect": "compound_allocation_only_for_selected_historical_baseline",
+    "production_policy": {
+      "degradation": {
+        "formulation_code": "D0",
+        "model_name": "degradation_baseline",
+        "weighting_policy": "uniform"
+      },
+      "performance": {
+        "formulation_code": "P0",
+        "model_name": "performance_baseline",
+        "weighting_policy": "uniform"
+      }
+    },
+    "source_performance_semantics": {
+      "contract": "canonical_tyre_source_semantics_v1",
+      "frame": "relative_to_compound",
+      "independent_variable": "dry_compound_choice",
+      "numerical_transformation": "none",
+      "positive_sign": "compound is slower than the comparison compound",
+      "quantity": "compound_performance_delta",
+      "reference_compound": "HARD",
+      "reference_declared": true,
+      "reference_selection_rule": "declared",
+      "unit": "s",
+      "zero_candidates": [
+        "HARD"
+      ]
+    },
+    "source_reference_selection": {
+      "rule": "declared",
+      "zero_candidates": [
+        "HARD"
+      ]
+    },
+    "target_preview_hash": "dab01029dffbf3e54376b384fc3f9b298d7b38d8e3f96b9f04c008f677802d35",
+    "trained_through_round": 15,
+    "training_data_hash": "c7bd7c6cfa35fc6ed21545a8bf91f1f5d53f7bc9bd63a624d46fec809b0a2b83",
+    "training_rounds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ]
+  },
+  "performance_semantics": {
+    "contract": "canonical_tyre_operational_semantics_v1",
+    "frame": "relative_to_compound",
+    "independent_variable": "dry_compound_choice",
+    "numerical_transformation": "subtract_source_medium_value_once",
+    "positive_sign": "compound is slower than MEDIUM",
+    "quantity": "compound_performance_delta",
+    "reference_compound": "MEDIUM",
+    "reference_value": 0.0,
+    "uncertainty": "unavailable",
+    "unit": "s"
+  },
+  "reference_compound": "MEDIUM"
+}

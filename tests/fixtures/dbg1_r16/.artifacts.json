@@ -1,0 +1,105 @@
+{
+  "artifacts": {
+    "analysis_results.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "4d63d575b93bb3ee48d54e8df47ec928056dd1592d67ee155b8d20d7bc920406",
+      "size_bytes": 158182
+    },
+    "automatic_model_without_manual_override.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "0d9dbcd45f54b28eaa627e8611f05b38dde8729c07a63311b987bf6230aa88bb",
+      "size_bytes": 26572
+    },
+    "config.input.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "21455641d2b0c9838443ab84174a84b9299e053a6cfa5fb59e4ae9cbda303941",
+      "size_bytes": 3369
+    },
+    "config.resolved.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "8ecf25277f83a2e4c509ec21e9f0cda1cb2bb3efd4d8452a97873802c72ea2af",
+      "size_bytes": 2141
+    },
+    "cutoff_rules_compliant.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "a86f28e50ad614b9be69b1f7142641c0e8d1ab08a98fbdc31332b61b0f0bbc07",
+      "size_bytes": 8229
+    },
+    "cutoff_unrestricted.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "d8112c661950cc8e538b186594478c12736d679f59c4d1c43a45cdb5f982a3f1",
+      "size_bytes": 8183
+    },
+    "event.metadata.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "63fea6e398f8b2ce0c3b0b94d6908943b9c2e445b3989dced8f2208a069004d0",
+      "size_bytes": 719
+    },
+    "historical_empirical_vsc_context.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "f7a5cb0467a140b7ee877fe7cd51a3b8e5679f43900e7015ff7f3733870daa97",
+      "size_bytes": 2834
+    },
+    "historical_interruptions.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "0ba487a138ce58839d8005988d551614e8367968804fb67866e658d5e99775e5",
+      "size_bytes": 387
+    },
+    "historical_operational_inputs_context.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "f1883420445353861725207c3a6905bb264af513b2e85b623af2f6699094c3cc",
+      "size_bytes": 258
+    },
+    "live_mc_model_config.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "db9be14f3a816cec33acf9d8e795fbd7970fc50304f28095324588bd1dc9c596",
+      "size_bytes": 360
+    },
+    "manifest.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "99e6cf8d55039314beef0e1e075e7fa28265aa23f20f7adc959ffab799ca0774",
+      "size_bytes": 763737
+    },
+    "practice_tyre_evidence.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "e20d54dfe76342565af171a885970070b5d154f514fe4890649e236dcf361c81",
+      "size_bytes": 59321
+    },
+    "pre_race_prerequisites.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "d1e483c72e95735dbef7897b5c36358f1aabcdb6e4afe04b6c6d063e4370dea2",
+      "size_bytes": 2457
+    },
+    "race_distance.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "103fa71f94601b68c571cb4439906a232b86fb42de2d6a9fa046964a97d894de",
+      "size_bytes": 146
+    },
+    "report_context.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "91006ba39d815bc0cac84641cf7c30be319ec3694a5beddb664c9826b0138e17",
+      "size_bytes": 5084
+    },
+    "strategy_rules_compliant.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "856f7e84c9aec7cc91e8ef1c2a2067e5c4cbfe83f23ff964af7249b328752fe1",
+      "size_bytes": 4829
+    },
+    "strategy_unrestricted.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "64dfe14841059cb0125a0d9f35d0b07de41d04394b70ce83ec3190ed64408ec3",
+      "size_bytes": 4581
+    },
+    "tyre_prediction.effective.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "19c491735e0c347c4b3dfac0e13f4698b0a5f6d8c3be31706bd42bac2dfdf5ce",
+      "size_bytes": 10137
+    },
+    "tyre_prediction.json": {
+      "classification": "lightweight_run_result",
+      "sha256": "eed460ae3f92496f75db6f603f1c7f5b80ba9816c19614fab3def17bef46cc99",
+      "size_bytes": 5050
+    }
+  },
+  "schema_version": "schema_v1"
+}

@@ -1,0 +1,91 @@
+{
+  "data_root": "/Users/zhxutong/dr-wo/woData",
+  "degradation_cutoff": {
+    "coarse_step": null,
+    "refine_tolerance": null,
+    "scan_max": null,
+    "scan_min": null
+  },
+  "event_id": "2026-16",
+  "event_metadata": {
+    "country": "Bahrain",
+    "event_format": "conventional",
+    "event_id": "2026-16",
+    "event_name": "Bahrain Grand Prix",
+    "is_sprint": false,
+    "location": "Kuala Lumpur",
+    "official_event_name": "FORMULA 1 GULF AIR BAHRAIN GRAND PRIX IN MALAYSIA 2026",
+    "race_start": "2026-10-04T07:00:00+00:00",
+    "round_number": 16,
+    "scheduled_race_laps": null,
+    "scheduled_race_laps_provenance": null,
+    "scheduled_race_laps_source": null,
+    "season": 2026,
+    "session_names": [
+      "Practice 1",
+      "Practice 2",
+      "Practice 3",
+      "Qualifying",
+      "Race"
+    ],
+    "session_total_laps": null,
+    "session_total_laps_source": null,
+    "source": "fastf1_event_schedule",
+    "total_laps": null,
+    "total_laps_source": null
+  },
+  "event_name": "Bahrain Grand Prix",
+  "historical_vsc": {
+    "lookback_years": 5
+  },
+  "max_stops": 4,
+  "pit_loss": {
+    "green": {
+      "pit_in_s3": null,
+      "pit_out_s1": null,
+      "total": 23.7
+    },
+    "sc": {
+      "pit_in_s3": null,
+      "pit_out_s1": null,
+      "total": null
+    },
+    "sc_vsc": {
+      "pit_in_s3": null,
+      "pit_out_s1": null,
+      "total": 13.0
+    },
+    "vsc": {
+      "pit_in_s3": null,
+      "pit_out_s1": null,
+      "total": null
+    }
+  },
+  "report": {
+    "language": "zh-CN",
+    "template": "engineering"
+  },
+  "resolved_total_laps": 56,
+  "result_count": 20,
+  "round_number": 16,
+  "season": 2026,
+  "session": "R",
+  "total_laps": 56,
+  "total_laps_source": "manual_override",
+  "tyre_prediction": {
+    "manual_override": {
+      "HARD": {
+        "degradation_seconds_per_lap": 0.033,
+        "performance_delta_to_medium": null
+      },
+      "MEDIUM": {
+        "degradation_seconds_per_lap": 0.039,
+        "performance_delta_to_medium": null
+      },
+      "SOFT": {
+        "degradation_seconds_per_lap": 0.062,
+        "performance_delta_to_medium": null
+      }
+    }
+  }
+}

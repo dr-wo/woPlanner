@@ -20,6 +20,7 @@ from wostrategy.analysis.pre_race_tyre_prediction import (
     MissingPreRaceTyrePrediction,
     get_pre_race_tyre_prediction,
 )
+from .weekend_tyre_import import load_pre_race_tyre_import, list_pre_race_tyre_imports
 
 
 MANUAL_TYRE_INPUT_SCHEMA_VERSION = 1
@@ -165,6 +166,7 @@ class TyreInputService:
         values: Mapping[str, float | None],
         *,
         team: str | None = None,
+        import_origin: Mapping[str, object] | None = None,
     ) -> Path:
         unknown = set(values).difference(TYRE_PARAMETERS)
         if unknown:
@@ -184,6 +186,14 @@ class TyreInputService:
         })
         if team is None:
             payload["values"] = normalized
+            origin = _matching_import_origin(
+                import_origin if import_origin is not None else payload.get("import_origin"),
+                normalized,
+            )
+            if origin:
+                payload["import_origin"] = origin
+            else:
+                payload.pop("import_origin", None)
         else:
             team_values = dict(payload.get("team_values") or {})
             team_values[team] = normalized
@@ -196,6 +206,16 @@ class TyreInputService:
             handle.write("\n")
         temporary.replace(path)
         return path
+
+    def available_pre_race_runs(self, year: int, round_number: int):
+        return list_pre_race_tyre_imports(year, round_number, self.data_root)
+
+    def import_pre_race_run(self, year: int, round_number: int, run_id: str) -> Path:
+        """Copy one immutable run into Global manuals; never establish a binding."""
+        selected = load_pre_race_tyre_import(year, round_number, run_id, self.data_root)
+        return self.save_manual_inputs(
+            year, round_number, selected.values, import_origin=selected.origin
+        )
 
     def set_manual_value(
         self, year: int, round_number: int, parameter: str, value: float,
@@ -261,6 +281,12 @@ class TyreInputService:
         defaults, default_sources, source_id, default_path, source_semantics = self._default_values(
             year, round_number
         )
+        if team is None:
+            origin = _matching_import_origin(
+                self._load_manual_payload(year, round_number).get("import_origin"), manual
+            )
+            if origin:
+                source_semantics["manual_import_origin"] = origin
         if team is not None:
             source_semantics = {
                 **source_semantics,
@@ -531,6 +557,13 @@ def tyre_snapshot_from_overrides(
         "semantics": dict(resolved.semantics),
         "team": resolved.team,
     }
+    origin = _matching_import_origin(
+        resolved.semantics.get("manual_import_origin"),
+        {name: value for name, value in actual.items() if source[name] == "manual"},
+    )
+    content["semantics"].pop("manual_import_origin", None)
+    if origin:
+        content["semantics"]["manual_import_origin"] = origin
     return {
         "schema_version": 1,
         "captured_at": datetime.now(timezone.utc).isoformat(),
@@ -538,6 +571,17 @@ def tyre_snapshot_from_overrides(
         **content,
         "content_hash": canonical_hash(content),
     }
+
+
+def _matching_import_origin(origin, values):
+    """Keep attribution only for fields still using the copied numerical value."""
+    if not origin:
+        return None
+    fields = {
+        name: dict(field) for name, field in origin.get("fields", {}).items()
+        if values.get(name) is not None and values[name] == field.get("value")
+    }
+    return {**origin, "fields": fields} if fields else None
 
 
 def _finite(value, parameter: str) -> float:

@@ -1,0 +1,438 @@
+{
+  "boundary_descriptors": [],
+  "circuit": "Sepang International Circuit",
+  "compound_allocation": {
+    "HARD": "C2",
+    "MEDIUM": "C3",
+    "SOFT": "C4"
+  },
+  "compounds": {
+    "C2": {
+      "absolute_compound": "C2",
+      "compound_role": "HARD",
+      "degradation_mean": 0.09141717826254332,
+      "degradation_std": null,
+      "historical_baseline": {
+        "degradation": 0.09141717826254332,
+        "performance": 0.0
+      },
+      "performance_mean": 0.0,
+      "performance_std": null,
+      "pirelli_informed": {
+        "degradation": 0.017821199104075126,
+        "performance": 0.0
+      },
+      "selected_default": "historical_baseline"
+    },
+    "C3": {
+      "absolute_compound": "C3",
+      "compound_role": "MEDIUM",
+      "degradation_mean": 0.14407032425651345,
+      "degradation_std": null,
+      "historical_baseline": {
+        "degradation": 0.14407032425651345,
+        "performance": -0.2752115388974766
+      },
+      "performance_mean": -0.2752115388974766,
+      "performance_std": null,
+      "pirelli_informed": {
+        "degradation": 0.13952085571615988,
+        "performance": -0.292865283640633
+      },
+      "selected_default": "historical_baseline"
+    },
+    "C4": {
+      "absolute_compound": "C4",
+      "compound_role": "SOFT",
+      "degradation_mean": 0.20460105651325672,
+      "degradation_std": null,
+      "historical_baseline": {
+        "degradation": 0.20460105651325672,
+        "performance": -0.5873555913097841
+      },
+      "performance_mean": -0.5873555913097841,
+      "performance_std": null,
+      "pirelli_informed": {
+        "degradation": 0.23438788837580696,
+        "performance": -0.6051323459778958
+      },
+      "selected_default": "historical_baseline"
+    }
+  },
+  "default_prediction_family": "historical_baseline",
+  "degradation_model": {
+    "basis": "fixed production policy",
+    "formulation_code": "D0",
+    "model_name": "degradation_baseline",
+    "weighting_policy": "uniform"
+  },
+  "degradation_semantics": {
+    "contract": "canonical_tyre_source_semantics_v1",
+    "frame": "absolute_rate",
+    "independent_variable": "tyre_age_laps",
+    "positive_sign": "greater tyre age increases modelled lap time",
+    "quantity": "degradation_rate",
+    "reference_compound": null,
+    "uncertainty": "marginal_per_compound",
+    "unit": "s/tyre-age-lap"
+  },
+  "descriptor_boundary_note": "Endpoint ratings 1 and 5 are saturated ordinal categories; underlying physical severity may extend beyond the nominal coding. Predictions are not modified by this diagnostic warning.",
+  "descriptor_boundary_warning": false,
+  "descriptor_domain": {
+    "degradation": {
+      "abrasion_is_boundary": false,
+      "abrasion_level_seen_in_training": true,
+      "any_boundary_descriptor": false,
+      "boundary_descriptor_count": 0,
+      "boundary_descriptors": [],
+      "descriptor_features": [
+        "tyre_stress",
+        "asphalt_abrasion",
+        "asphalt_grip"
+      ],
+      "descriptor_scale_interpretation": "ordinal 1-5 categories; endpoints 1 and 5 are saturated bins",
+      "descriptor_tuple": [
+        4.0,
+        4.0,
+        2.0
+      ],
+      "exact_descriptor_tuple_prior_count": 0,
+      "exact_descriptor_tuple_seen": false,
+      "grip_is_boundary": false,
+      "grip_level_seen_in_training": true,
+      "stress_is_boundary": false,
+      "stress_level_seen_in_training": true
+    },
+    "performance": {
+      "abrasion_is_boundary": null,
+      "abrasion_level_seen_in_training": null,
+      "any_boundary_descriptor": false,
+      "boundary_descriptor_count": 0,
+      "boundary_descriptors": [],
+      "descriptor_features": [
+        "tyre_stress",
+        "asphalt_grip"
+      ],
+      "descriptor_scale_interpretation": "ordinal 1-5 categories; endpoints 1 and 5 are saturated bins",
+      "descriptor_tuple": [
+        4.0,
+        2.0
+      ],
+      "exact_descriptor_tuple_prior_count": 0,
+      "exact_descriptor_tuple_seen": false,
+      "grip_is_boundary": false,
+      "grip_level_seen_in_training": true,
+      "stress_is_boundary": false,
+      "stress_level_seen_in_training": true
+    }
+  },
+  "event": "Bahrain Grand Prix in Malaysia",
+  "features": {
+    "asphalt_abrasion": 4.0,
+    "asphalt_grip": 2.0,
+    "tyre_stress": 4.0
+  },
+  "model": "linear_v1.1",
+  "performance_coordinate": "seconds relative to event HARD compound",
+  "performance_model": {
+    "basis": "fixed production policy",
+    "formulation_code": "P0",
+    "model_name": "performance_baseline",
+    "weighting_policy": "uniform"
+  },
+  "performance_semantics": {
+    "contract": "canonical_tyre_source_semantics_v1",
+    "frame": "relative_to_compound",
+    "independent_variable": "dry_compound_choice",
+    "positive_sign": "compound is slower than HARD",
+    "quantity": "compound_performance_delta",
+    "reference_compound": "HARD",
+    "reference_value": 0.0,
+    "uncertainty": "marginal_per_compound",
+    "unit": "s"
+  },
+  "pirelli_informed_policy": {
+    "degradation": {
+      "formulation_code": "D1",
+      "model_name": "degradation_pirelli_v1",
+      "weighting_policy": "uniform"
+    },
+    "performance": {
+      "formulation_code": "P1",
+      "model_name": "performance_pirelli_v1",
+      "weighting_policy": "uniform"
+    }
+  },
+  "prediction_families": {
+    "historical_baseline": {
+      "degradation_model": "D0",
+      "description": "Uses transferable historical compound behaviour only. Currently better validated on the limited 2026 rolling sample.",
+      "performance_model": "P0"
+    },
+    "pirelli_informed": {
+      "degradation_model": "D1",
+      "description": "Adds simplified tyre-stress and surface dependence. It represents the intended physical dependence more explicitly but has not yet demonstrated superior rolling predictive accuracy.",
+      "performance_model": "P1"
+    }
+  },
+  "prediction_fingerprint": "592f2cb2f7841aa69d786c5ce2c65c52c4a7b6c93e5608aa84bb4c0ceec94c60",
+  "prediction_timestamp": "2026-10-03T22:21:08.046001+00:00",
+  "production_policy": {
+    "degradation": {
+      "formulation_code": "D0",
+      "model_name": "degradation_baseline",
+      "weighting_policy": "uniform"
+    },
+    "performance": {
+      "formulation_code": "P0",
+      "model_name": "performance_baseline",
+      "weighting_policy": "uniform"
+    }
+  },
+  "regression_predictions": {
+    "D0": {
+      "compounds": {
+        "HARD": {
+          "absolute_compound": "C2",
+          "compound_role": "HARD",
+          "predicted_value": 0.09141717826254332
+        },
+        "MEDIUM": {
+          "absolute_compound": "C3",
+          "compound_role": "MEDIUM",
+          "predicted_value": 0.14407032425651345
+        },
+        "SOFT": {
+          "absolute_compound": "C4",
+          "compound_role": "SOFT",
+          "predicted_value": 0.20460105651325672
+        }
+      },
+      "descriptor_domain": {
+        "abrasion_is_boundary": false,
+        "abrasion_level_seen_in_training": true,
+        "any_boundary_descriptor": false,
+        "boundary_descriptor_count": 0,
+        "boundary_descriptors": [],
+        "descriptor_features": [
+          "tyre_stress",
+          "asphalt_abrasion",
+          "asphalt_grip"
+        ],
+        "descriptor_scale_interpretation": "ordinal 1-5 categories; endpoints 1 and 5 are saturated bins",
+        "descriptor_tuple": [
+          4.0,
+          4.0,
+          2.0
+        ],
+        "exact_descriptor_tuple_prior_count": 0,
+        "exact_descriptor_tuple_seen": false,
+        "grip_is_boundary": false,
+        "grip_level_seen_in_training": true,
+        "stress_is_boundary": false,
+        "stress_level_seen_in_training": true
+      },
+      "is_production": true,
+      "model_name": "degradation_baseline",
+      "prediction_family": "historical_baseline",
+      "target": "degradation",
+      "weighting_policy": "uniform"
+    },
+    "D1": {
+      "compounds": {
+        "HARD": {
+          "absolute_compound": "C2",
+          "compound_role": "HARD",
+          "predicted_value": 0.017821199104075126
+        },
+        "MEDIUM": {
+          "absolute_compound": "C3",
+          "compound_role": "MEDIUM",
+          "predicted_value": 0.13952085571615988
+        },
+        "SOFT": {
+          "absolute_compound": "C4",
+          "compound_role": "SOFT",
+          "predicted_value": 0.23438788837580696
+        }
+      },
+      "descriptor_domain": {
+        "abrasion_is_boundary": false,
+        "abrasion_level_seen_in_training": true,
+        "any_boundary_descriptor": false,
+        "boundary_descriptor_count": 0,
+        "boundary_descriptors": [],
+        "descriptor_features": [
+          "tyre_stress",
+          "asphalt_abrasion",
+          "asphalt_grip"
+        ],
+        "descriptor_scale_interpretation": "ordinal 1-5 categories; endpoints 1 and 5 are saturated bins",
+        "descriptor_tuple": [
+          4.0,
+          4.0,
+          2.0
+        ],
+        "exact_descriptor_tuple_prior_count": 0,
+        "exact_descriptor_tuple_seen": false,
+        "grip_is_boundary": false,
+        "grip_level_seen_in_training": true,
+        "stress_is_boundary": false,
+        "stress_level_seen_in_training": true
+      },
+      "is_production": false,
+      "model_name": "degradation_pirelli_v1",
+      "prediction_family": "pirelli_informed",
+      "target": "degradation",
+      "weighting_policy": "uniform"
+    },
+    "P0": {
+      "compounds": {
+        "HARD": {
+          "absolute_compound": "C2",
+          "compound_role": "HARD",
+          "predicted_value": 0.0
+        },
+        "MEDIUM": {
+          "absolute_compound": "C3",
+          "compound_role": "MEDIUM",
+          "predicted_value": -0.2752115388974766
+        },
+        "SOFT": {
+          "absolute_compound": "C4",
+          "compound_role": "SOFT",
+          "predicted_value": -0.5873555913097841
+        }
+      },
+      "descriptor_domain": {
+        "abrasion_is_boundary": null,
+        "abrasion_level_seen_in_training": null,
+        "any_boundary_descriptor": false,
+        "boundary_descriptor_count": 0,
+        "boundary_descriptors": [],
+        "descriptor_features": [
+          "tyre_stress",
+          "asphalt_grip"
+        ],
+        "descriptor_scale_interpretation": "ordinal 1-5 categories; endpoints 1 and 5 are saturated bins",
+        "descriptor_tuple": [
+          4.0,
+          2.0
+        ],
+        "exact_descriptor_tuple_prior_count": 0,
+        "exact_descriptor_tuple_seen": false,
+        "grip_is_boundary": false,
+        "grip_level_seen_in_training": true,
+        "stress_is_boundary": false,
+        "stress_level_seen_in_training": true
+      },
+      "is_production": true,
+      "model_name": "performance_baseline",
+      "prediction_family": "historical_baseline",
+      "target": "performance",
+      "weighting_policy": "uniform"
+    },
+    "P1": {
+      "compounds": {
+        "HARD": {
+          "absolute_compound": "C2",
+          "compound_role": "HARD",
+          "predicted_value": 0.0
+        },
+        "MEDIUM": {
+          "absolute_compound": "C3",
+          "compound_role": "MEDIUM",
+          "predicted_value": -0.292865283640633
+        },
+        "SOFT": {
+          "absolute_compound": "C4",
+          "compound_role": "SOFT",
+          "predicted_value": -0.6051323459778958
+        }
+      },
+      "descriptor_domain": {
+        "abrasion_is_boundary": null,
+        "abrasion_level_seen_in_training": null,
+        "any_boundary_descriptor": false,
+        "boundary_descriptor_count": 0,
+        "boundary_descriptors": [],
+        "descriptor_features": [
+          "tyre_stress",
+          "asphalt_grip"
+        ],
+        "descriptor_scale_interpretation": "ordinal 1-5 categories; endpoints 1 and 5 are saturated bins",
+        "descriptor_tuple": [
+          4.0,
+          2.0
+        ],
+        "exact_descriptor_tuple_prior_count": 0,
+        "exact_descriptor_tuple_seen": false,
+        "grip_is_boundary": false,
+        "grip_level_seen_in_training": true,
+        "stress_is_boundary": false,
+        "stress_level_seen_in_training": true
+      },
+      "is_production": false,
+      "model_name": "performance_pirelli_v1",
+      "prediction_family": "pirelli_informed",
+      "target": "performance",
+      "weighting_policy": "uniform"
+    }
+  },
+  "round": 16,
+  "schema_version": "schema_v1",
+  "season": 2026,
+  "target_preview_hash": "dab01029dffbf3e54376b384fc3f9b298d7b38d8e3f96b9f04c008f677802d35",
+  "trained_through_round": 15,
+  "training_data_hash": "c7bd7c6cfa35fc6ed21545a8bf91f1f5d53f7bc9bd63a624d46fec809b0a2b83",
+  "training_rounds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "validation_context": {
+    "current_observation": "historical_baseline currently has lower rolling validation error for both performance and degradation; both estimates remain exposed",
+    "historical_baseline": {
+      "degradation": {
+        "MAE": 0.07889431598739496,
+        "RMSE": 0.10122475245769791,
+        "bias": -0.004536087163916996,
+        "prediction_count": 27
+      },
+      "performance": {
+        "MAE": 0.09400620064887204,
+        "RMSE": 0.13970802649123204,
+        "bias": -0.026167463630064797,
+        "prediction_count": 19
+      }
+    },
+    "pirelli_informed": {
+      "degradation": {
+        "MAE": 0.09604856602612553,
+        "RMSE": 0.15901729178511637,
+        "bias": -0.02153237743760941,
+        "prediction_count": 27
+      },
+      "performance": {
+        "MAE": 0.14317762277719157,
+        "RMSE": 0.2123428104436809,
+        "bias": 0.028891205404545928,
+        "prediction_count": 19
+      }
+    },
+    "validation_type": "historical_rolling",
+    "weighting_policy": "uniform"
+  }
+}
