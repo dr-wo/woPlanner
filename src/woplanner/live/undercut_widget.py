@@ -12,16 +12,19 @@ class ObservedUndercutWidget(QtWidgets.QGroupBox):
         super().__init__("Observed pace delta / Observed undercut estimate", parent)
         layout = QtWidgets.QVBoxLayout(self)
         explanation = QtWidgets.QLabel(
-            "Clean full laps: positive observed delta means the post-stop lap was faster. "
+            "Observed full-lap delta is the primary result: positive means the post-stop lap was faster. "
+            "S2-derived lap-equivalent delta is an auxiliary extrapolation, not a measured whole-lap gain. "
+            "Disagreement may reflect tyre warm-up, sector-specific effects, traffic or other lap variation. "
             "MC track change is separate: positive means the later reference is modelled slower."
         )
         explanation.setWordWrap(True)
         self.status = QtWidgets.QLabel("Waiting for racing pit-in/out evidence and clean full laps.")
         self.status.setWordWrap(True)
-        self.table = QtWidgets.QTableWidget(0, 9)
+        self.table = QtWidgets.QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels([
             "Driver", "Pit in / out", "Old → replacement", "Pre lap", "Post lap",
-            "Separation", "Observed delta (s)", "MC track change (s)", "Status",
+            "Separation", "Observed full-lap delta (s)",
+            "S2-derived lap-equivalent delta (s)", "MC track change (s)", "Status",
         ])
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setMinimumHeight(135)
@@ -38,6 +41,7 @@ class ObservedUndercutWidget(QtWidgets.QGroupBox):
         for row_index, estimate in enumerate(estimates):
             track = estimate.track
             observed = estimate.observed_pace_delta_s
+            s2 = estimate.s2.lap_equivalent_delta_s
             values = [
                 estimate.driver,
                 f"{estimate.pit_in_lap} / {estimate.pit_out_lap}",
@@ -45,6 +49,7 @@ class ObservedUndercutWidget(QtWidgets.QGroupBox):
                 estimate.pre_reference_lap, estimate.post_reference_lap,
                 estimate.reference_separation,
                 f"{observed:+.3f}" if observed is not None else "—",
+                f"{s2:+.3f}" if s2 is not None else "Unavailable",
                 f"{track.track_term_change_s:+.3f}" if track.status == "available" else "Unavailable",
                 "Available" if estimate.status == "available" else estimate.pending_reason,
             ]
@@ -57,7 +62,8 @@ class ObservedUndercutWidget(QtWidgets.QGroupBox):
         self.table.resizeColumnsToContents()
         available = sum(estimate.status == "available" for estimate in estimates)
         self.status.setText(
-            f"{available} available / {len(estimates)} racing stops. Hover a row for references and model provenance."
+            f"{available} available / {len(estimates)} racing stops. "
+            "Hover a row for references, S2 values/scaling and model provenance."
             if estimates else "Waiting for racing pit-in/out evidence and clean full laps."
         )
 

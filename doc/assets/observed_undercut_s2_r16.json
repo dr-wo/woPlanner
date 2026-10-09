@@ -1,0 +1,970 @@
+{
+  "event": "2026 R16 Race",
+  "recording": "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=16/session=R/live_timing_raw.jsonl",
+  "recording_sha256": "7c98a9511dde43fecfa6082b0b2c2a87f28b866dc6fecd4db967bdd1bd7112d0",
+  "baseline_commit": "479e0f09c6e3f6ed2da8f5bd3b3959b60ee8228d",
+  "baseline_source_sha256": "15089636c276931319a417a713591f4a591e4f7af9680a9f48f03c3c3ffc2968",
+  "current_source_sha256": "8e0d2a5f5bd893ca3f410ae144d4918871971142469eddf0f89e9064e0c36ed1",
+  "replay_status": "completed",
+  "replay_messages": 80384,
+  "completed_laps": 1120,
+  "completed_sectors": 3306,
+  "clean_lap_options": {
+    "quick_lap_threshold": 1.1,
+    "use_sector_boundary_traffic": true
+  },
+  "eligible_stops": 68,
+  "available_full_lap_pairs": 12,
+  "available_s2_pairs": 12,
+  "all_original_audit_fields_identical": true,
+  "examples": [
+    {
+      "driver": "PER",
+      "driver_number": "11",
+      "racing_pit_stop_id": 40309,
+      "pit_in_lap": 21,
+      "pit_out_lap": 22,
+      "old_stint": 3,
+      "replacement_stint": 4,
+      "old_compound": "HARD",
+      "replacement_compound": "HARD",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 20,
+      "post_reference_lap": 23,
+      "pre_lap_duration_s": 102.688,
+      "post_lap_duration_s": 102.726,
+      "reference_separation": 3,
+      "observed_pace_delta_s": -0.0379999999999967,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 35.14,
+        "post_sector_duration_s": 35.067,
+        "raw_delta_s": 0.0730000000000004,
+        "scale_factor": 2.925837332385867,
+        "lap_equivalent_delta_s": 0.21358612526416945,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "ANT",
+      "driver_number": "12",
+      "racing_pit_stop_id": 53472,
+      "pit_in_lap": 33,
+      "pit_out_lap": 34,
+      "old_stint": 2,
+      "replacement_stint": 3,
+      "old_compound": "MEDIUM",
+      "replacement_compound": "SOFT",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 32,
+      "post_reference_lap": 36,
+      "pre_lap_duration_s": 102.399,
+      "post_lap_duration_s": 100.761,
+      "reference_separation": 4,
+      "observed_pace_delta_s": 1.6380000000000052,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 34.572,
+        "post_sector_duration_s": 34.219,
+        "raw_delta_s": 0.35300000000000153,
+        "scale_factor": 2.953248886982625,
+        "lap_equivalent_delta_s": 1.0424968571048712,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "STR",
+      "driver_number": "18",
+      "racing_pit_stop_id": 48089,
+      "pit_in_lap": 28,
+      "pit_out_lap": 29,
+      "old_stint": 3,
+      "replacement_stint": 4,
+      "old_compound": "HARD",
+      "replacement_compound": "HARD",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 27,
+      "post_reference_lap": 30,
+      "pre_lap_duration_s": 103.887,
+      "post_lap_duration_s": 102.27600000000001,
+      "reference_separation": 3,
+      "observed_pace_delta_s": 1.61099999999999,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 35.518,
+        "post_sector_duration_s": 35.07,
+        "raw_delta_s": 0.4480000000000004,
+        "scale_factor": 2.920625031821598,
+        "lap_equivalent_delta_s": 1.308440014256077,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "ALB",
+      "driver_number": "23",
+      "racing_pit_stop_id": 49651,
+      "pit_in_lap": 29,
+      "pit_out_lap": 30,
+      "old_stint": 3,
+      "replacement_stint": 4,
+      "old_compound": "HARD",
+      "replacement_compound": "SOFT",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 25,
+      "post_reference_lap": 33,
+      "pre_lap_duration_s": 104.191,
+      "post_lap_duration_s": 102.686,
+      "reference_separation": 8,
+      "observed_pace_delta_s": 1.5049999999999955,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 35.751,
+        "post_sector_duration_s": 35.115,
+        "raw_delta_s": 0.6359999999999957,
+        "scale_factor": 2.919314710219031,
+        "lap_equivalent_delta_s": 1.8566841556992912,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "VER",
+      "driver_number": "3",
+      "racing_pit_stop_id": 53366,
+      "pit_in_lap": 33,
+      "pit_out_lap": 34,
+      "old_stint": 2,
+      "replacement_stint": 3,
+      "old_compound": "SOFT",
+      "replacement_compound": "SOFT",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 32,
+      "post_reference_lap": 35,
+      "pre_lap_duration_s": 102.19,
+      "post_lap_duration_s": 100.888,
+      "reference_separation": 3,
+      "observed_pace_delta_s": 1.3019999999999925,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 34.315,
+        "post_sector_duration_s": 34.456,
+        "raw_delta_s": -0.14100000000000534,
+        "scale_factor": 2.9530110534068186,
+        "lap_equivalent_delta_s": -0.4163745585303772,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "VER",
+      "driver_number": "3",
+      "racing_pit_stop_id": 65135,
+      "pit_in_lap": 43,
+      "pit_out_lap": 44,
+      "old_stint": 3,
+      "replacement_stint": 4,
+      "old_compound": "SOFT",
+      "replacement_compound": "SOFT",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 42,
+      "post_reference_lap": 55,
+      "pre_lap_duration_s": 100.965,
+      "post_lap_duration_s": 98.22,
+      "reference_separation": 13,
+      "observed_pace_delta_s": 2.7450000000000045,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 34.2,
+        "post_sector_duration_s": 32.883,
+        "raw_delta_s": 1.3170000000000002,
+        "scale_factor": 2.9695733637761954,
+        "lap_equivalent_delta_s": 3.9109281200932497,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "LAW",
+      "driver_number": "30",
+      "racing_pit_stop_id": 50338,
+      "pit_in_lap": 30,
+      "pit_out_lap": 31,
+      "old_stint": 2,
+      "replacement_stint": 3,
+      "old_compound": "HARD",
+      "replacement_compound": "HARD",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 26,
+      "post_reference_lap": 32,
+      "pre_lap_duration_s": 103.953,
+      "post_lap_duration_s": 101.369,
+      "reference_separation": 6,
+      "observed_pace_delta_s": 2.584000000000003,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 35.344,
+        "post_sector_duration_s": 34.574,
+        "raw_delta_s": 0.7700000000000031,
+        "scale_factor": 2.936560606758329,
+        "lap_equivalent_delta_s": 2.2611516672039227,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "COL",
+      "driver_number": "43",
+      "racing_pit_stop_id": 51797,
+      "pit_in_lap": 31,
+      "pit_out_lap": 32,
+      "old_stint": 2,
+      "replacement_stint": 3,
+      "old_compound": "MEDIUM",
+      "replacement_compound": "HARD",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 28,
+      "post_reference_lap": 35,
+      "pre_lap_duration_s": 103.52799999999999,
+      "post_lap_duration_s": 102.185,
+      "reference_separation": 7,
+      "observed_pace_delta_s": 1.3429999999999893,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 35.22,
+        "post_sector_duration_s": 34.932,
+        "raw_delta_s": 0.2879999999999967,
+        "scale_factor": 2.9323604965480756,
+        "lap_equivalent_delta_s": 0.8445198230058361,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "BOR",
+      "driver_number": "5",
+      "racing_pit_stop_id": 55688,
+      "pit_in_lap": 34,
+      "pit_out_lap": 35,
+      "old_stint": 4,
+      "replacement_stint": 5,
+      "old_compound": "HARD",
+      "replacement_compound": "SOFT",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 32,
+      "post_reference_lap": 38,
+      "pre_lap_duration_s": 105.197,
+      "post_lap_duration_s": 101.923,
+      "reference_separation": 6,
+      "observed_pace_delta_s": 3.274000000000001,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 35.565,
+        "post_sector_duration_s": 34.628,
+        "raw_delta_s": 0.9369999999999976,
+        "scale_factor": 2.9506247328456956,
+        "lap_equivalent_delta_s": 2.76473537467641,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "SAI",
+      "driver_number": "55",
+      "racing_pit_stop_id": 45822,
+      "pit_in_lap": 26,
+      "pit_out_lap": 27,
+      "old_stint": 2,
+      "replacement_stint": 3,
+      "old_compound": "SOFT",
+      "replacement_compound": "HARD",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 25,
+      "post_reference_lap": 40,
+      "pre_lap_duration_s": 104.226,
+      "post_lap_duration_s": 103.818,
+      "reference_separation": 15,
+      "observed_pace_delta_s": 0.40800000000000125,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 35.775,
+        "post_sector_duration_s": 35.705,
+        "raw_delta_s": 0.07000000000000028,
+        "scale_factor": 2.910517626826161,
+        "lap_equivalent_delta_s": 0.2037362338778321,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "RUS",
+      "driver_number": "63",
+      "racing_pit_stop_id": 52343,
+      "pit_in_lap": 32,
+      "pit_out_lap": 33,
+      "old_stint": 2,
+      "replacement_stint": 3,
+      "old_compound": "MEDIUM",
+      "replacement_compound": "SOFT",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 31,
+      "post_reference_lap": 34,
+      "pre_lap_duration_s": 103.168,
+      "post_lap_duration_s": 100.715,
+      "reference_separation": 3,
+      "observed_pace_delta_s": 2.453000000000003,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 34.836,
+        "post_sector_duration_s": 34.175,
+        "raw_delta_s": 0.6610000000000014,
+        "scale_factor": 2.9542856766071104,
+        "lap_equivalent_delta_s": 1.952782832237304,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    },
+    {
+      "driver": "PIA",
+      "driver_number": "81",
+      "racing_pit_stop_id": 53857,
+      "pit_in_lap": 33,
+      "pit_out_lap": 34,
+      "old_stint": 3,
+      "replacement_stint": 4,
+      "old_compound": "HARD",
+      "replacement_compound": "HARD",
+      "status": "available",
+      "pending_reason": null,
+      "pre_reference_lap": 31,
+      "post_reference_lap": 37,
+      "pre_lap_duration_s": 103.189,
+      "post_lap_duration_s": 100.34,
+      "reference_separation": 6,
+      "observed_pace_delta_s": 2.8489999999999895,
+      "track": {
+        "status": "unavailable",
+        "reason": "No current live Retro model",
+        "analysis_id": null,
+        "sample_bank_id": null,
+        "architecture": null,
+        "as_of_leader_lap": null,
+        "created_at": null,
+        "input_fingerprint": null,
+        "config_hash": null,
+        "track_rate_s_per_lap": null,
+        "race_lap_reference": null,
+        "pre_track_term_s": null,
+        "post_track_term_s": null,
+        "track_term_change_s": null,
+        "formula": "track_rate * (LapNumber - RaceLapRef)",
+        "sign": "Positive change means the later reference is modelled slower",
+        "identifiability": null
+      },
+      "clean_lap_settings": [
+        [
+          "quick_lap_threshold",
+          1.1
+        ],
+        [
+          "allowed_compounds",
+          [
+            "SOFT",
+            "MEDIUM",
+            "HARD"
+          ]
+        ],
+        [
+          "use_sector_boundary_traffic",
+          true
+        ],
+        [
+          "min_gap_ahead_seconds",
+          2.5
+        ],
+        [
+          "min_gap_behind_seconds",
+          1.0
+        ]
+      ],
+      "duration_source": "unmodelled CompletedLap.lap_time_s",
+      "observation_sign": "Positive means the post-stop clean lap was faster",
+      "s2": {
+        "status": "available",
+        "reason": null,
+        "pre_sector_duration_s": 34.731,
+        "post_sector_duration_s": 34.155,
+        "raw_delta_s": 0.5760000000000005,
+        "scale_factor": 2.954437870675463,
+        "lap_equivalent_delta_s": 1.701756213509068,
+        "formula": "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)",
+        "duration_source": "unmodelled CompletedSector.sector_time_s (S2)",
+        "reference_selection": "Same selected pre/post clean full-lap references",
+        "sign": "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+      }
+    }
+  ]
+}

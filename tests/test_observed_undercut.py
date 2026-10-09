@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from wodata.contracts import ModelSnapshot, ParameterEstimate
-from wodata.live import CompletedLap, LiveSessionSnapshot
+from wodata.live import CompletedLap, CompletedSector, LiveSessionSnapshot
 from woplanner.analysis.observed_undercut import (
     build_observed_undercut_estimates, interpret_mc_track,
 )
@@ -34,6 +34,17 @@ def change(snap, lap_number, **fields):
         replace(lap, **fields) if lap.lap_number == lap_number else lap
         for lap in snap.completed_laps
     ))
+
+
+def with_s2(snap, values):
+    """Attach canonical S2 evidence by the full lap's driver/lap identity."""
+    sectors = tuple(CompletedSector(
+        lap.driver_number, lap.driver_code, lap.team, lap.lap_number, "S2",
+        lap.lap_number * 3 - 1, values[lap.lap_number], lap.cumulative_time_s,
+        lap.position, lap.source_timestamp_utc, stint=lap.stint,
+        session_time_seconds=lap.session_time_seconds,
+    ) for lap in snap.completed_laps if lap.lap_number in values)
+    return replace(snap, completed_sectors=sectors)
 
 
 @pytest.fixture
@@ -238,3 +249,114 @@ def test_non_racing_session_is_not_an_observed_undercut(traffic, name):
 @pytest.mark.parametrize("name", ["Race", "R", "Sprint", "S"])
 def test_racing_session_identity_is_supported(traffic, name):
     assert len(estimate(replace(snapshot(), session_info={"Name": name}))) == 2
+
+
+@pytest.mark.parametrize("pre_s2,post_s2", [(31., 30.), (30., 31.), (30., 30.)])
+def test_s2_sign_scaling_and_reproducible_audit(traffic, pre_s2, post_s2):
+    first = estimate(with_s2(snapshot(), {3: pre_s2, 6: post_s2}))[0]
+    audit = first.to_record()
+    s2 = audit["s2"]
+    assert s2["status"] == "available"
+    assert s2["raw_delta_s"] == pytest.approx(pre_s2 - post_s2)
+    scale = .5 * (93. / pre_s2 + 90. / post_s2)
+    assert s2["scale_factor"] == pytest.approx(scale)
+    assert s2["lap_equivalent_delta_s"] == pytest.approx((pre_s2 - post_s2) * scale)
+    assert s2["formula"] == (
+        "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)"
+    )
+    reproduced = (s2["pre_sector_duration_s"] - s2["post_sector_duration_s"]) * .5 * (
+        audit["pre_lap_duration_s"] / s2["pre_sector_duration_s"]
+        + audit["post_lap_duration_s"] / s2["post_sector_duration_s"]
+    )
+    assert reproduced == s2["lap_equivalent_delta_s"]
+    assert "CompletedSector" in s2["duration_source"]
+    assert "Same selected" in s2["reference_selection"]
+    assert first.observed_pace_delta_s == 3.
+
+
+def test_s2_scale_is_symmetric_and_uses_both_reference_ratios(traffic):
+    snap = with_s2(snapshot(), {3: 20., 6: 40.})
+    forward = estimate(snap)[0]
+    reverse_snap = change(change(snap, 3, lap_time_s=90.), 6, lap_time_s=93.)
+    reverse = estimate(with_s2(reverse_snap, {3: 40., 6: 20.}))[0]
+    assert forward.s2.scale_factor == .5 * (93. / 20. + 90. / 40.)
+    assert forward.s2.scale_factor not in (93. / 20., 90. / 40.)
+    assert reverse.s2.scale_factor == forward.s2.scale_factor
+    assert reverse.s2.lap_equivalent_delta_s == -forward.s2.lap_equivalent_delta_s
+
+
+@pytest.mark.parametrize("lap_number", [3, 6])
+@pytest.mark.parametrize("value", [None, float("nan"), float("inf"), 0., -1., 100., True])
+def test_missing_or_unusable_s2_preserves_full_lap_and_mc(traffic, lap_number, value):
+    baseline = estimate(snapshot(), model_summary=summary())[0].to_record()
+    values = {3: 31., 6: 30.}
+    if value is None:
+        values.pop(lap_number)
+    else:
+        values[lap_number] = value
+    first = estimate(with_s2(snapshot(), values), model_summary=summary())[0]
+    assert first.status == "available"
+    assert first.s2.status == "unavailable"
+    assert first.s2.raw_delta_s is None
+    assert first.s2.scale_factor is None
+    assert first.s2.lap_equivalent_delta_s is None
+    assert ("pre-stop" if lap_number == 3 else "post-stop") in first.s2.reason
+    current = first.to_record()
+    current.pop("s2")
+    baseline.pop("s2")
+    assert current == baseline
+
+
+def test_s2_uses_exact_selected_laps_and_same_stop_stints(traffic):
+    snap = with_s2(snapshot(), {2: 38., 3: 31., 4: 60., 5: 55., 6: 30.,
+                                7: 29., 10: 28.})
+    baseline = estimate(snapshot(), model_summary=summary())
+    rows = estimate(snap, model_summary=summary())
+    assert [(r.racing_pit_stop_id, r.old_stint, r.replacement_stint,
+             r.pre_reference_lap, r.post_reference_lap) for r in rows] == [
+        (10, 1, 2, 3, 6), (20, 2, 3, 7, 10),
+    ]
+    assert rows[0].s2.raw_delta_s == rows[1].s2.raw_delta_s == 1.
+    for before, after in zip(baseline, rows):
+        old, new = before.to_record(), after.to_record()
+        old.pop("s2")
+        new.pop("s2")
+        assert old == new
+    traffic.add(3)
+    selected = estimate(snap)[0]
+    assert selected.pre_reference_lap == 2
+    assert selected.s2.pre_sector_duration_s == 38.
+    # No fallback to another lap with S2 when the chosen full-lap reference lacks it.
+    snap = replace(snap, completed_sectors=tuple(s for s in snap.completed_sectors
+                                                if s.lap_number != 2))
+    selected = estimate(snap)[0]
+    assert selected.pre_reference_lap == 2
+    assert selected.s2.status == "unavailable"
+    traffic.update([6, 7])
+    pending = estimate(snap)[0]
+    assert pending.post_reference_lap is None  # Cannot use S2 from replacement's next stint.
+    assert pending.s2.status == "unavailable"
+
+
+@pytest.mark.parametrize("problem", ["duplicate", "wrong_stint", "wrong_driver"])
+def test_ambiguous_or_mismatched_sector_identity_is_unavailable(traffic, problem):
+    snap = with_s2(snapshot(), {3: 31., 6: 30.})
+    sectors = list(snap.completed_sectors)
+    if problem == "duplicate":
+        sectors.append(sectors[0])
+    elif problem == "wrong_stint":
+        sectors[0] = replace(sectors[0], stint=2)
+    else:
+        sectors[0] = replace(sectors[0], driver_number="99")
+    first = estimate(replace(snap, completed_sectors=tuple(sectors)))[0]
+    assert first.s2.status == "unavailable"
+    assert first.observed_pace_delta_s == 3.
+
+
+def test_s2_survives_worker_serialization_and_historical_cut(traffic):
+    import pickle
+    snap = with_s2(snapshot(), {3: 31., 6: 30., 7: 29., 10: 28.})
+    carried = pickle.loads(pickle.dumps(_serializable_live_snapshot(snap)))
+    assert estimate(carried) == estimate(snap)
+    cut = snapshot_as_of_leader_lap(snap, 7)
+    assert estimate(cut) == estimate(snap)[:1]

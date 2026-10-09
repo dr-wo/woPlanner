@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import math
 from typing import Mapping
 
@@ -29,6 +29,21 @@ class MCTrackInterpretation:
 
 
 @dataclass(frozen=True)
+class S2LapEquivalentDiagnostic:
+    status: str = "unavailable"
+    reason: str | None = "Missing full-lap reference pair"
+    pre_sector_duration_s: float | None = None
+    post_sector_duration_s: float | None = None
+    raw_delta_s: float | None = None
+    scale_factor: float | None = None
+    lap_equivalent_delta_s: float | None = None
+    formula: str = "(pre_S2 - post_S2) * 0.5 * (pre_lap / pre_S2 + post_lap / post_S2)"
+    duration_source: str = "unmodelled CompletedSector.sector_time_s (S2)"
+    reference_selection: str = "Same selected pre/post clean full-lap references"
+    sign: str = "Positive means the post-stop S2 was faster; auxiliary extrapolation"
+
+
+@dataclass(frozen=True)
 class ObservedUndercutEstimate:
     driver: str
     driver_number: str
@@ -51,6 +66,7 @@ class ObservedUndercutEstimate:
     clean_lap_settings: tuple[tuple[str, object], ...]
     duration_source: str = "unmodelled CompletedLap.lap_time_s"
     observation_sign: str = "Positive means the post-stop clean lap was faster"
+    s2: S2LapEquivalentDiagnostic = field(default_factory=S2LapEquivalentDiagnostic)
 
     def to_record(self) -> dict[str, object]:
         return asdict(self)
@@ -66,6 +82,43 @@ def _finite(value) -> float | None:
 
 def _mapping(value) -> Mapping:
     return dict(value) if isinstance(value, (Mapping, tuple, list)) else {}
+
+
+def _s2_lap_equivalent(pre, post, sectors_by_lap) -> S2LapEquivalentDiagnostic:
+    """Extrapolate S2 using the mean of both reference laps' lap/S2 ratios.
+
+    Never select another lap or stop when a chosen reference lacks usable S2.
+    Equal weighting makes the scale invariant to exchanging pre and post.
+    """
+    durations = []
+    missing = []
+    for side, lap in (("pre-stop", pre), ("post-stop", post)):
+        candidates = sectors_by_lap.get((lap.driver_number, lap.lap_number), ()) if lap else ()
+        sector = candidates[0] if len(candidates) == 1 else None
+        value = _finite(sector.sector_time_s) if sector else None
+        if (lap is None or sector is None or value is None
+                or isinstance(sector.sector_time_s, bool) or not 0 < value < lap.lap_time_s
+                or sector.driver_code != lap.driver_code
+                or (sector.stint is not None and sector.stint != lap.stint)):
+            value = None
+            missing.append(side)
+        durations.append(value)
+    evidence = dict(pre_sector_duration_s=durations[0], post_sector_duration_s=durations[1])
+    if missing:
+        return S2LapEquivalentDiagnostic(
+            reason="Missing or unusable " + " and ".join(missing) + " reference S2",
+            **evidence,
+        )
+    pre_s2, post_s2 = durations
+    raw = pre_s2 - post_s2
+    scale = 0.5 * (pre.lap_time_s / pre_s2 + post.lap_time_s / post_s2)
+    equivalent = raw * scale
+    if _finite(scale) is None or _finite(equivalent) is None:
+        return S2LapEquivalentDiagnostic(reason="Non-finite S2 scaling result", **evidence)
+    return S2LapEquivalentDiagnostic(
+        status="available", reason=None, raw_delta_s=raw, scale_factor=scale,
+        lap_equivalent_delta_s=equivalent, **evidence,
+    )
 
 
 def interpret_mc_track(model_summary, pre_lap: int | None, post_lap: int | None):
@@ -158,6 +211,10 @@ def build_observed_undercut_estimates(
     by_driver = {}
     for lap in snapshot.completed_laps:
         by_driver.setdefault(lap.driver_number, []).append(lap)
+    sectors_by_lap = {}
+    for sector in getattr(snapshot, "completed_sectors", ()):
+        if str(sector.sector).upper() == "S2":
+            sectors_by_lap.setdefault((sector.driver_number, sector.lap_number), []).append(sector)
     result = []
     for number, laps in sorted(by_driver.items()):
         laps = sorted(laps, key=lambda lap: lap.lap_number)
@@ -212,5 +269,6 @@ def build_observed_undercut_estimates(
                 post_lap - pre_lap if available else None,
                 float(pre.lap_time_s - post.lap_time_s) if available else None,
                 interpret_mc_track(model_summary, pre_lap, post_lap), tuple(settings.items()),
+                s2=_s2_lap_equivalent(pre, post, sectors_by_lap),
             ))
     return tuple(result)

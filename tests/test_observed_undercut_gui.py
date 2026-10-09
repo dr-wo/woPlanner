@@ -9,7 +9,7 @@ import pytest
 
 from woplanner.analysis.gui import StrategyPredictionMode, StrategyPredictionWindow
 from woplanner.analysis.service import ModelSummary, OfflineAnalysisService
-from test_observed_undercut import snapshot, summary
+from test_observed_undercut import snapshot, summary, with_s2
 from test_tyre_inputs_gui import app, write_event
 
 
@@ -40,13 +40,21 @@ def test_live_observation_display_audit_and_sensitivity_isolation(tmp_path, monk
     qt = app()
     window = make_window(tmp_path, monkeypatch)
     try:
-        window.consume_live_snapshot(snapshot())
+        window.consume_live_snapshot(with_s2(snapshot(), {3: 31., 6: 30.}))
         table = window.observed_undercut.table
         assert table.rowCount() == 2
-        assert [table.item(0, col).text() for col in (3, 4, 5, 6, 7)] == [
-            "3", "6", "3", "+3.000", "+0.060",
+        assert [table.item(0, col).text() for col in (3, 4, 5, 6, 7, 8)] == [
+            "3", "6", "3", "+3.000", "+3.000", "+0.060",
         ]
+        assert table.horizontalHeaderItem(6).text() == "Observed full-lap delta (s)"
+        assert table.horizontalHeaderItem(7).text() == "S2-derived lap-equivalent delta (s)"
+        assert table.item(1, 7).text() == "Unavailable"
         audit = json.loads(table.item(0, 7).toolTip())
+        assert audit["s2"]["pre_sector_duration_s"] == 31.
+        assert audit["s2"]["post_sector_duration_s"] == 30.
+        assert audit["s2"]["raw_delta_s"] == 1.
+        assert audit["s2"]["scale_factor"] == 3.
+        assert audit["s2"]["lap_equivalent_delta_s"] == 3.
         assert audit["track"]["analysis_id"] == "live-fit"
         assert audit["track"]["config_hash"] == "config-hash"
         assert audit["pre_lap_duration_s"] == 93.
@@ -62,11 +70,21 @@ def test_live_observation_display_audit_and_sensitivity_isolation(tmp_path, monk
         saved = json.loads(window._state_path.read_text())["live_observed_undercut"]
         assert saved["event"] == {"year": 2026, "round_number": 11, "session": "R"}
         assert saved["estimates"][0]["observed_pace_delta_s"] == 3.
+        assert saved["estimates"][0]["s2"] == audit["s2"]
         assert saved["estimates"][0]["track"]["track_term_change_s"] == pytest.approx(.06)
         # A new current fit changes only the separate interpretation.
         window._load_model(summary=summary(rate=-.02, reference=10.))
         assert table.item(0, 6).text() == "+3.000"
-        assert table.item(0, 7).text() == "-0.060"
+        assert table.item(0, 7).text() == "+3.000"
+        assert table.item(0, 8).text() == "-0.060"
+        # Sector-only correction invalidates the existing snapshot signature.
+        window.consume_live_snapshot(with_s2(snapshot(), {3: 31., 6: 32.}))
+        assert table.item(0, 6).text() == "+3.000"
+        assert table.item(0, 7).text().startswith("-")
+        window.consume_live_snapshot(snapshot())
+        assert table.item(0, 6).text() == "+3.000"
+        assert table.item(0, 7).text() == "Unavailable"
+        assert "pre-stop and post-stop" in table.item(0, 7).toolTip()
     finally:
         window.close()
         qt.processEvents()
@@ -89,9 +107,9 @@ def test_live_observation_pending_unsupported_and_replay_clear(tmp_path, monkeyp
         table = window.observed_undercut.table
         assert table.item(0, 4).text() == "—"
         assert table.item(0, 6).text() == "—"
-        assert "post-stop" in table.item(0, 8).text()
-        assert table.item(1, 7).text() == "Unavailable"
-        assert "Unsupported MC architecture" in table.item(1, 7).toolTip()
+        assert "post-stop" in table.item(0, 9).text()
+        assert table.item(1, 8).text() == "Unavailable"
+        assert "Unsupported MC architecture" in table.item(1, 8).toolTip()
         window.persistence_mode = "temporary"
         window.reset_replay_history()
         assert table.rowCount() == 0
