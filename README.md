@@ -656,7 +656,11 @@ Curve clicks, driver-name clicks and map-marker clicks share the Planner's
 selected driver across the timing plot, embedded map and detached map. The map
 shows actual `Position.z` coordinates. A completed non-pit lap's recorded spatial
 trajectory supplies the approximate reference for the selected driver's time
-offset markers; unavailable reference geometry is shown explicitly. The same
+offset markers. Until `snapshot.reference` exists, both views show **Track map
+preparing — waiting for a completed lap to establish the circuit.** and hide car
+markers, position labels and their overlays. Reference arrival restores the
+existing outline and current raw XY immediately; reference removal/reset returns
+the map to preparing. Session start status is not a display gate. The same
 position store serves the track map and causal diagnostic replay: each driver
 retains at most 6,000 samples from the latest 1,200 sample-time seconds. Delayed
 batches are ordered by embedded time. Analysis uses only packets received by its
@@ -666,6 +670,14 @@ GREEN, SC and VSC window values resolve independently from current-event inputs.
 An unresolved state produces no markers or bands. These spatial windows are
 visual aids, not a new projected-rejoin or race-order prediction authority, and
 map state does not enter MC or tyre analysis.
+
+**R16 final debug closure (2026-10-10): DBG-3 CLOSED — Fixed; DBG-2 and DBG-7
+CLOSED — Not reproducible after adequate verification.** Valid upstream
+pre-reference Position movement is hidden until usable circuit context exists.
+Raw XY and completed-lap reference construction are unchanged; **19 focused tests
+passed**. All DBG-1 through DBG-11 are closed. Verification, historical evidence
+limitations and the final backlog statuses are in
+[Live Track Map](doc/LIVE_TRACK_MAP.md).
 
 ### Strategy Prediction: History Info
 

@@ -10,6 +10,15 @@ window descriptors. Close/reopen synchronises current state; geometry is aspect-
 Real car markers are selectable, including overlapping markers using the existing
 first-hit rule. Labels do not have separate selection handlers.
 
+Both views use reference availability as the display gate. With no snapshot or
+`snapshot.reference is None`, the map shows **Track map preparing — waiting for a
+completed lap to establish the circuit.** Car markers, position labels and their
+overlays stay hidden. Reference availability immediately restores the existing
+circuit outline, current raw XY markers, windows and interactions. Clearing the
+map, removing the reference or starting a new event/session without geometry
+returns both views to preparing; popup reopen and embedded reopen synchronise the
+current snapshot. Session/race start status is not a gate.
+
 Pit/GREEN, SC and VSC are independent explicit inputs. Missing VSC stays absent;
 equal explicit SC and VSC remain separate descriptors. Legacy sc_vsc is context
 only. There is no SC-derived VSC fallback. Map offsets do not estimate pit loss.
@@ -22,6 +31,59 @@ render. Stale (>5 seconds), zero-position and pit/off-track states suppress
 projected windows. The clock follows recorded sample chronology, not playback speed.
 Current position history retains 1,200 seconds with a 6,000-sample per-driver cap.
 Raw diagnostic positions do not become MC traffic inputs.
+
+## R16 final debug closure — 2026-10-10
+
+**DBG-3: CLOSED — Fixed.** Implemented on 2026-10-09 and independently verified
+in the final audit. This was a presentation/readiness issue, not coordinate
+corruption. R16 confirmed pre-reference marker movement is valid upstream
+Position data, not Planner extrapolation. It is intentionally hidden because it
+lacks usable circuit context. The completed non-pit lap geometry contract,
+reference construction, raw XY, telemetry timing and ranking remain unchanged.
+
+Verification: **19 focused tests passed**, including three readiness lifecycle
+regressions (reference removal, clear and new session) across embedded and popup
+maps, existing selection/window tests, R13 reference replay, popup reuse/collapse,
+and worker position/freshness/reset tests. Qt ran offscreen with a persistent
+QApplication and Agg plotting; native visual acceptance was not rerun.
+
+**DBG-2: CLOSED — Not reproducible after adequate verification.** The original
+cutoff calculation, serialization, recovered authored Markdown and figures were
+verified correct. Unrestricted 0→1 and 1→2 values survived the report path;
+compliant 0→1 was correctly unavailable under the rules, and historical 2→3 N/A
+was explained by the original scan bounds. The exact historical rendered view
+remains unavailable. Closure does not claim the original observation was impossible.
+
+**DBG-7: CLOSED — Not reproducible after adequate verification.** Actual R16
+replay through the current service and Qt rendering found no marker-coordinate
+or mixed-frame discrepancy. Embedded and popup maps produced **7,920 rendered
+coordinate comparisons with zero mismatches**; a forced GUI stall and reopening
+retained synchronized snapshots. The original historical GUI frame remains
+unavailable; closure means not reproduced with available evidence/current code.
+
+Historical note: on 2026-10-09, DBG-2 and DBG-7 were PARK pending original
+render/frame evidence. The final independent audit supersedes those statuses.
+
+Current R16 backlog:
+
+| Issue | Final status |
+|-------|--------------|
+| DBG-1 | CLOSED |
+| DBG-2 | CLOSED — Not reproducible |
+| DBG-3 | CLOSED — Fixed |
+| DBG-4 | CLOSED |
+| DBG-5 | CLOSED |
+| DBG-6 | CLOSED — Diagnosed intentional traffic quarantine; automatic fitting was not restored |
+| DBG-7 | CLOSED — Not reproducible |
+| DBG-8 | CLOSED |
+| DBG-9 | CLOSED |
+| DBG-10 | CLOSED |
+| DBG-11 | CLOSED |
+
+Degradation-cutoff coverage and evidence-aware extension were committed separately:
+woStrategy `a8ec804` (Add evidence-aware cutoff coverage) and woWeekend `fc0a490`
+(Extend race cutoff coverage to FP evidence). No confirmed R16 debug issue remains
+open; no additional production fix is required.
 
 ## Reproduce evidence
 

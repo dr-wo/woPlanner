@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import deque
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -24,6 +25,7 @@ from woplanner.live.telemetry import (
 )
 from woplanner.live.track_map_widget import TrackMapWidget
 from woplanner.live.gui import LivePlannerWindow
+from woplanner.live.service import LivePlannerUpdate
 
 
 def reference_points():
@@ -34,6 +36,126 @@ def reference_points():
         TrackMapReferencePoint(0.0, 10.0, 30.0),
         TrackMapReferencePoint(0.0, 0.1, 40.0),
     )
+
+
+@pytest.mark.parametrize("reset_path", ["reference_removed", "clear", "new_session"])
+def test_track_map_geometry_readiness_in_embedded_and_popup_views(
+    tmp_path, monkeypatch, reset_path,
+):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    config = tmp_path / "race.json"
+    config.write_text(json.dumps({
+        "season": 2026, "round_number": 16, "race": {"total_laps": 57},
+        "pit_loss": {"green": {"total": 10.0}, "sc": {"total": 5.0},
+                     "vsc": {"total": 7.0}},
+    }))
+    window = LivePlannerWindow(event_config_path=config)
+    driver = TrackMapDriver(
+        "1", 8.25, 1.75, 0.0, True, 10.0, None, driver_code="AAA",
+    )
+    styles = pd.DataFrame([{
+        "driver_number": "1", "driver": "AAA", "team": "Team A",
+        "colour": "#ff0000", "line_style": "solid", "position": 1,
+    }])
+    snapshot = TrackMapSnapshot(1, None, 1, (driver,))
+    monkeypatch.setattr(window.service, "latest_track_map_snapshot", lambda: snapshot)
+    monkeypatch.setattr(window.service, "available_drivers", lambda: styles)
+    monkeypatch.setattr(window.service, "poll", lambda: LivePlannerUpdate(
+        window.service.snapshot, (), False, frozenset(),
+    ))
+    preparing = (
+        "Track map preparing — waiting for a completed lap to establish the circuit."
+    )
+    window.show()
+    window.timer.stop()
+    app.processEvents()
+
+    def assert_preparing():
+        for widget in (window.track_map, window.track_map_window.track_map):
+            assert widget.status.isVisible()
+            assert widget.status.text() == preparing
+            # No circuit, car scatter, position labels or marker-dependent overlays.
+            assert widget.plot.getPlotItem().items == []
+            assert widget.rendered_window_markers == ()
+            assert widget.rendered_window_connectors == ()
+
+    def assert_ready():
+        for widget in (window.track_map, window.track_map_window.track_map):
+            assert "preparing" not in widget.status.text()
+            assert "AAA lap 2 (40.0 s)" in widget.status.text()
+            outline = next(item for item in widget.plot.getPlotItem().items
+                           if isinstance(item, pg.PlotDataItem) and item.zValue() == -20)
+            x, y = outline.getData()
+            assert list(x) == [point.x for point in reference.points]
+            assert list(y) == [point.y for point in reference.points]
+            car_layer = next(item for item in widget.plot.getPlotItem().items
+                             if isinstance(item, pg.ScatterPlotItem)
+                             and any(point.data() == "AAA" for point in item.points()))
+            point, = car_layer.points()
+            # XY remains the current raw position, even away from the reference.
+            assert (point.pos().x(), point.pos().y()) == (driver.x, driver.y)
+            assert point.size() == 19
+            label = next(item for item in widget.plot.items()
+                         if isinstance(item, pg.TextItem) and item.toPlainText() == "AAA")
+            assert (label.pos().x(), label.pos().y()) == (driver.x, driver.y)
+            assert [(mark.key, mark.direction, mark.seconds)
+                    for mark in widget.rendered_window_markers] == [
+                (key, direction, seconds)
+                for key, seconds in (("pit", 10.0), ("sc", 5.0), ("vsc", 7.0))
+                for direction in ("behind", "ahead")
+            ]
+            assert all((line.x1, line.y1) == (driver.x, driver.y)
+                       for line in widget.rendered_window_connectors)
+
+    try:
+        assert window.track_map.status.text() == preparing
+        window._poll()
+        window._show_track_map_window()
+        window._select_driver("AAA")
+        assert_preparing()
+
+        # Starting the session and receiving moving raw XY do not establish geometry.
+        window.service.snapshot = replace(window.service.snapshot, session_status="Started")
+        driver = replace(driver, x=7.125, y=2.875, sample_time_seconds=11.0)
+        snapshot = replace(snapshot, drivers=(driver,), position_visual_version=2)
+        window._poll()
+        assert_preparing()
+
+        # A reference is sufficient even while the session is inactive.
+        window.service.snapshot = replace(window.service.snapshot, session_status="Inactive")
+        reference = TrackMapReference("1", "AAA", 2, 40.0, reference_points())
+        snapshot = replace(snapshot, reference=reference, position_visual_version=3)
+        window._poll()
+        assert_ready()
+
+        # Ready maps continue following the latest raw position on refresh/reopen.
+        driver = replace(driver, x=9.375, y=3.625, sample_time_seconds=12.0)
+        snapshot = replace(snapshot, drivers=(driver,), position_visual_version=4)
+        window.track_map_window.close()
+        window._poll()
+        window._show_track_map_window()
+        assert_ready()
+
+        snapshot = replace(snapshot, generation=2, reference=None, position_visual_version=0)
+        if reset_path == "clear":
+            window.track_map.clear()
+            window.track_map_window.track_map.clear()
+        elif reset_path == "new_session":
+            window._prepare_start()
+            window.timer.stop()
+        else:
+            window._poll()
+        assert_preparing()
+
+        # Popup reopen and embedded collapse/reopen synchronise the new empty reference.
+        window.track_map_window.close()
+        window._set_embedded_map_visible(False)
+        window._show_track_map_window()
+        window._set_embedded_map_visible(True)
+        assert_preparing()
+    finally:
+        window.close()
+        app.processEvents()
 
 
 def test_effective_windows_omit_unresolved_vsc_without_legacy_input():

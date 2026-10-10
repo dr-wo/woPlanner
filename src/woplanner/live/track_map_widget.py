@@ -11,6 +11,11 @@ from ..common.windows import WindowDescriptor
 from .telemetry import TrackMapSnapshot
 
 
+_PREPARING_MESSAGE = (
+    "Track map preparing — waiting for a completed lap to establish the circuit."
+)
+
+
 @dataclass(frozen=True)
 class RenderedWindowMarker:
     key: str
@@ -51,9 +56,7 @@ class TrackMapWidget(QtWidgets.QWidget):
         self.rendered_window_connectors: tuple[RenderedWindowConnector, ...] = ()
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.status = QtWidgets.QLabel(
-            "Track Map: waiting for a complete clean-lap Position.z reference"
-        )
+        self.status = QtWidgets.QLabel(_PREPARING_MESSAGE)
         self.status.setWordWrap(True)
         self.plot = pg.PlotWidget()
         self.plot.setBackground("w")
@@ -107,34 +110,29 @@ class TrackMapWidget(QtWidgets.QWidget):
         self.rendered_window_markers = ()
         self.rendered_window_connectors = ()
         self.plot.clear()
-        self.status.setText(
-            "Track Map: waiting for a complete clean-lap Position.z reference"
-        )
+        self.status.setText(_PREPARING_MESSAGE)
 
     def _render(self) -> None:
         self.plot.clear()
         self.rendered_window_markers = ()
         self.rendered_window_connectors = ()
         snapshot = self._snapshot
-        if snapshot is None:
+        if snapshot is None or snapshot.reference is None:
+            # Raw Position data can arrive before the completed-lap geometry.
+            # Keep markers and their overlays hidden until they have circuit context.
+            self.status.setText(_PREPARING_MESSAGE)
             return
-        if snapshot.reference is not None:
-            reference = snapshot.reference
-            self.plot.plot(
-                [point.x for point in reference.points],
-                [point.y for point in reference.points],
-                pen=pg.mkPen("#aeb4ba", width=4.0),
-            ).setZValue(-20)
-            self.status.setText(
-                "Track Map — approximate mapping from actual Position.z reference: "
-                f"{reference.driver_code or reference.driver_id} lap {reference.lap_number} "
-                f"({reference.lap_time_s:.1f} s)"
-            )
-        else:
-            self.status.setText(
-                "Track Map: real positions available; waiting for a complete clean-lap "
-                "Position.z reference before drawing time windows"
-            )
+        reference = snapshot.reference
+        self.plot.plot(
+            [point.x for point in reference.points],
+            [point.y for point in reference.points],
+            pen=pg.mkPen("#aeb4ba", width=4.0),
+        ).setZValue(-20)
+        self.status.setText(
+            "Track Map — approximate mapping from actual Position.z reference: "
+            f"{reference.driver_code or reference.driver_id} lap {reference.lap_number} "
+            f"({reference.lap_time_s:.1f} s)"
+        )
 
         styles = (
             self._drivers.set_index("driver").to_dict("index")
