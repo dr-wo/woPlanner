@@ -15,7 +15,7 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
-DEFAULT_MANIFEST = Path("/Users/zhxutong/dr-wo/q17-runtime/resource-roots-20261018/versions/resource-roots-v1/source-manifest.json")
+DEFAULT_MANIFEST = Path("/Users/zhxutong/dr-wo/q17-runtime/resource-roots-20261018/versions/resource-roots-v2-d2/source-manifest.json")
 PACKAGES = {"wodata": "woData", "woplanner": "woPlanner", "wostrategy": "woStrategy"}
 
 
@@ -135,47 +135,73 @@ def imported_paths(roots):
     return result
 
 
+def directory_preflight(path, label):
+    """Pure stdlib preflight: missing directories are fine; file ancestors are not."""
+    path = Path(path)
+    if not path.is_absolute():
+        raise ValueError(f"{label} must be absolute: {path}")
+    for ancestor in (path, *path.parents):
+        if ancestor.is_symlink():
+            raise ValueError(f"{label} has a symlink component: {ancestor}")
+        if ancestor.exists() and not ancestor.is_dir():
+            raise ValueError(f"{label} path is not a directory: {ancestor}")
+    return path.resolve()
+
+
+def bootstrap_locations(manifest, roots, resource):
+    """Validate all protected worktree locations before importing project code."""
+    protected = {resource.resolve()}
+    for package_root in roots.values():
+        source = package_root.parents[1]
+        protected.add(source.resolve())
+        listing = git(source, "worktree", "list", "--porcelain")
+        protected.update(Path(line[9:]).resolve() for line in listing.splitlines()
+                         if line.startswith("worktree "))
+    base = directory_preflight(manifest["runtime_root"], "Runtime state root")
+    output = directory_preflight(manifest["output_root"], "Output Root")
+    for writable in (base, output):
+        for source in protected:
+            if writable.is_relative_to(source) or source.is_relative_to(writable):
+                raise ValueError(f"Runtime state/output overlaps source/resources: {writable}")
+    return base, output
+
+
 def configure(manifest):
+    # These source/resource checks use only the standard library and Git.
     roots = verify_sources(manifest)
     resource = verify_resources(manifest)
-    base = Path(manifest["runtime_root"])
-    if not base.is_absolute() or any(p.is_symlink() for p in (base, *base.parents)):
-        raise ValueError(f"Invalid runtime state path: {base}")
-    protected = [resource, *(p.parents[1] for p in roots.values())]
-    output = Path(manifest["output_root"])
-    for writable in (base, output):
-        if not writable.is_absolute() or any(p.is_symlink() for p in (writable, *writable.parents)):
-            raise ValueError(f"Invalid writable runtime path: {writable}")
-        for source in protected:
-            if writable.resolve().is_relative_to(source) or source.is_relative_to(writable.resolve()):
-                raise ValueError(f"Runtime state/output overlaps source/resources: {writable}")
+    base, output = bootstrap_locations(manifest, roots, resource)
+    run = base / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8])
+    directories = ("logs", "cache/matplotlib", "config", "data", "tmp", "xdg-runtime")
+    for name in directories:
+        directory_preflight(run / name, "Launch state/cache directory")
+    # Establish cache and temp locations before even importing a project package:
+    # project __init__ modules can transitively initialise Matplotlib.
+    run.mkdir(parents=True, exist_ok=False, mode=0o700)
+    for name in directories:
+        (run / name).mkdir(parents=True, exist_ok=False, mode=0o700)
     for key in list(os.environ):
         if key.startswith(("PYTHON", "QT_", "QML")) or key in {"WOSTRATEGY_DATA_ROOT", "MPLCONFIGDIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR"}:
             os.environ.pop(key, None)
-    run = base / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8])
+    os.environ.update(MPLCONFIGDIR=str(run / "cache/matplotlib"), XDG_CACHE_HOME=str(run / "cache"),
+        XDG_CONFIG_HOME=str(run / "config"), XDG_DATA_HOME=str(run / "data"),
+        XDG_RUNTIME_DIR=str(run / "xdg-runtime"), TMPDIR=str(run / "tmp"),
+        TMP=str(run / "tmp"), TEMP=str(run / "tmp"),
+        WOPLANNER_QUALI_RESOURCE_ROOT=str(resource), WODATA_ROOT=str(output))
+    import tempfile
+    tempfile.tempdir = str(run / "tmp")
+    logging.basicConfig(filename=run / "logs/application.log", level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
     sys.dont_write_bytecode = True
     sys.pycache_prefix = str(run / "cache/pycache")
     sys.path[:0] = [str(root.parent) for root in roots.values()]
     files = {str((Path(row["root"]) / rel).resolve()): sha
              for row in manifest["sources"].values() for rel, sha in row["files"].items()}
     sys.meta_path.insert(0, PinnedImports(roots, files))
-    # Validate output selection before creating state directories or importing Qt.
-    os.environ.update(WOPLANNER_QUALI_RESOURCE_ROOT=str(resource), WODATA_ROOT=str(output))
-    from woplanner.quali.runtime_paths import resolve_runtime_paths, source_worktrees
+    # Retain the shared project validation (including nested output links) and
+    # reject configuration errors before constructing QApplication/QualiWindow.
+    from woplanner.quali.runtime_paths import resolve_runtime_paths
     paths = resolve_runtime_paths()
-    for source in source_worktrees():
-        if base.resolve().is_relative_to(source) or source.is_relative_to(base.resolve()):
-            raise ValueError(f"Runtime state overlaps protected source/shared data: {base}")
-    for name in ("logs", "cache/matplotlib", "config", "data", "tmp", "xdg-runtime"):
-        (run / name).mkdir(parents=True, exist_ok=False, mode=0o700)
-    os.environ.update(MPLCONFIGDIR=str(run / "cache/matplotlib"), XDG_CACHE_HOME=str(run / "cache"),
-        XDG_CONFIG_HOME=str(run / "config"), XDG_DATA_HOME=str(run / "data"),
-        XDG_RUNTIME_DIR=str(run / "xdg-runtime"), TMPDIR=str(run / "tmp"),
-        TMP=str(run / "tmp"), TEMP=str(run / "tmp"))
-    import tempfile
-    tempfile.tempdir = str(run / "tmp")
-    logging.basicConfig(filename=run / "logs/application.log", level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
     return roots, paths, run
 
 

@@ -78,8 +78,9 @@ class RuntimePaths:
         assert self.output_root is not None
         root = self.output_root
         self.checked(root, root)
-        if root.exists() and not root.is_dir():
-            raise ValueError(f"Output Root is not a directory: {root}")
+        for ancestor in (root, *root.parents):
+            if ancestor.exists() and not ancestor.is_dir():
+                raise ValueError(f"Output Root path is not a directory: {ancestor}")
         if root.exists():
             for path in root.rglob("*"):
                 if path.is_symlink():
@@ -114,7 +115,7 @@ class RuntimePaths:
                     raise ValueError("invalid FP manifest lap_count")
                 required = ({"driver", "raw_lap_time_s"}, {"category", "selected_count", "selected_default_s"}, {"rate_s_per_field_push", "sample_count"})
                 for table, columns in zip(tables, required):
-                    if len(table.columns) and not columns.issubset(table.columns):
+                    if not columns.issubset(table.columns):
                         raise ValueError(f"invalid FP table columns: missing {sorted(columns - set(table.columns))}")
                 import pandas as pd
                 for table, columns in zip(tables, ({"raw_lap_time_s"}, {"selected_count", "selected_default_s"}, {"rate_s_per_field_push", "sample_count"})):

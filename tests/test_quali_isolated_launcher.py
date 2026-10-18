@@ -25,6 +25,7 @@ def manifest(tmp_path, monkeypatch):
         if args[0] == "rev-parse": return "a"*40
         if args[0] == "ls-tree": return "\n".join(sources[Path(root).name]["files"])
         if args[0] == "status": return ""
+        if args[0] == "worktree": return f"worktree {root}"
         raise AssertionError(args)
     monkeypatch.setattr(launcher, "git", git)
     return {"manifest_version": 1, "python_version": [3,11,15],

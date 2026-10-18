@@ -1,5 +1,9 @@
 # Q17 — Runtime Resource/Output Roots and Opt-in Launcher
 
+> Historical v1 handover. The subsequent independent D2 review found three P2
+> defects; current corrections, v2 launcher usage and validation are documented
+> in [Q17_D2_REVIEW_CORRECTIONS.md](Q17_D2_REVIEW_CORRECTIONS.md).
+
 18 October 2026, Europe/London. **READY FOR FOCUSED INDEPENDENT REVIEW**.
 
 ## A. Resource contract
