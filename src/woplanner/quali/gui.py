@@ -25,14 +25,15 @@ from .widgets import CutoffTable, QualiPlanDialog, format_time
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
+SLOW_LAP_BACKGROUND = "#b26a00"
 PIT_STATUS_BACKGROUNDS = {
     "NOT ACTIVE": "#e0e0e0",
     "FIRE-UP": "#f0ad00",
     "PIT-LANE": "#607d8b",
     "QUEUE": "#d00000",
-    "OUT": "#2e7d32",
+    "OUT": SLOW_LAP_BACKGROUND,
     "FAST": "#2e7d32",
-    "SLOW": "#b26a00",
+    "SLOW": SLOW_LAP_BACKGROUND,
     "IN": "#1976d2",
     "IN-PIT": "#ffffff",
 }
