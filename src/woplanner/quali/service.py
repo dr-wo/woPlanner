@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 from time import monotonic
 
+from .runtime_paths import ArtifactError, RuntimePaths, resolve_runtime_paths
+
 from wodata.live import (
     FastF1LiveTimingSource,
     LiveConfig,
@@ -62,7 +64,12 @@ class QualiLiveService:
         telemetry_delay_lap_threshold: int = 3,
         telemetry_delay_window_s: float = 600.,
         shadow_track_evolution: bool = False,
+        runtime_paths: RuntimePaths | None = None,
     ) -> None:
+        self.runtime_paths = runtime_paths or resolve_runtime_paths()
+        self.operational_artifact_root: Path | None = None
+        self.operational_artifact_error: str | None = None
+        self._geometry_data_root = self.runtime_paths.resource_root
         self.controller = controller or LiveTimingController(
             store=QualiSessionStore(pit_lane_geometry=pit_lane_geometry)
         )
@@ -139,6 +146,8 @@ class QualiLiveService:
         )
         self._latest_raw: dict[str, QualiRawDriverState] = {}
         self._event_geometry_identity = None
+        if self.runtime_paths.isolated:
+            self._operational_artifact_identity = None
         self.received_session_info = self.raw_snapshot.session_info
         self.received_session_name = ""
         self.session_is_qualifying: bool | None = None
@@ -151,8 +160,11 @@ class QualiLiveService:
 
     def start_live(self, config: LiveConfig) -> None:
         self.reset()
-        self._geometry_data_root = config.data_root
-        self._load_geometry(config.year, config.round_number, config.data_root)
+        if self.runtime_paths.isolated:
+            config = replace(config, data_root=self.runtime_paths.check_output())
+        else:
+            self._geometry_data_root = config.data_root
+        self._load_geometry(config.year, config.round_number, self._geometry_data_root)
         self.controller.start_live(config)
 
     def start_replay(self, config: ReplayConfig) -> None:
@@ -169,6 +181,11 @@ class QualiLiveService:
             return
         if force:
             store.pit_lane_geometry = None
+        if self.runtime_paths.isolated:
+            from wodata.artifacts import pit_lane_geometry_path
+            self.runtime_paths.checked(self.runtime_paths.resource_root, pit_lane_geometry_path(
+                year=year, round_number=round_number, data_root=data_root
+            ))
         try:
             from wodata.artifacts import read_pit_lane_geometry
 
@@ -185,8 +202,8 @@ class QualiLiveService:
     def configure_event_geometry(
         self, year: int, round_number: int, data_root: str | Path | None = None
     ) -> None:
-        self._geometry_data_root = data_root
-        self._load_geometry(year, round_number, data_root, force=True)
+        self._geometry_data_root = self.runtime_paths.resource_root if self.runtime_paths.isolated else data_root
+        self._load_geometry(year, round_number, self._geometry_data_root, force=True)
 
     def reset(self) -> None:
         self.track_evolution_policy.reset()
@@ -225,6 +242,8 @@ class QualiLiveService:
         self.track_source = self._automatic_track_source
         self._latest_raw.clear()
         self._event_geometry_identity = None
+        if self.runtime_paths.isolated:
+            self._operational_artifact_identity = None
         self.received_session_info = self.raw_snapshot.session_info
         self.received_session_name = ""
         self.session_is_qualifying = None
@@ -378,6 +397,11 @@ class QualiLiveService:
     def _effective_cool_timing(self, current_fastest_s: float | None = None) -> tuple[float | None, str]:
         return self.operational_timings.cool_lap_s, self.operational_timing_sources["cool_lap_s"]
 
+    def reload_operational_artifacts(self, year: int, round_number: int) -> None:
+        """Re-select saved artifacts after an explicit FP analysis write."""
+        self._operational_artifact_identity = None
+        self._load_operational_artifact(year, round_number)
+
     def _load_operational_artifact(self, year: int, round_number: int) -> None:
         identity = (year, round_number)
         if identity == self._operational_artifact_identity:
@@ -386,12 +410,21 @@ class QualiLiveService:
         try:
             from wodata.artifacts import read_pre_quali_analysis
 
-            laps, durations, _ = read_pre_quali_analysis(
-                year=year,
-                round_number=round_number,
-                data_root=getattr(self, "_geometry_data_root", None),
-            )
-        except (FileNotFoundError, ValueError, OSError):
+            if self.runtime_paths.isolated:
+                (laps, durations, _), self.operational_artifact_root = self.runtime_paths.read_fp(year, round_number)
+                self.operational_artifact_error = None
+            else:
+                laps, durations, _ = read_pre_quali_analysis(
+                    year=year, round_number=round_number,
+                    data_root=getattr(self, "_geometry_data_root", None),
+                )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            if self.runtime_paths.isolated:
+                self.operational_artifact_root = None
+                self.operational_artifact_error = str(exc)
+                if not isinstance(exc, FileNotFoundError):
+                    self._operational_artifact_identity = None
+                    raise ArtifactError(str(exc)) from exc
             self._fp_timing_values.clear()
             self._fp_timing_sources.clear()
             self._fp_best_lap_s = None

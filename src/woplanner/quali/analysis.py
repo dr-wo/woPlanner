@@ -6,13 +6,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from wodata.artifacts import read_pre_quali_analysis, write_pre_quali_analysis
+from wodata.artifacts import write_pre_quali_analysis
 from wostrategy.analysis.pre_quali import PreQualiAnalysisResult, analyze_pre_quali
+
+from .runtime_paths import RuntimePaths, resolve_runtime_paths
 
 
 class QualiAnalysisService:
-    def __init__(self, data_root: str | Path | None = None) -> None:
-        self.data_root = data_root
+    def __init__(self, data_root: str | Path | None = None, *, runtime_paths: RuntimePaths | None = None) -> None:
+        self.runtime_paths = runtime_paths or resolve_runtime_paths(data_root)
+        self.data_root = self.runtime_paths.output_root
+        self.loaded_artifact_root: Path | None = None
         self.result: PreQualiAnalysisResult | None = None
 
     def analyze(
@@ -23,6 +27,8 @@ class QualiAnalysisService:
         push_threshold_fraction: float = 0.02,
         laps: pd.DataFrame | None = None,
     ) -> PreQualiAnalysisResult:
+        if self.runtime_paths.isolated:
+            self.runtime_paths.check_output()
         if laps is None:
             laps = self._load_fp_laps(year, round_number)
         result = analyze_pre_quali(
@@ -40,13 +46,12 @@ class QualiAnalysisService:
             push_threshold_fraction=push_threshold_fraction,
             data_root=self.data_root,
         )
+        self.loaded_artifact_root = self.runtime_paths.output_root
         self.result = result
         return result
 
     def load(self, year: int, round_number: int) -> PreQualiAnalysisResult:
-        laps, durations, progression = read_pre_quali_analysis(
-            year=year, round_number=round_number, data_root=self.data_root
-        )
+        (laps, durations, progression), self.loaded_artifact_root = self.runtime_paths.read_fp(year, round_number)
         self.result = PreQualiAnalysisResult(laps, durations, progression, 0.02)
         return self.result
 
@@ -58,7 +63,9 @@ class QualiAnalysisService:
 
         # The GUI invokes Session directly; without enabling the workspace
         # cache it ignores the already available FP session downloads.
-        fastf1.Cache.enable_cache(str(get_fastf1_raw_cache_dir()))
+        fastf1.Cache.enable_cache(str(get_fastf1_raw_cache_dir(
+            self.data_root if self.runtime_paths.isolated else None
+        )))
 
         sessions = []
         loaded_sessions = {}

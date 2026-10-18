@@ -20,6 +20,7 @@ from ..common.session_info import (
 )
 from .analysis import QualiAnalysisService
 from .models import FinishedReason
+from .runtime_paths import ArtifactError, RuntimePaths, resolve_runtime_paths
 from .service import QualiLiveService
 from .widgets import CutoffTable, QualiPlanDialog, format_time
 
@@ -101,13 +102,14 @@ class QualiWindow(QtWidgets.QMainWindow):
         "Projected Gap",
     )
 
-    def __init__(self) -> None:
+    def __init__(self, *, runtime_paths: RuntimePaths | None = None) -> None:
+        paths = runtime_paths or resolve_runtime_paths(WORKSPACE_DATA_ROOT if WORKSPACE_DATA_ROOT.is_dir() else None)
         super().__init__()
         self.setWindowTitle("woPlanner Qualifying Monitor")
         self.resize(1500, 900)
-        data_root = WORKSPACE_DATA_ROOT if WORKSPACE_DATA_ROOT.is_dir() else None
-        self.analysis_service = QualiAnalysisService(data_root)
-        self.service = QualiLiveService()
+        self.runtime_paths = paths
+        self.analysis_service = QualiAnalysisService(runtime_paths=paths)
+        self.service = QualiLiveService(runtime_paths=paths)
         self.plan_dialog = None
         self._session_metadata_signature: tuple[object, ...] | None = None
         self._non_quali_warning_shown = False
@@ -223,7 +225,7 @@ class QualiWindow(QtWidgets.QMainWindow):
                     self.year.value(),
                     self.round.value(),
                     "Q",
-                    data_root=WORKSPACE_DATA_ROOT,
+                    data_root=self.runtime_paths.output_root if self.runtime_paths.isolated else WORKSPACE_DATA_ROOT,
                 )
             )
             self.timer.start()
@@ -242,7 +244,8 @@ class QualiWindow(QtWidgets.QMainWindow):
         self._prepare_session_start()
         try:
             self.service.configure_event_geometry(
-                self.year.value(), self.round.value(), WORKSPACE_DATA_ROOT
+                self.year.value(), self.round.value(),
+                self.runtime_paths.resource_root if self.runtime_paths.isolated else WORKSPACE_DATA_ROOT
             )
             self.service.start_replay(ReplayConfig(path, 0.0))
             self.timer.start()
@@ -271,6 +274,8 @@ class QualiWindow(QtWidgets.QMainWindow):
                 reference=f"{self.year.value()}/R{self.round.value()}: {source}",
             )
             self.service.load_operational_analysis(result)
+            if self.runtime_paths.isolated:
+                self.service.reload_operational_artifacts(self.year.value(), self.round.value())
             if self.plan_dialog:
                 self.plan_dialog.load_analysis(result)
             QtWidgets.QMessageBox.information(
@@ -292,8 +297,16 @@ class QualiWindow(QtWidgets.QMainWindow):
         if self.analysis_service.result is None:
             try:
                 self.analysis_service.load(self.year.value(), self.round.value())
-            except Exception:
-                pass
+            except ArtifactError as exc:
+                QtWidgets.QMessageBox.critical(self, "Pre-qualifying analysis", str(exc))
+                return
+            except FileNotFoundError:
+                if self.runtime_paths.isolated:
+                    QtWidgets.QMessageBox.warning(self, "Pre-qualifying analysis", "No saved FP artifacts available.")
+            except Exception as exc:
+                if self.runtime_paths.isolated:
+                    QtWidgets.QMessageBox.critical(self, "Pre-qualifying analysis", str(exc))
+                    return
         if self.plan_dialog is None:
             self.plan_dialog = QualiPlanDialog(
                 self.analysis_service, self.service, self
@@ -306,7 +319,15 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.plan_dialog.raise_()
 
     def _poll(self) -> None:
-        snapshot, statuses, _ = self.service.poll()
+        try:
+            snapshot, statuses, _ = self.service.poll()
+        except ArtifactError as exc:
+            self.service.stop()
+            self.timer.stop()
+            self._restore_offline_controls()
+            self.connection.setText(f"FP artifact error: {exc}")
+            QtWidgets.QMessageBox.critical(self, "Pre-qualifying analysis", str(exc))
+            return
         for status in statuses:
             self.connection.setText(status.message)
             if (
@@ -541,8 +562,9 @@ class QualiWindow(QtWidgets.QMainWindow):
 
 
 def main() -> int:
+    paths = resolve_runtime_paths(WORKSPACE_DATA_ROOT if WORKSPACE_DATA_ROOT.is_dir() else None)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
-    window = QualiWindow()
+    window = QualiWindow(runtime_paths=paths)
     window.show()
     return app.exec()
 
