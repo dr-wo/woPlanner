@@ -142,8 +142,12 @@ def test_real_analysis_writes_only_output_and_survives_identity_reload(roots):
     assert inventory(roots.resource_root) == before
 
 
-def test_geometry_capture_replay_and_transitions(roots, tmp_path, monkeypatch):
+@pytest.mark.parametrize("from_output", [False, True])
+def test_geometry_capture_replay_and_transitions(roots, tmp_path, monkeypatch, from_output):
     saved(roots.resource_root)
+    if from_output:
+        saved(roots.output_root, 130)
+    selected = roots.output_root if from_output else roots.resource_root
     write_pit_lane_geometry(((0, 0), (10, 10)), year=2026, round_number=17, data_root=roots.resource_root)
     before = inventory(roots.resource_root)
     service = QualiLiveService(runtime_paths=roots)
@@ -159,13 +163,14 @@ def test_geometry_capture_replay_and_transitions(roots, tmp_path, monkeypatch):
     assert service._geometry_data_root == roots.resource_root
     assert service.controller.store.pit_lane_geometry is not None
     service._consume_message_snapshot(identity())
-    assert service.operational_artifact_root == roots.resource_root
+    assert service.operational_artifact_root == selected
     service.stop()
     service.start_replay(ReplayConfig(replay))
     assert service.controller._recorder is None
     assert starts[-1].path == replay
     service._consume_message_snapshot(identity())
     assert service._geometry_data_root == roots.resource_root
+    assert service.operational_artifact_root == selected
     assert inventory(roots.resource_root) == before
 
 
@@ -305,12 +310,13 @@ def test_real_capture_recorder_writes_only_output(roots, monkeypatch):
 
 
 
-def test_zero_threshold_roundtrip_preserves_accepted_parameter_domain(roots):
+@pytest.mark.parametrize("threshold", [0., 1., 2.])
+def test_nonnegative_threshold_roundtrip_preserves_accepted_parameter_domain(roots, threshold):
     rows = pd.DataFrame([dict(SessionName="FP1", Driver="AAA", LapNumber=1,
         LapTime=pd.Timedelta(seconds=90), LapStartTime=pd.Timedelta(seconds=0),
         PitOutTime=pd.NaT, PitInTime=pd.NaT, Compound="SOFT")])
     analysis = QualiAnalysisService(runtime_paths=roots)
-    expected = analysis.analyze(2026, 17, push_threshold_fraction=0, laps=rows)
+    expected = analysis.analyze(2026, 17, push_threshold_fraction=threshold, laps=rows)
     assert len(analysis.load(2026, 17).laps) == len(expected.laps)
     assert analysis.loaded_artifact_root == roots.output_root
 
