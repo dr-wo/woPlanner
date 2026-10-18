@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.333" timestamp="2026-10-18T23:41:42.572087+01:00" hostname="MacBookPro.lan"><testcase classname="tests.test_fetch_replay_data_script" name="test_download_resolves_session_by_round_without_event" time="0.004"><failure message="AssertionError: assert [(2025, 14, 'Q')] == [(2025, 14, 'R')]&#10;  &#10;  At index 0 diff: (2025, 14, 'Q') != (2025, 14, 'R')&#10;  Use -v to get more diff">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10644ed10&gt;
+tmp_path = PosixPath('/private/var/folders/wk/rz1n_fcj1h92_z57t5x10wz40000gn/T/pytest-of-zhxutong/pytest-93/test_download_resolves_session0')
+
+    def test_download_resolves_session_by_round_without_event(monkeypatch, tmp_path):
+        config = dict(SCRIPT_CONFIG)
+        config.update(
+            year=2025,
+            round_number=14,
+            event=None,
+            data_root=tmp_path,
+            download=True,
+            build=False,
+            play=False,
+        )
+        calls = []
+
+        def fake_resolve(year, event, session):
+            calls.append((year, event, session))
+            from wodata.live.replay import ArchiveSession
+
+            return ArchiveSession(year, event, "Hungarian Grand Prix", "Race", "R", "/api/")
+
+        class Result:
+            archive_dir = tmp_path / "archive"
+            available_topics = ()
+            missing_topics = ()
+            reused = False
+
+        monkeypatch.setattr("wodata.script.fetch_replay_data.resolve_archive_session", fake_resolve)
+        monkeypatch.setattr(
+            "wodata.script.fetch_replay_data.download_archive", lambda *args, **kwargs: Result()
+        )
+
+        result = run(config)
+
+&gt;       assert calls == [(2025, 14, "R")]
+E       AssertionError: assert [(2025, 14, 'Q')] == [(2025, 14, 'R')]
+E
+E         At index 0 diff: (2025, 14, 'Q') != (2025, 14, 'R')
+E         Use -v to get more diff
+
+tests/test_fetch_replay_data_script.py:109: AssertionError</failure></testcase></testsuite></testsuites>

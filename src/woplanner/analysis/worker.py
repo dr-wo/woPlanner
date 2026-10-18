@@ -38,6 +38,7 @@ class LiveAnalysisInput:
     completed_sectors: tuple[Any, ...]
     telemetry_samples: tuple[Any, ...]
     traffic_rows: tuple[dict[str, Any], ...] = ()
+    scheduled_total_laps: int | None = None
 
 
 class AnalysisQueuePolicy(Enum):
@@ -185,6 +186,9 @@ class LiveAnalysisProcessService:
             _serializable_live_snapshot(
                 snapshot,
                 include_telemetry=not bool(options.get("use_sector_boundary_traffic", False)),
+                # Preserve the standard worker's established race-distance
+                # contract; the independent P1 request carries its own distance.
+                include_race_distance=False,
             ),
             tuple(dict(options).items()),
             prepared_leader_lap=prepared_leader_lap,
@@ -269,7 +273,7 @@ class LiveAnalysisProcessService:
 
 
 def _serializable_live_snapshot(
-    snapshot: Any, *, include_telemetry: bool = True
+    snapshot: Any, *, include_telemetry: bool = True, include_race_distance: bool = True
 ) -> Any:
     """Build the minimum pickle-safe, immutable input used by live MC preparation."""
     if not hasattr(snapshot, "completed_laps"):
@@ -280,4 +284,62 @@ def _serializable_live_snapshot(
         completed_sectors=tuple(snapshot.completed_sectors),
         telemetry_samples=tuple(snapshot.telemetry_samples) if include_telemetry else (),
         traffic_rows=tuple(getattr(snapshot, "traffic_rows", ())),
+        scheduled_total_laps=(getattr(snapshot, "scheduled_total_laps", None)
+                              if include_race_distance else None),
     )
+
+
+def _run_p1_reference(request: AnalysisRequest):
+    """Run the opt-in fit without publishing into the standard model lane."""
+    if _PROCESS_SERVICE is None:
+        raise RuntimeError("Analysis worker was not initialized")
+    return _PROCESS_SERVICE.calculate_p1_reference(
+        year=request.year, round_number=request.round_number,
+        snapshot=request.snapshot, **dict(request.options),
+    )
+
+
+class P1ReferenceProcessService:
+    """A separate, lazy process for explicitly requested reference calculations."""
+
+    def __init__(self, data_root=None):
+        self._data_root = None if data_root is None else str(data_root)
+        self._executor = None
+        self._future = None
+
+    @property
+    def running(self):
+        return self._future is not None
+
+    def submit(self, *, year, round_number, snapshot, options):
+        if self.running:
+            raise RuntimeError("A P1 reference calculation is already running")
+        if self._executor is None:
+            self._executor = ProcessPoolExecutor(
+                max_workers=1, mp_context=mp.get_context("spawn"),
+                initializer=_initialize_worker, initargs=(self._data_root,),
+            )
+        request = AnalysisRequest(
+            1, int(year), int(round_number),
+            _serializable_live_snapshot(snapshot, include_telemetry=False, include_race_distance=True),
+            tuple(dict(options).items()),
+        )
+        self._future = self._executor.submit(_run_p1_reference, request)
+
+    def poll(self):
+        if self._future is None or not self._future.done():
+            return None
+        future, self._future = self._future, None
+        return future.result()
+
+    def shutdown(self):
+        if self._executor is not None:
+            processes = tuple(getattr(self._executor, "_processes", {}).values())
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+            for process in processes:
+                process.join(timeout=2.0)
+        self._executor = None
+        self._future = None

@@ -1,0 +1,144 @@
+{
+  "standard_baseline": {
+    "tests": 57,
+    "passed": 40,
+    "failed": 17,
+    "skipped": 0,
+    "failures": [
+      "test_reference_delta_calculation_uses_selected_driver",
+      "test_service_pit_window_uses_current_reference_delta",
+      "test_track_status_event_data_classifies_sc_and_vsc_laps",
+      "test_strategy_model_adapter_reads_weighted_median_cache",
+      "test_service_creates_simulation_without_mutating_base_session",
+      "test_service_replaces_existing_driver_simulation",
+      "test_service_adds_multiple_edits_to_one_driver_scenario_and_rebuilds_from_earliest",
+      "test_service_remove_strategy_edit_rebuilds_then_deletes_empty_scenario",
+      "test_service_observed_comparison_uses_actual_future_lap_times",
+      "test_pure_sim_suppresses_sc_vsc_observed_residual",
+      "test_simulated_overlay_uses_strategy_delta_on_existing_cumulative_delta_plot",
+      "test_modelled_real_display_overlay_keeps_future_observed_pit_stop_unless_removed",
+      "test_modelled_real_display_overlay_removes_split_future_observed_pit_loss",
+      "test_remove_observed_pit_edit_creates_no_pit_strategy_from_actual_marker_lap",
+      "test_simulated_reference_recalculates_all_driver_deltas",
+      "test_simulated_driver_delta_is_against_selected_reference_not_own_observed_delta",
+      "test_service_modelled_comparison_predicts_actual_remaining_strategy"
+    ]
+  },
+  "data_baseline": {
+    "tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0,
+    "failures": [
+      "test_download_resolves_session_by_round_without_event"
+    ]
+  },
+  "isolated_data": {
+    "tests": 309,
+    "passed": 303,
+    "failed": 1,
+    "skipped": 5,
+    "failures": [
+      "test_download_resolves_session_by_round_without_event"
+    ]
+  },
+  "standard": {
+    "tests": 57,
+    "passed": 40,
+    "failed": 17,
+    "skipped": 0,
+    "failures": [
+      "test_reference_delta_calculation_uses_selected_driver",
+      "test_service_pit_window_uses_current_reference_delta",
+      "test_track_status_event_data_classifies_sc_and_vsc_laps",
+      "test_strategy_model_adapter_reads_weighted_median_cache",
+      "test_service_creates_simulation_without_mutating_base_session",
+      "test_service_replaces_existing_driver_simulation",
+      "test_service_adds_multiple_edits_to_one_driver_scenario_and_rebuilds_from_earliest",
+      "test_service_remove_strategy_edit_rebuilds_then_deletes_empty_scenario",
+      "test_service_observed_comparison_uses_actual_future_lap_times",
+      "test_pure_sim_suppresses_sc_vsc_observed_residual",
+      "test_simulated_overlay_uses_strategy_delta_on_existing_cumulative_delta_plot",
+      "test_modelled_real_display_overlay_keeps_future_observed_pit_stop_unless_removed",
+      "test_modelled_real_display_overlay_removes_split_future_observed_pit_loss",
+      "test_remove_observed_pit_edit_creates_no_pit_strategy_from_actual_marker_lap",
+      "test_simulated_reference_recalculates_all_driver_deltas",
+      "test_simulated_driver_delta_is_against_selected_reference_not_own_observed_delta",
+      "test_service_modelled_comparison_predicts_actual_remaining_strategy"
+    ]
+  },
+  "strategy": {
+    "tests": 103,
+    "passed": 102,
+    "failed": 1,
+    "skipped": 0,
+    "failures": [
+      "test_relative_team_pace_rows_use_sample_paired_relative_baseline_when_available"
+    ]
+  },
+  "final_focused": {
+    "tests": 45,
+    "passed": 45,
+    "failed": 0,
+    "skipped": 0,
+    "failures": []
+  },
+  "weekend": {
+    "tests": 80,
+    "passed": 80,
+    "failed": 0,
+    "skipped": 0,
+    "failures": []
+  },
+  "data": {
+    "tests": 451,
+    "passed": 450,
+    "failed": 1,
+    "skipped": 0,
+    "failures": [
+      "test_download_resolves_session_by_round_without_event"
+    ]
+  },
+  "planner": {
+    "tests": 444,
+    "passed": 444,
+    "failed": 0,
+    "skipped": 0,
+    "failures": []
+  },
+  "strategy_baseline": {
+    "tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0,
+    "failures": [
+      "test_relative_team_pace_rows_use_sample_paired_relative_baseline_when_available"
+    ]
+  },
+  "isolated_planner": {
+    "tests": 334,
+    "passed": 334,
+    "failed": 0,
+    "skipped": 0,
+    "failures": []
+  },
+  "baseline_match": {
+    "standard": true,
+    "strategy": true,
+    "data": true,
+    "note": "Same failing test identities using committed baseline sources; script defaults differ in concurrent local work but both already fail the Race expectation."
+  },
+  "baseline_revisions": {
+    "woPlanner": "d607c1ea1ac1a5bbb7fff9b7595156b81b7cd4bc",
+    "woData": "5d1f67b48f79343965cc1fb2b0cfa02c2e5d643b",
+    "woStrategy": "a8ec8041718cb8e12cf677766afeb5c1c0e6e490",
+    "woWeekend": "fc0a49008cf4c1b47dadd9c322f05f6d82c94274"
+  },
+  "telemetry_boundary": {
+    "tests": 25,
+    "passed": 25,
+    "failed": 0,
+    "skipped": 0,
+    "failures": []
+  }
+}

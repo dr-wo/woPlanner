@@ -1,0 +1,406 @@
+{
+  "fixture": "tests/fixtures/r17_p1_prefixes.json.gz",
+  "sample_count": 2000,
+  "results": [
+    {
+      "leader_lap": 12,
+      "source_sequence": 17612,
+      "standard_status": "waiting-for-clean-laps",
+      "standard_clean_laps": 0,
+      "standard_numeric_sha256": null,
+      "prechange_numeric_equal": true,
+      "p1_status": "updated",
+      "p1_selected_laps": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "p1_quality": {
+        "architecture": "live-retro-v1",
+        "baseline_group": "team",
+        "independent_coordinate_count": 5,
+        "sample_count": 2000,
+        "ess": 1694.51535858652,
+        "ess_fraction": 0.84725767929326,
+        "best_rmse_seconds": 0.19641278897956863,
+        "weighted_rmse_seconds": 0.47266552211707946,
+        "max_weight": 0.000852606182941852,
+        "top5_weight": 0.0042426719596650765,
+        "clean_race_laps": 5,
+        "clean_race_runs": 1,
+        "observed_compounds": [
+          "SOFT"
+        ],
+        "team_compound_coordinate_count": 1,
+        "weight_strategy": "gaussian",
+        "evaluator_backend": "accelerated",
+        "candidate_chunk_size": 2000,
+        "fuel_track_raw_rank": 2,
+        "fuel_track_profiled_rank": 1,
+        "fuel_track_profiled_correlation": -1.0,
+        "fuel_track_alias": true,
+        "correction_identifiability_parameter_names": [
+          "fuel_rate",
+          "track_rate"
+        ],
+        "correction_identifiability_component_names": [
+          "FuelModel",
+          "TrackEvolutionModel"
+        ],
+        "correction_identifiability_singular_values": [
+          4.47213595499958,
+          3.9909622594133446e-16
+        ],
+        "correction_identifiability_normalized_singular_values": [
+          1.0,
+          8.924062907684388e-17
+        ],
+        "correction_identifiability_condition_number": "inf",
+        "correction_identifiability_scope": "local_jacobian",
+        "fuel_track_identifiable_combination": "track_rate - fuel_rate",
+        "numerical_quality_status": "adequate",
+        "reference_kind": "manual_p1",
+        "driver_code": "VER",
+        "selected_interval": [
+          3,
+          12
+        ],
+        "rear_gap_exclusion_bypassed": true,
+        "fuel_proxy_total_laps": 62,
+        "fuel_proxy_total_laps_source": "live_lap_count",
+        "degradation_identifiability": "single-driver pace trend confounded with fuel and track corrections; prior-dependent"
+      },
+      "p1_exclusions": {
+        "observed_interval_laps": 10,
+        "not_p1_laps": 0,
+        "missing_tyre_metadata": 0,
+        "invalid_lap": 0,
+        "disallowed_compound": 0,
+        "pit_lap": 0,
+        "non_green_track_status": 2,
+        "non_quick_lap": 1,
+        "traffic_ahead": 0,
+        "stint_edge": 0,
+        "insufficient_consecutive_laps": 3,
+        "selected_clean_laps": 5
+      },
+      "applicable_parameters": [
+        {
+          "analysis_id": "live-retro-analysis-cc25af3f6c212e38b19e",
+          "sample_bank_id": "live-retro-bank-6c5ea6c304f70704eb8e",
+          "source_scope": "aggregate",
+          "as_of_leader_lap": 12,
+          "parameter": "degradation",
+          "session": "R",
+          "team": "Red Bull Racing",
+          "compound": "SOFT",
+          "reference_compound": null,
+          "p10": 0.029186877555910432,
+          "median": 0.15393348686911212,
+          "p90": 0.3693932638613673,
+          "unit": "s/lap",
+          "support_status": "measured",
+          "usable_lap_count": 5,
+          "usable_run_count": 1,
+          "ess": 1694.51535858652,
+          "weighted_rmse": 0.47266552211707946,
+          "bound_weight_low": 0.0,
+          "bound_weight_high": 0.0,
+          "input_fingerprint": "76b8b62f83ac2fd14646aaa06234bf02566a6e6a92ad39a75fab0bd2c8086fbb",
+          "config_hash": "6c5ea6c304f70704eb8ec5650e24f74afbfedcb6e4fc585a496da90432557bfe",
+          "created_at": "2026-10-18 22:43:31.271457+00:00",
+          "source_parameter": "team_degradation"
+        }
+      ],
+      "short_interval_status": "waiting-for-clean-laps",
+      "short_interval_exclusions": {
+        "observed_interval_laps": 1,
+        "not_p1_laps": 0,
+        "missing_tyre_metadata": 0,
+        "invalid_lap": 0,
+        "disallowed_compound": 0,
+        "pit_lap": 0,
+        "non_green_track_status": 0,
+        "non_quick_lap": 0,
+        "traffic_ahead": 0,
+        "stint_edge": 0,
+        "insufficient_consecutive_laps": 1,
+        "selected_clean_laps": 0
+      },
+      "future_interval_status": "invalid-selection",
+      "standard_state_unchanged": true
+    },
+    {
+      "leader_lap": 13,
+      "source_sequence": 18910,
+      "standard_status": "waiting-for-clean-laps",
+      "standard_clean_laps": 0,
+      "standard_numeric_sha256": null,
+      "prechange_numeric_equal": true,
+      "p1_status": "updated",
+      "p1_selected_laps": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        10,
+        11,
+        12,
+        13
+      ],
+      "p1_quality": {
+        "architecture": "live-retro-v1",
+        "baseline_group": "team",
+        "independent_coordinate_count": 5,
+        "sample_count": 2000,
+        "ess": 879.9054008419446,
+        "ess_fraction": 0.4399527004209723,
+        "best_rmse_seconds": 0.18823248873215617,
+        "weighted_rmse_seconds": 0.5689466349475717,
+        "max_weight": 0.0019339248708384372,
+        "top5_weight": 0.009653746155478383,
+        "clean_race_laps": 9,
+        "clean_race_runs": 2,
+        "observed_compounds": [
+          "SOFT"
+        ],
+        "team_compound_coordinate_count": 1,
+        "weight_strategy": "gaussian",
+        "evaluator_backend": "accelerated",
+        "candidate_chunk_size": 2000,
+        "fuel_track_raw_rank": 2,
+        "fuel_track_profiled_rank": 1,
+        "fuel_track_profiled_correlation": -1.0000000000000002,
+        "fuel_track_alias": true,
+        "correction_identifiability_parameter_names": [
+          "fuel_rate",
+          "track_rate"
+        ],
+        "correction_identifiability_component_names": [
+          "FuelModel",
+          "TrackEvolutionModel"
+        ],
+        "correction_identifiability_singular_values": [
+          14.757295747452437,
+          6.7941153239821116e-15
+        ],
+        "correction_identifiability_normalized_singular_values": [
+          1.0,
+          4.603902666350631e-16
+        ],
+        "correction_identifiability_condition_number": "inf",
+        "correction_identifiability_scope": "local_jacobian",
+        "fuel_track_identifiable_combination": "track_rate - fuel_rate",
+        "numerical_quality_status": "adequate",
+        "reference_kind": "manual_p1",
+        "driver_code": "VER",
+        "selected_interval": [
+          3,
+          13
+        ],
+        "rear_gap_exclusion_bypassed": true,
+        "fuel_proxy_total_laps": 62,
+        "fuel_proxy_total_laps_source": "live_lap_count",
+        "degradation_identifiability": "single-driver pace trend confounded with fuel and track corrections; prior-dependent"
+      },
+      "p1_exclusions": {
+        "observed_interval_laps": 11,
+        "not_p1_laps": 0,
+        "missing_tyre_metadata": 0,
+        "invalid_lap": 0,
+        "disallowed_compound": 0,
+        "pit_lap": 0,
+        "non_green_track_status": 2,
+        "non_quick_lap": 1,
+        "traffic_ahead": 0,
+        "stint_edge": 0,
+        "insufficient_consecutive_laps": 0,
+        "selected_clean_laps": 9
+      },
+      "applicable_parameters": [
+        {
+          "analysis_id": "live-retro-analysis-200b976c51025aee3d1d",
+          "sample_bank_id": "live-retro-bank-dec09dcf12d8e294f775",
+          "source_scope": "aggregate",
+          "as_of_leader_lap": 13,
+          "parameter": "degradation",
+          "session": "R",
+          "team": "Red Bull Racing",
+          "compound": "SOFT",
+          "reference_compound": null,
+          "p10": 0.013057727823593148,
+          "median": 0.07589905372513227,
+          "p90": 0.20203020374746247,
+          "unit": "s/lap",
+          "support_status": "measured",
+          "usable_lap_count": 9,
+          "usable_run_count": 2,
+          "ess": 879.9054008419446,
+          "weighted_rmse": 0.5689466349475717,
+          "bound_weight_low": 0.0,
+          "bound_weight_high": 0.0,
+          "input_fingerprint": "fe89dab2c678a35e625bc32fefd19a7048cfc3ba8fd1d3f3bf8d0b9ce5bd9ebf",
+          "config_hash": "dec09dcf12d8e294f775f9f4ac3744f8a295d67d4e4b7a383e579f69bb71fba8",
+          "created_at": "2026-10-18 22:43:31.422385+00:00",
+          "source_parameter": "team_degradation"
+        }
+      ],
+      "short_interval_status": "waiting-for-clean-laps",
+      "short_interval_exclusions": {
+        "observed_interval_laps": 2,
+        "not_p1_laps": 0,
+        "missing_tyre_metadata": 0,
+        "invalid_lap": 0,
+        "disallowed_compound": 0,
+        "pit_lap": 0,
+        "non_green_track_status": 0,
+        "non_quick_lap": 0,
+        "traffic_ahead": 0,
+        "stint_edge": 0,
+        "insufficient_consecutive_laps": 2,
+        "selected_clean_laps": 0
+      },
+      "future_interval_status": "invalid-selection",
+      "standard_state_unchanged": true
+    },
+    {
+      "leader_lap": 14,
+      "source_sequence": 20206,
+      "standard_status": "updated",
+      "standard_clean_laps": 16,
+      "standard_numeric_sha256": "ca68c689100a7d39cc43405d5a0fca6d0db97e5fd5249666a97b95c2efe6e59c",
+      "prechange_numeric_equal": true,
+      "p1_status": "updated",
+      "p1_selected_laps": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "p1_quality": {
+        "architecture": "live-retro-v1",
+        "baseline_group": "team",
+        "independent_coordinate_count": 5,
+        "sample_count": 2000,
+        "ess": 802.2099404654598,
+        "ess_fraction": 0.4011049702327299,
+        "best_rmse_seconds": 0.17865275431350516,
+        "weighted_rmse_seconds": 0.5754530403167176,
+        "max_weight": 0.0021615676273564945,
+        "top5_weight": 0.010787936365060301,
+        "clean_race_laps": 10,
+        "clean_race_runs": 2,
+        "observed_compounds": [
+          "SOFT"
+        ],
+        "team_compound_coordinate_count": 1,
+        "weight_strategy": "gaussian",
+        "evaluator_backend": "accelerated",
+        "candidate_chunk_size": 2000,
+        "fuel_track_raw_rank": 2,
+        "fuel_track_profiled_rank": 1,
+        "fuel_track_profiled_correlation": -1.0,
+        "fuel_track_alias": true,
+        "correction_identifiability_parameter_names": [
+          "fuel_rate",
+          "track_rate"
+        ],
+        "correction_identifiability_component_names": [
+          "FuelModel",
+          "TrackEvolutionModel"
+        ],
+        "correction_identifiability_singular_values": [
+          16.88194301613413,
+          2.6715426691460095e-15
+        ],
+        "correction_identifiability_normalized_singular_values": [
+          1.0,
+          1.582485301954169e-16
+        ],
+        "correction_identifiability_condition_number": "inf",
+        "correction_identifiability_scope": "local_jacobian",
+        "fuel_track_identifiable_combination": "track_rate - fuel_rate",
+        "numerical_quality_status": "adequate",
+        "reference_kind": "manual_p1",
+        "driver_code": "VER",
+        "selected_interval": [
+          3,
+          14
+        ],
+        "rear_gap_exclusion_bypassed": true,
+        "fuel_proxy_total_laps": 62,
+        "fuel_proxy_total_laps_source": "live_lap_count",
+        "degradation_identifiability": "single-driver pace trend confounded with fuel and track corrections; prior-dependent"
+      },
+      "p1_exclusions": {
+        "observed_interval_laps": 12,
+        "not_p1_laps": 0,
+        "missing_tyre_metadata": 0,
+        "invalid_lap": 0,
+        "disallowed_compound": 0,
+        "pit_lap": 0,
+        "non_green_track_status": 2,
+        "non_quick_lap": 1,
+        "traffic_ahead": 0,
+        "stint_edge": 0,
+        "insufficient_consecutive_laps": 0,
+        "selected_clean_laps": 10
+      },
+      "applicable_parameters": [
+        {
+          "analysis_id": "live-retro-analysis-210b704472eb38b1c461",
+          "sample_bank_id": "live-retro-bank-f0e678eacebde3f0b20c",
+          "source_scope": "aggregate",
+          "as_of_leader_lap": 14,
+          "parameter": "degradation",
+          "session": "R",
+          "team": "Red Bull Racing",
+          "compound": "SOFT",
+          "reference_compound": null,
+          "p10": 0.011779230421882173,
+          "median": 0.07082709501678547,
+          "p90": 0.1842787046421906,
+          "unit": "s/lap",
+          "support_status": "measured",
+          "usable_lap_count": 10,
+          "usable_run_count": 2,
+          "ess": 802.2099404654598,
+          "weighted_rmse": 0.5754530403167176,
+          "bound_weight_low": 0.0,
+          "bound_weight_high": 0.0,
+          "input_fingerprint": "f9c0f9b4c5980604f07f71035ca2552d3063b6c067c77c731378b138aae0fda6",
+          "config_hash": "f0e678eacebde3f0b20c8ac2712c66c28fef2f964a91f14babc87b093aec00db",
+          "created_at": "2026-10-18 22:43:31.645398+00:00",
+          "source_parameter": "team_degradation"
+        }
+      ],
+      "short_interval_status": "waiting-for-clean-laps",
+      "short_interval_exclusions": {
+        "observed_interval_laps": 3,
+        "not_p1_laps": 0,
+        "missing_tyre_metadata": 0,
+        "invalid_lap": 0,
+        "disallowed_compound": 0,
+        "pit_lap": 0,
+        "non_green_track_status": 0,
+        "non_quick_lap": 0,
+        "traffic_ahead": 0,
+        "stint_edge": 0,
+        "insufficient_consecutive_laps": 3,
+        "selected_clean_laps": 0
+      },
+      "future_interval_status": "invalid-selection",
+      "standard_state_unchanged": true
+    }
+  ],
+  "note": "Only supplied original prefixes and existing configuration were used. No model writes or future observations."
+}

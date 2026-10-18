@@ -1,0 +1,58 @@
+.........................................F.............................. [ 15%]
+........................................................................ [ 31%]
+........................................................................ [ 47%]
+........................................................................ [ 63%]
+........................................................................ [ 79%]
+........................................................................ [ 95%]
+...................                                                      [100%]
+=================================== FAILURES ===================================
+____________ test_download_resolves_session_by_round_without_event _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cb2df50>
+tmp_path = PosixPath('/private/var/folders/wk/rz1n_fcj1h92_z57t5x10wz40000gn/T/pytest-of-zhxutong/pytest-84/test_download_resolves_session0')
+
+    def test_download_resolves_session_by_round_without_event(monkeypatch, tmp_path):
+        config = dict(SCRIPT_CONFIG)
+        config.update(
+            year=2025,
+            round_number=14,
+            event=None,
+            data_root=tmp_path,
+            download=True,
+            build=False,
+            play=False,
+        )
+        calls = []
+
+        def fake_resolve(year, event, session):
+            calls.append((year, event, session))
+            from wodata.live.replay import ArchiveSession
+
+            return ArchiveSession(year, event, "Hungarian Grand Prix", "Race", "R", "/api/")
+
+        class Result:
+            archive_dir = tmp_path / "archive"
+            available_topics = ()
+            missing_topics = ()
+            reused = False
+
+        monkeypatch.setattr("wodata.script.fetch_replay_data.resolve_archive_session", fake_resolve)
+        monkeypatch.setattr(
+            "wodata.script.fetch_replay_data.download_archive", lambda *args, **kwargs: Result()
+        )
+
+        result = run(config)
+
+>       assert calls == [(2025, 14, "R")]
+E       AssertionError: assert [(2025, 14, 'FP1')] == [(2025, 14, 'R')]
+E
+E         At index 0 diff: (2025, 14, 'FP1') != (2025, 14, 'R')
+E         Use -v to get more diff
+
+tests/test_fetch_replay_data_script.py:109: AssertionError
+----------------------------- Captured stdout call -----------------------------
+Archive directory: /private/var/folders/wk/rz1n_fcj1h92_z57t5x10wz40000gn/T/pytest-of-zhxutong/pytest-84/test_download_resolves_session0/wodata/live_archive/schema_v1/year=2025/round=14/session=R
+Archive topics: 0 available, 0 missing
+=========================== short test summary info ============================
+FAILED tests/test_fetch_replay_data_script.py::test_download_resolves_session_by_round_without_event
+1 failed, 450 passed in 24.57s

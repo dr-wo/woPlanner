@@ -1,0 +1,89 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_relative_team_pace_rows_use_sample_paired_relative_baseline_when_available _
+
+    def test_relative_team_pace_rows_use_sample_paired_relative_baseline_when_available():
+        team_summary = pd.DataFrame(
+            [
+                {
+                    "Team": "Alfa",
+                    "P10": 100.0,
+                    "Median": 200.0,
+                    "P90": 300.0,
+                    "SampleCount": 3,
+                    "WeightSum": 3.0,
+                    "MeanRMSESeconds": 0.2,
+                    "TeamBaselineMode": "best-driver",
+                },
+                {
+                    "Team": "Beta",
+                    "P10": 100.0,
+                    "Median": 200.0,
+                    "P90": 300.0,
+                    "SampleCount": 3,
+                    "WeightSum": 3.0,
+                    "MeanRMSESeconds": 0.25,
+                    "TeamBaselineMode": "best-driver",
+                },
+            ]
+        )
+        team_samples = pd.DataFrame(
+            [
+                {
+                    "SampleId": 1,
+                    "Team": "Alfa",
+                    "CorrectedBaselinePaceSeconds": 100.0,
+                    "Weight": 1.0,
+                },
+                {
+                    "SampleId": 2,
+                    "Team": "Alfa",
+                    "CorrectedBaselinePaceSeconds": 200.0,
+                    "Weight": 1.0,
+                },
+                {
+                    "SampleId": 3,
+                    "Team": "Alfa",
+                    "CorrectedBaselinePaceSeconds": 300.0,
+                    "Weight": 1.0,
+                },
+                {
+                    "SampleId": 1,
+                    "Team": "Beta",
+                    "CorrectedBaselinePaceSeconds": 300.0,
+                    "Weight": 1.0,
+                },
+                {
+                    "SampleId": 2,
+                    "Team": "Beta",
+                    "CorrectedBaselinePaceSeconds": 100.0,
+                    "Weight": 1.0,
+                },
+                {
+                    "SampleId": 3,
+                    "Team": "Beta",
+                    "CorrectedBaselinePaceSeconds": 200.0,
+                    "Weight": 1.0,
+                },
+            ]
+        )
+
+        rows = relative_team_pace_rows(
+            team_baseline_summary=team_summary,
+            team_baseline_samples=team_samples,
+            year=2026,
+            race=3,
+            reference_team="Alfa",
+            event_name="Example GP",
+        )
+
+        beta = next(row for row in rows if row["Team"] == "Beta")
+        assert beta["CorrectedBaselinePaceSeconds"] == 200.0
+        assert beta["RelativeToReferenceSeconds"] == -100.0
+>       assert beta["PercentageToReferenceTeam"] == 200.0 / 3.0
+E       assert 66.66666666666666 == (200.0 / 3.0)
+
+tests/test_race_performance_review.py:967: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_race_performance_review.py::test_relative_team_pace_rows_use_sample_paired_relative_baseline_when_available
+1 failed in 0.70s

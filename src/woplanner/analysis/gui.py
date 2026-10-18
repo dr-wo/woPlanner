@@ -21,6 +21,7 @@ from ..common.visual_styles import COMPOUND_COLOURS
 from ..operational_inputs import load_operational_race_inputs
 from .service import OfflineAnalysisService, leader_lap_snapshots
 from .worker import AnalysisQueuePolicy, LiveAnalysisProcessService
+from .p1_reference_widget import P1ReferenceWidget
 from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
 from .live_sensitivity import live_calculation_tyre_inputs, validate_degradation_sensitivity
 from ..live.undercut_widget import ObservedUndercutWidget
@@ -450,6 +451,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.tabs.addTab(self.live_tab, "Live recalculation")
         self.history_info_tab = self._build_history_info_tab()
         self.tabs.addTab(self.history_info_tab, "History Info")
+        if self.live_operational_controls:
+            self.tabs.addTab(self.p1_reference, "P1 Pace Reference")
         self.tabs.currentChanged.connect(self._strategy_tab_changed)
         layout.addWidget(self.status_label)
         self.team_scope_widget = QtWidgets.QWidget(self)
@@ -1226,6 +1229,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._refresh_tyre_inputs(apply_to_strategy=True)
         self._append_log(f"Strategy tyre scope: {self._scope_key()}; performance model: Global")
         self._save_state()
+        self.p1_reference._refresh_actions()
 
     def _build_team_scope_buttons(self, teams: tuple[str, ...]) -> None:
         if not self.team_scope_enabled:
@@ -1259,6 +1263,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             )
             availability = (
                 "Global is always available." if team is None else
+                "Available from the P1 pace reference. Choose Apply to use it in team strategy inputs." if team in self.p1_reference.supported_teams() else
                 "Available: this snapshot contains team_degradation." if available else
                 "Unavailable: this snapshot has no team_degradation; no team calculation is available."
             )
@@ -1271,7 +1276,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def _refresh_strategy_teams(self, summary) -> None:
         if not self.team_scope_enabled:
             return
-        teams = self.service.strategy_teams(summary)
+        teams = tuple(sorted(set(self.service.strategy_teams(summary)) | self.p1_reference.supported_teams()))
         selected = self._selected_team
         if selected is not None and selected not in teams:
             self._selected_team = None
@@ -1426,6 +1431,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.observed_undercut = ObservedUndercutWidget()
         self.observed_undercut.setVisible(self.live_operational_controls)
         layout.addWidget(self.observed_undercut)
+        self.p1_reference = P1ReferenceWidget(self)
+        self.p1_reference.setVisible(self.live_operational_controls)
         layout.addWidget(self.calculation_log)
         self.clean_details_button.clicked.connect(self.clean_details_dialog.show)
         for control in (
@@ -1905,6 +1912,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def consume_live_snapshot(self, snapshot) -> None:
         """Receive the same canonical snapshot that drives the live timing plot."""
         self._live_snapshot = snapshot
+        self.p1_reference.consume_snapshot(snapshot)
         self._refresh_observed_undercut()
         current_driver = self.driver.currentData()
         if current_driver is None and self._restored_driver_code:
@@ -2737,6 +2745,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         return True
 
     def _restart_analysis_worker(self) -> None:
+        self.p1_reference.reset_session()
         self._analysis_worker.shutdown(wait=False)
         self._telemetry_build_options.clear()
         self._analysis_worker = LiveAnalysisProcessService(
@@ -3221,6 +3230,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 for scope, values in self._scope_manual_values.items()
             },
         }
+        self.p1_reference.prepare_saved_state(state)
         if not self.team_scope_enabled:
             state["controls"].pop("team")
             state.pop("scope_manual_values")
@@ -3292,4 +3302,5 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._analysis_worker.shutdown(wait=False)
         self._executor.shutdown(wait=False, cancel_futures=True)
         self._fp_executor.shutdown(wait=False, cancel_futures=True)
+        self.p1_reference.shutdown()
         super().closeEvent(event)

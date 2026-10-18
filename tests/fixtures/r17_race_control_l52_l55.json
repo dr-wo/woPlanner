@@ -1,0 +1,62 @@
+{
+  "source": "research/r17_ham_20261011/inputs/race_control_messages.csv; archived 2026 R17 Race Control messages; Time mapped to Utc, empty CSV cells omitted; original Message and notification Lap preserved",
+  "messages": [
+    {
+      "Category": "Flag",
+      "Message": "WAVED BLUE FLAG FOR CAR 31 (OCO) TIMED AT 21:28:29",
+      "Flag": "BLUE",
+      "Scope": "Driver",
+      "RacingNumber": "31",
+      "Lap": 52,
+      "Utc": "2026-10-11T13:28:29Z"
+    },
+    {
+      "Category": "Other",
+      "Message": "CAR 63 (RUS) TIME 1:38.393 DELETED - TRACK LIMITS AT TURN 16 LAP 51 21:29:01",
+      "Lap": 53,
+      "Utc": "2026-10-11T13:30:05Z"
+    },
+    {
+      "Category": "Other",
+      "Message": "TURN 1 INCIDENT INVOLVING CAR 44 (HAM) NOTED - LEAVING THE TRACK AND GAINING AN ADVANTAGE (21:31:36)",
+      "Lap": 54,
+      "Utc": "2026-10-11T13:32:38Z"
+    },
+    {
+      "Category": "Flag",
+      "Message": "WAVED BLUE FLAG FOR CAR 11 (PER) TIMED AT 21:32:38",
+      "Flag": "BLUE",
+      "Scope": "Driver",
+      "RacingNumber": "11",
+      "Lap": 54,
+      "Utc": "2026-10-11T13:32:39Z"
+    },
+    {
+      "Category": "Other",
+      "Message": "FIA STEWARDS: TURN 1 INCIDENT INVOLVING CAR 44 (HAM) UNDER INVESTIGATION - LEAVING THE TRACK AND GAINING AN ADVANTAGE (21:31:36)",
+      "Lap": 55,
+      "Utc": "2026-10-11T13:33:07Z"
+    },
+    {
+      "Category": "Other",
+      "Message": "CAR 44 (HAM) TIME 1:40.977 DELETED - TRACK LIMITS AT TURN 2 LAP 54 21:31:40",
+      "Lap": 55,
+      "Utc": "2026-10-11T13:33:18Z"
+    },
+    {
+      "Category": "Other",
+      "Message": "CAR 1 (NOR) TIME 1:40.918 DELETED - TRACK LIMITS AT TURN 2 LAP 54 21:31:41",
+      "Lap": 55,
+      "Utc": "2026-10-11T13:33:20Z"
+    },
+    {
+      "Category": "Flag",
+      "Message": "WAVED BLUE FLAG FOR CAR 31 (OCO) TIMED AT 21:33:41",
+      "Flag": "BLUE",
+      "Scope": "Driver",
+      "RacingNumber": "31",
+      "Lap": 55,
+      "Utc": "2026-10-11T13:33:42Z"
+    }
+  ]
+}

@@ -1032,6 +1032,81 @@ class OfflineAnalysisService:
             rows.extend(self._ephemeral_parameter_rows)
         return rows
 
+    def _live_retro_config(
+        self, year: int, round_number: int, *, sample_count: int,
+        enforce_compound_order: bool | None = None,
+        stored: Mapping[str, object] | None = None,
+    ) -> MonteCarloRacePerformanceConfig:
+        """Resolve the shared standard and manual-reference MC configuration."""
+        if stored is None:
+            stored = self.live_model_config(year, round_number, "R")
+        if not stored:
+            raise ValueError("Run pre_race_analysis first; model_config.json is missing.")
+        resolved = resolve_race_performance_settings(
+            year=year, round_number=round_number, session="R", data_root=self.data_root
+        )
+        retro_settings = dict(resolved.settings) if resolved else {}
+        order_threshold = retro_settings.get("degradation_order_track_temperature")
+        live_track_temperature = retro_settings.get("track_temperature")
+        if (
+            live_track_temperature is None
+            and order_threshold is not None
+            and (enforce_compound_order is None or enforce_compound_order)
+        ):
+            # The retro review normally reads TrackTemp from its lap frame.
+            # Live completed-lap contracts do not carry weather, so make the
+            # requested ordering explicit instead of silently disabling it.
+            live_track_temperature = float(order_threshold) + 1.0
+        return MonteCarloRacePerformanceConfig(
+            sample_count=int(sample_count),
+            fuel_rate_bounds=tuple(retro_settings.get("fuel_rate_bounds", stored["fuel_rate_bounds"])),
+            track_rate_bounds=tuple(retro_settings.get("track_rate_bounds", stored["track_rate_bounds"])),
+            limit_negative_track_correction=bool(
+                retro_settings.get("limit_negative_track_correction", False)
+            ),
+            compound_degradation_bounds={
+                str(key).upper(): tuple(value) for key, value in
+                dict(retro_settings.get("compound_degradation_bounds", {})).items()
+            },
+            default_compound_degradation_bounds=tuple(retro_settings.get(
+                "default_compound_degradation_bounds", stored["default_degradation_bounds"]
+            )),
+            compound_delta_bounds={
+                str(key).upper(): tuple(value) for key, value in
+                dict(retro_settings.get("compound_delta_bounds", {})).items()
+            },
+            default_compound_delta_bounds=tuple(retro_settings.get(
+                "default_compound_delta_bounds", stored["default_compound_delta_bounds"]
+            )),
+            compound_delta_reference=str(retro_settings.get(
+                "compound_delta_reference", stored.get("reference_compound", "HARD")
+            )),
+            team_variation_fraction=float(retro_settings.get("team_variation_fraction", .5)),
+            team_variation_absolute_min=float(retro_settings.get(
+                "team_variation_absolute_min", .005
+            )),
+            clean_lap_noise_sigma=float(retro_settings.get(
+                "clean_lap_noise_sigma", stored.get("clean_lap_noise_sigma", .15)
+            )),
+            weight_strategy=str(retro_settings.get("weight_strategy", "gaussian")),
+            weight_effective_sample_count=retro_settings.get("weight_effective_sample_count"),
+            baseline_group=str(retro_settings.get("baseline_group", "driver")),
+            fuel_ref=float(retro_settings.get("fuel_ref", 0.0)),
+            race_lap_ref=retro_settings.get("race_lap_ref"),
+            tyre_age_ref=float(retro_settings.get("tyre_age_ref", 0.0)),
+            random_seed=int(stored["random_seed"]),
+            sampling_strategy=str(retro_settings.get("sampling_strategy", "random")),
+            track_temperature_celsius=live_track_temperature,
+            degradation_order_track_temperature_celsius=order_threshold,
+            evaluator_backend=str(retro_settings.get("evaluator_backend", "accelerated")),
+            candidate_chunk_size=int(retro_settings.get("candidate_chunk_size", 2_000)),
+        )
+
+    def calculate_p1_reference(self, **kwargs):
+        """Calculate a separate, non-persistent manually selected P1 reference."""
+        from .p1_reference import calculate_p1_reference
+        return calculate_p1_reference(self, **kwargs)
+
     def recalculate_from_live_snapshot(
         self,
         *,
@@ -1162,64 +1237,9 @@ class OfflineAnalysisService:
         }
         prior_started = time.perf_counter()
         if race_baseline_architecture == "retro":
-            resolved = resolve_race_performance_settings(
-                year=year, round_number=round_number, session="R", data_root=self.data_root
-            )
-            retro_settings = dict(resolved.settings) if resolved else {}
-            order_threshold = retro_settings.get("degradation_order_track_temperature")
-            live_track_temperature = retro_settings.get("track_temperature")
-            if (
-                live_track_temperature is None
-                and order_threshold is not None
-                and (enforce_compound_order is None or enforce_compound_order)
-            ):
-                # The retro review normally reads TrackTemp from its lap frame.
-                # Live completed-lap contracts do not carry weather, so make the
-                # requested ordering explicit instead of silently disabling it.
-                live_track_temperature = float(order_threshold) + 1.0
-            retro_config = MonteCarloRacePerformanceConfig(
-                sample_count=int(sample_count),
-                fuel_rate_bounds=tuple(retro_settings.get("fuel_rate_bounds", stored["fuel_rate_bounds"])),
-                track_rate_bounds=tuple(retro_settings.get("track_rate_bounds", stored["track_rate_bounds"])),
-                limit_negative_track_correction=bool(
-                    retro_settings.get("limit_negative_track_correction", False)
-                ),
-                compound_degradation_bounds={
-                    str(key).upper(): tuple(value) for key, value in
-                    dict(retro_settings.get("compound_degradation_bounds", {})).items()
-                },
-                default_compound_degradation_bounds=tuple(retro_settings.get(
-                    "default_compound_degradation_bounds", stored["default_degradation_bounds"]
-                )),
-                compound_delta_bounds={
-                    str(key).upper(): tuple(value) for key, value in
-                    dict(retro_settings.get("compound_delta_bounds", {})).items()
-                },
-                default_compound_delta_bounds=tuple(retro_settings.get(
-                    "default_compound_delta_bounds", stored["default_compound_delta_bounds"]
-                )),
-                compound_delta_reference=str(retro_settings.get(
-                    "compound_delta_reference", stored.get("reference_compound", "HARD")
-                )),
-                team_variation_fraction=float(retro_settings.get("team_variation_fraction", .5)),
-                team_variation_absolute_min=float(retro_settings.get(
-                    "team_variation_absolute_min", .005
-                )),
-                clean_lap_noise_sigma=float(retro_settings.get(
-                    "clean_lap_noise_sigma", stored.get("clean_lap_noise_sigma", .15)
-                )),
-                weight_strategy=str(retro_settings.get("weight_strategy", "gaussian")),
-                weight_effective_sample_count=retro_settings.get("weight_effective_sample_count"),
-                baseline_group=str(retro_settings.get("baseline_group", "driver")),
-                fuel_ref=float(retro_settings.get("fuel_ref", 0.0)),
-                race_lap_ref=retro_settings.get("race_lap_ref"),
-                tyre_age_ref=float(retro_settings.get("tyre_age_ref", 0.0)),
-                random_seed=int(stored["random_seed"]),
-                sampling_strategy=str(retro_settings.get("sampling_strategy", "random")),
-                track_temperature_celsius=live_track_temperature,
-                degradation_order_track_temperature_celsius=order_threshold,
-                evaluator_backend=str(retro_settings.get("evaluator_backend", "accelerated")),
-                candidate_chunk_size=int(retro_settings.get("candidate_chunk_size", 2_000)),
+            retro_config = self._live_retro_config(
+                year, round_number, sample_count=sample_count,
+                enforce_compound_order=enforce_compound_order, stored=stored,
             )
             self._last_live_calculation_inputs = {
                 "architecture": "retro",
@@ -1807,12 +1827,15 @@ def _live_individual_clean_laps(
     allowed_compounds: tuple[str, ...] = ("SOFT", "MEDIUM", "HARD"),
     use_sector_boundary_traffic: bool = False,
     min_gap_ahead_seconds: float = 2.5,
-    min_gap_behind_seconds: float = 1.0,
+    min_gap_behind_seconds: float | None = 1.0,
+    traffic_override: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Classify individual full laps before MC run/edge eligibility rules."""
     if not allowed_compounds:
         raise ValueError("At least one clean-lap compound must be selected.")
-    if min_gap_ahead_seconds < 0 or min_gap_behind_seconds < 0:
+    if min_gap_ahead_seconds < 0 or (
+        min_gap_behind_seconds is not None and min_gap_behind_seconds < 0
+    ):
         raise ValueError("Traffic gaps must be non-negative.")
     rows = []
     diagnostics = {
@@ -1864,7 +1887,10 @@ def _live_individual_clean_laps(
     laps = laps.sort_values(["Driver", "Stint", "LapNumber"], kind="mergesort")
     laps["StintLapNumber"] = laps.groupby(["Driver", "Stint"]).cumcount() + 1
     normalized_compounds = tuple(str(value).upper() for value in allowed_compounds)
-    traffic = _live_traffic_gaps(snapshot, force_sector=use_sector_boundary_traffic)
+    traffic = (
+        _live_traffic_gaps(snapshot, force_sector=use_sector_boundary_traffic)
+        if traffic_override is None else traffic_override
+    )
     laps = laps.merge(traffic, on=["Driver", "LapNumber"], how="left")
     laps["MeanTimeDeltaToDriverAhead"] = laps["TrafficGapAheadSeconds"]
     laps["MeanTimeDeltaToDriverBehind"] = laps["TrafficGapBehindSeconds"]
@@ -2109,16 +2135,19 @@ def _with_live_traffic_contract(traffic: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
-def _sector_boundary_traffic_gaps(snapshot) -> pd.DataFrame:
+def _sector_boundary_traffic_gaps(
+    snapshot, *, require_behind: bool = True
+) -> pd.DataFrame:
     """Return conservative nearest-car gaps at start/S1/S2/end boundaries.
 
     Sector messages expose their lap-completion timestamp rather than a GPS trace.
     Earlier boundary times are reconstructed by subtracting the remaining sector
     durations. A lap is returned only when both a preceding (ahead) and following
     (behind) crossing by another driver exist at all four boundaries.
+    Manual P1 references may disable rear support only; ahead remains required.
     """
     grouped: dict[tuple[str, int], dict[str, object]] = {}
-    for sector in snapshot.completed_sectors:
+    for sector in getattr(snapshot, "completed_sectors", ()):
         if (
             sector.session_time_seconds is None
             and sector.source_timestamp_utc is None
@@ -2172,25 +2201,26 @@ def _sector_boundary_traffic_gaps(snapshot) -> pd.DataFrame:
             next_index = index + 1
             while next_index < len(ordered) and str(ordered[next_index]["Driver"]) == driver:
                 next_index += 1
-            if previous_index < 0 or next_index >= len(ordered):
+            if previous_index < 0 or (require_behind and next_index >= len(ordered)):
                 continue
             crossing_time = float(crossing["CrossingTime"])
             entry = gaps.setdefault(key, {"ahead": [], "behind": []})
             entry["ahead"].append(
                 crossing_time - float(ordered[previous_index]["CrossingTime"])
             )
-            entry["behind"].append(
-                float(ordered[next_index]["CrossingTime"]) - crossing_time
-            )
+            if next_index < len(ordered):
+                entry["behind"].append(
+                    float(ordered[next_index]["CrossingTime"]) - crossing_time
+                )
     rows = [
         {
             "Driver": driver,
             "LapNumber": lap_number,
             "MinGapAheadSeconds": min(values["ahead"]),
-            "MinGapBehindSeconds": min(values["behind"]),
+            "MinGapBehindSeconds": min(values["behind"]) if len(values["behind"]) == 4 else float("nan"),
         }
         for (driver, lap_number), values in gaps.items()
-        if len(values["ahead"]) == 4 and len(values["behind"]) == 4
+        if len(values["ahead"]) == 4 and (not require_behind or len(values["behind"]) == 4)
     ]
     return pd.DataFrame(
         rows,

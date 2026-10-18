@@ -1,0 +1,3 @@
+qt.qpa.fonts: Populating font family aliases took 36 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost.
+This plugin does not support propagateSizeHints()
+{"events": 8, "lap_deletions": 3, "duplicate_replay": "unchanged", "screenshot": "/Users/zhxutong/dr-wo/woPlanner/doc/assets/26r17_race_info.png"}
