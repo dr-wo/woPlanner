@@ -28,13 +28,14 @@ def test_session_wide_history_and_global_push_indices_survive_q1_q2_q3():
         _sample("Q3", "AAA", 9, 2),
     )
     service = QualiLiveService()
-    service._track_samples.extend(samples[:2])
+    from test_quali_canonical_track_rate import seed
+    seed(service, *samples[:2])
     service.session_part = "Q2"
     q2 = service.track_evolution_diagnostic()
     assert [(s.part, s.global_push_index) for s in q2.series[0].samples] == [
         ("Q1", 1), ("Q2", 5),
     ]
-    service._track_samples.append(samples[2])
+    seed(service, samples[2])
     service.session_part = "Q3"
     q3 = service.track_evolution_diagnostic()
     assert [(s.part, s.global_push_index) for s in q3.series[0].samples] == [

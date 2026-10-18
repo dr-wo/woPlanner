@@ -264,8 +264,11 @@ class QualiWindow(QtWidgets.QMainWindow):
             result = self.analysis_service.analyze(
                 self.year.value(), self.round.value()
             )
-            rate, _, _ = self.analysis_service.effective_fp_track_rate()
-            self.service.set_fp_track_rate(rate)
+            rate, source, samples = self.analysis_service.effective_fp_track_rate()
+            self.service.set_fp_track_rate(
+                rate, loaded_fp=samples > 0,
+                reference=f"{self.year.value()}/R{self.round.value()}: {source}",
+            )
             self.service.load_operational_analysis(result)
             if self.plan_dialog:
                 self.plan_dialog.load_analysis(result)
@@ -417,15 +420,8 @@ class QualiWindow(QtWidgets.QMainWindow):
         )
         selected_column = current_item.column() if current_item is not None else 0
         self.table.setRowCount(len(snapshot.drivers))
-        self.table.cutoff_rank = (
-            0
-            if getattr(snapshot.cutoff, "target_kind", "CUTOFF") == "P1"
-            else snapshot.cutoff.cutoff_rank
-        )
-        cutoff_driver = getattr(snapshot.cutoff, "driver", None)
-        self.table.cutoff_driver_number = next(
-            (state.driver_number for state in snapshot.drivers if state.driver == cutoff_driver),
-            None,
+        self.table.cutoff_rank = {"Q1": 16, "Q2": 10, "SQ1": 16, "SQ2": 10}.get(
+            getattr(snapshot, "session_part", None), 0
         )
         self.table.setColumnHidden(
             3, not any(state.tyre_history for state in snapshot.drivers)

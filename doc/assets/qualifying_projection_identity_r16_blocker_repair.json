@@ -1,0 +1,424 @@
+{
+  "recording": "/Users/zhxutong/dr-wo/woPlanner/temp/r16_q_diagnostic_20261003_01a10147/data/r16_Q_recording.jsonl",
+  "recording_sha256": "b353aa941dcd21112f48c38b2bd558a5e1d89af799555109e21af6dfa354c71b",
+  "counts": {
+    "Q1": {
+      "message_states": 7530,
+      "baseline_projected_driver_states": 47324,
+      "states_with_projection": 4713,
+      "eligible_driver_states": 47749,
+      "valid_driver_reference_states": 91060,
+      "ineligible_unprojected_driver_states": 117867,
+      "unprojected_status_UNKNOWN": 6987,
+      "unprojected_status_NOT ACTIVE": 31211,
+      "unprojected_status_FIRE-UP": 5462,
+      "unprojected_status_PIT-LANE": 48398,
+      "unprojected_status_OUT": 25664,
+      "insufficient_evidence_unprojected_driver_states": 425,
+      "unprojected_status_QUEUE": 107,
+      "states_with_reference": 5846,
+      "projected_driver_states": 47324,
+      "unprojected_status_IN": 38
+    },
+    "Q2": {
+      "message_states": 4936,
+      "baseline_projected_driver_states": 20123,
+      "eligible_driver_states": 22220,
+      "valid_driver_reference_states": 41091,
+      "ineligible_unprojected_driver_states": 86372,
+      "unprojected_status_UNKNOWN": 33093,
+      "unprojected_status_PIT-LANE": 40296,
+      "states_with_projection": 2830,
+      "unprojected_status_OUT": 12959,
+      "states_with_reference": 3526,
+      "projected_driver_states": 20123,
+      "unprojected_status_IN": 24
+    },
+    "Q3": {
+      "message_states": 4030,
+      "baseline_projected_driver_states": 14907,
+      "eligible_driver_states": 16393,
+      "valid_driver_reference_states": 24207,
+      "ineligible_unprojected_driver_states": 72267,
+      "unprojected_status_UNKNOWN": 50613,
+      "unprojected_status_PIT-LANE": 13000,
+      "states_with_projection": 2630,
+      "unprojected_status_OUT": 8635,
+      "states_with_reference": 2882,
+      "projected_driver_states": 14907,
+      "unprojected_status_IN": 19
+    }
+  },
+  "first": {
+    "Q1": {
+      "reference": {
+        "sequence": 1685,
+        "driver": "OCO",
+        "accepted_count": 1,
+        "completed_event": {
+          "session_part": "Q1",
+          "driver_number": "31",
+          "lap_number": 3,
+          "lap_time_s": 98.87899999999999,
+          "session_time_s": 1791014637.756,
+          "classification": "normal_timed",
+          "sectors_s": [
+            25.488,
+            32.895,
+            40.496
+          ],
+          "official_lap_number": 2
+        },
+        "event_key": [
+          "Q1",
+          "31",
+          3,
+          1791014637.756
+        ],
+        "reference_total_s": 98.87899999999999
+      },
+      "rendered_projection": {
+        "sequence": 1685,
+        "driver": "OCO",
+        "sectors_s": [
+          25.488,
+          32.895,
+          40.496
+        ],
+        "projected_lap_s": 98.87899999999999,
+        "rendered": "1:38.879",
+        "reference_driver": "OCO",
+        "reference_event_key": [
+          "Q1",
+          "31",
+          3,
+          1791014637.756
+        ]
+      },
+      "other_driver_sector_projection": {
+        "sequence": 1685,
+        "driver": "BEA",
+        "sectors_s": [
+          25.461,
+          33.082,
+          null
+        ],
+        "projected_lap_s": 99.14998025110047,
+        "rendered": "1:39.150",
+        "reference_driver": "OCO",
+        "reference_event_key": [
+          "Q1",
+          "31",
+          3,
+          1791014637.756
+        ]
+      }
+    },
+    "Q2": {
+      "reference": {
+        "sequence": 8941,
+        "driver": "HAD",
+        "accepted_count": 1,
+        "completed_event": {
+          "session_part": "Q2",
+          "driver_number": "6",
+          "lap_number": 6,
+          "lap_time_s": 96.19200000000001,
+          "session_time_s": 1791016217.805,
+          "classification": "normal_timed",
+          "sectors_s": [
+            24.839,
+            31.782,
+            39.571
+          ],
+          "official_lap_number": 5
+        },
+        "event_key": [
+          "Q2",
+          "6",
+          6,
+          1791016217.805
+        ],
+        "reference_total_s": 96.19200000000001
+      },
+      "rendered_projection": {
+        "sequence": 8941,
+        "driver": "HAD",
+        "sectors_s": [
+          24.839,
+          31.782,
+          39.571
+        ],
+        "projected_lap_s": 96.192,
+        "rendered": "1:36.192",
+        "reference_driver": "HAD",
+        "reference_event_key": [
+          "Q2",
+          "6",
+          6,
+          1791016217.805
+        ]
+      },
+      "other_driver_sector_projection": {
+        "sequence": 8941,
+        "driver": "VER",
+        "sectors_s": [
+          24.655,
+          31.64,
+          null
+        ],
+        "projected_lap_s": 95.6381667579167,
+        "rendered": "1:35.638",
+        "reference_driver": "HAD",
+        "reference_event_key": [
+          "Q2",
+          "6",
+          6,
+          1791016217.805
+        ]
+      }
+    },
+    "Q3": {
+      "reference": {
+        "sequence": 13615,
+        "driver": "RUS",
+        "accepted_count": 1,
+        "completed_event": {
+          "session_part": "Q3",
+          "driver_number": "63",
+          "lap_number": 9,
+          "lap_time_s": 96.032,
+          "session_time_s": 1791017496.812,
+          "classification": "normal_timed",
+          "sectors_s": [
+            25.096,
+            31.457,
+            39.479
+          ],
+          "official_lap_number": 8
+        },
+        "event_key": [
+          "Q3",
+          "63",
+          9,
+          1791017496.812
+        ],
+        "reference_total_s": 96.032
+      },
+      "rendered_projection": {
+        "sequence": 13615,
+        "driver": "RUS",
+        "sectors_s": [
+          25.096,
+          31.457,
+          39.479
+        ],
+        "projected_lap_s": 96.032,
+        "rendered": "1:36.032",
+        "reference_driver": "RUS",
+        "reference_event_key": [
+          "Q3",
+          "63",
+          9,
+          1791017496.812
+        ]
+      },
+      "other_driver_sector_projection": {
+        "sequence": 13615,
+        "driver": "VER",
+        "sectors_s": [
+          24.504,
+          null,
+          null
+        ],
+        "projected_lap_s": 93.76666114121774,
+        "rendered": "1:33.767",
+        "reference_driver": "RUS",
+        "reference_event_key": [
+          "Q3",
+          "63",
+          9,
+          1791017496.812
+        ]
+      }
+    }
+  },
+  "anchors": {
+    "1685": {
+      "oco_accepted_count": 1,
+      "oco_event_key": [
+        "Q1",
+        "31",
+        3,
+        1791014637.756
+      ],
+      "reference_total_s": 98.87899999999999,
+      "reference_checkpoints": [
+        [
+          [
+            "sector",
+            1
+          ],
+          25.488
+        ],
+        [
+          [
+            "sector",
+            2
+          ],
+          58.383
+        ],
+        [
+          [
+            "sector",
+            3
+          ],
+          98.879
+        ]
+      ],
+      "ver": {
+        "driver_number": "3",
+        "driver": "VER",
+        "team": "Red Bull Racing",
+        "rank": 22,
+        "official_position": 3,
+        "status": "OUT",
+        "lap_state": "OUT",
+        "sectors_s": [
+          null,
+          null,
+          null
+        ],
+        "last_lap_s": null,
+        "best_lap_s": null,
+        "gap_s": null,
+        "interval_s": null,
+        "projected_lap_s": null,
+        "projected_gap_s": null,
+        "finished": false,
+        "finished_reason": null,
+        "pit_state": "ON_TRACK",
+        "pit_lane_progress": null,
+        "tyre_history": [
+          {
+            "compound": "SOFT",
+            "start_laps": 0,
+            "fresh": true,
+            "stint_index": 0
+          }
+        ],
+        "active": true,
+        "frozen_part": null,
+        "historical_results": [],
+        "effective_finished": false,
+        "effective_finish_remaining_s": null,
+        "effective_finish_recovery_s": null,
+        "effective_finish_timing_source": null
+      },
+      "ver_rendered": "\u2014"
+    },
+    "2465": {
+      "oco_accepted_count": 1,
+      "oco_event_key": [
+        "Q1",
+        "31",
+        3,
+        1791014637.756
+      ],
+      "reference_total_s": 98.87899999999999,
+      "reference_checkpoints": [
+        [
+          [
+            "sector",
+            1
+          ],
+          25.488
+        ],
+        [
+          [
+            "sector",
+            2
+          ],
+          58.383
+        ],
+        [
+          [
+            "sector",
+            3
+          ],
+          98.879
+        ]
+      ],
+      "ver": {
+        "driver_number": "3",
+        "driver": "VER",
+        "team": "Red Bull Racing",
+        "rank": 22,
+        "official_position": 4,
+        "status": "FAST",
+        "lap_state": "FAST",
+        "sectors_s": [
+          24.932,
+          null,
+          null
+        ],
+        "last_lap_s": null,
+        "best_lap_s": null,
+        "gap_s": null,
+        "interval_s": null,
+        "projected_lap_s": 96.72203499686125,
+        "projected_gap_s": -2.156965003138737,
+        "finished": false,
+        "finished_reason": null,
+        "pit_state": "ON_TRACK",
+        "pit_lane_progress": null,
+        "tyre_history": [
+          {
+            "compound": "SOFT",
+            "start_laps": 0,
+            "fresh": true,
+            "stint_index": 0
+          }
+        ],
+        "active": true,
+        "frozen_part": null,
+        "historical_results": [],
+        "effective_finished": false,
+        "effective_finish_remaining_s": null,
+        "effective_finish_recovery_s": null,
+        "effective_finish_timing_source": null
+      },
+      "ver_rendered": "1:36.722"
+    }
+  },
+  "transitions": [
+    {
+      "sequence": 1,
+      "part": "Q1",
+      "reference_total_s": null,
+      "cached_references": 0
+    },
+    {
+      "sequence": 7531,
+      "part": "Q2",
+      "reference_total_s": null,
+      "cached_references": 0
+    },
+    {
+      "sequence": 12467,
+      "part": "Q3",
+      "reference_total_s": null,
+      "cached_references": 0
+    }
+  ],
+  "baseline_non_projection_states_compared": 16496,
+  "baseline_changed_projection_driver_states": 0,
+  "runtime_sources": {
+    "reducer": "/Users/zhxutong/dr-wo/woData/src/wodata/live/quali_reducer.py",
+    "service": "/Users/zhxutong/dr-wo/woPlanner/src/woplanner/quali/service.py"
+  },
+  "source_sha256": {
+    "reducer": "ee92759bd97781867aec09e5f52a494ed0acf565ad6ec846b33dd3ead8306bfa",
+    "service": "09f7bbebfec7c7c74a68d3e43aac59041dc227451fd9d4176d24bb0dd938c38d"
+  }
+}

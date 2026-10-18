@@ -119,7 +119,11 @@ def replay_transitions(path, batch_size, speed, reads):
     evidence["counts"] = {key: len(value) for key, value in sequences.items()}
     evidence["hashes"] = {key: sha256(json.dumps(value, sort_keys=True).encode()).hexdigest() for key, value in sequences.items()}
     evidence["message_count"] = message_index
-    evidence["track_estimates_unchanged_algorithm"] = service._track_estimates
+    evidence["automatic_track"] = (
+        service.snapshot.automatic_track_rate_s_per_field_push,
+        service.snapshot.automatic_track_source,
+        service.automatic_track_estimate,
+    )
     return sequences, evidence
 
 
@@ -134,7 +138,7 @@ def run_comparison(path):
         else:
             for key in reference:
                 assert sequences[key] == reference[key], f"{key} differs with batch={batch}, speed={speed}"
-            assert current["track_estimates_unchanged_algorithm"] == evidence["track_estimates_unchanged_algorithm"]
+            assert current["automatic_track"] == evidence["automatic_track"]
         rows.append({"batch": batch, "speed": speed, "extra_reads": reads, "all_sequences_match": True})
         print(f"R13 batch={batch} speed={speed} reads={reads}: all sequences match", flush=True)
     evidence["configurations"] = rows

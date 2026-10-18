@@ -52,6 +52,13 @@ class TrackEvolutionSeries:
 
 @dataclass(frozen=True)
 class TrackEvolutionDiagnostic:
+    """Per-driver slopes and their support-weighted signed lap-time aggregate.
+
+    Slopes use seconds per global/session-wide field PUSH; negative improves,
+    zero is stable, positive worsens. The aggregate is the canonical supported
+    live automatic qualifying forecast rate.
+    """
+
     series: tuple[TrackEvolutionSeries, ...]
     clean_air_gap_s: float
     aggregate_slope_s_per_push: float | None
@@ -72,15 +79,21 @@ class TrackEvolutionDiagnostic:
 def build_track_evolution_diagnostic(
     samples: tuple[TrackEvolutionSample, ...], *, clean_air_gap_s: float,
     coverage_policy: TrafficCoveragePolicy = QUALIFYING_TRAFFIC_POLICY,
+    require_traffic: bool = True,
 ) -> TrackEvolutionDiagnostic:
-    """Fit one first-eligible PUSH per installation across the whole session."""
+    """Fit one first-eligible PUSH per installation across the whole session.
+
+    The canonical policy supplies require_traffic=False. The explicit legacy
+    predicate remains available for historical diagnostics, never live admission.
+    """
     first_by_install: dict[tuple[str, int], TrackEvolutionSample] = {}
     omitted: set[str] = set()
     for sample in sorted(samples, key=lambda value: value.global_push_index):
-        if (sample.fresh is not True or sample.traffic_status != "ok"
-                or sample.ahead_coverage < coverage_policy.min_ahead_coverage
-                or sample.physical_mean_ahead_gap_s is None
-                or sample.physical_mean_ahead_gap_s <= clean_air_gap_s
+        if (sample.fresh is not True
+                or (require_traffic and (sample.traffic_status != "ok"
+                    or sample.ahead_coverage < coverage_policy.min_ahead_coverage
+                    or sample.physical_mean_ahead_gap_s is None
+                    or sample.physical_mean_ahead_gap_s <= clean_air_gap_s))
                 or sample.compound in {None, "UNKNOWN"}
                 or sample.tyre_install_index is None):
             omitted.add(sample.driver)
@@ -159,8 +172,7 @@ def render_track_evolution_diagnostic(diagnostic: TrackEvolutionDiagnostic, path
     aggregate = "—" if diagnostic.aggregate_slope_s_per_push is None else f"{diagnostic.aggregate_slope_s_per_push:+.4f} s/push"
     slope_std = "—" if diagnostic.weighted_slope_std_s_per_push is None else f"{diagnostic.weighted_slope_std_s_per_push:.4f} s/push"
     axis.set_title(f"Track Evolution — {diagnostic.driver_count} drivers / {diagnostic.lap_count} laps used\n"
-                   f"Aggregate {aggregate} · σ {slope_std}; clean-air > {diagnostic.clean_air_gap_s:.1f}s; "
-                   f"ahead coverage ≥ {diagnostic.min_ahead_coverage:.0%}")
+                   f"Aggregate {aggregate} · driver spread σ {slope_std}; traffic is auxiliary")
     axis.set_xlabel("Global/session-wide PUSH-lap index")
     axis.set_ylabel("Completed FAST/PUSH lap time (s)")
     axis.grid(alpha=.25)

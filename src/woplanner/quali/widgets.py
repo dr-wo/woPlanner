@@ -21,6 +21,9 @@ from .planning import (
 )
 from .service import QualiLiveService
 from .track_evolution import TrackEvolutionDiagnostic, render_track_evolution_diagnostic
+from .track_evolution_presentation import (
+    display_messages, fallback_label, SOURCE_LABELS, STATUS_LABELS,
+)
 
 
 ROLE_COLOURS = {
@@ -60,8 +63,8 @@ class CutoffTable(QtWidgets.QTableWidget):
 
     def __init__(self) -> None:
         super().__init__()
+        # Rendered elimination rank; independent of numeric cutoff support.
         self.cutoff_rank = 0
-        self.cutoff_driver_number: str | None = None
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -84,22 +87,18 @@ class CutoffTable(QtWidgets.QTableWidget):
         )
 
     def cutoff_row(self) -> int | None:
-        """Locate the calculated cutoff driver in official display order."""
-        if self.cutoff_rank <= 0 or self.cutoff_driver_number is None:
+        """Return the boundary row, or hide the line until that row exists."""
+        if not 0 < self.cutoff_rank <= self.rowCount():
             return None
-        return next(
-            (index for index in range(self.rowCount())
-             if self.item(index, 0) is not None
-             and self.item(index, 0).data(QtCore.Qt.ItemDataRole.UserRole)
-             == self.cutoff_driver_number),
-            None,
-        )
+        row = self.cutoff_rank - 1
+        return row if self.item(row, 0) is not None else None
 
 
 class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
     """Qt consumer of the shared track-evolution diagnostic view model."""
 
     image_ready = QtCore.Signal(object, bytes)
+    render_failed = QtCore.Signal(object, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -107,41 +106,105 @@ class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
         self._plot = QtGui.QPixmap()
         self._render_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="quali-plot")
         self._render_future = None
+        self._render_request = 0
+        self._render_error: str | None = None
+        self._closed = False
         self.image_ready.connect(self._accept_image)
+        self.render_failed.connect(self._accept_render_error)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addStretch(1)
+        self._support_status = QtWidgets.QLabel(self)
+        self._support_status.setWordWrap(True)
+        self._support_status.hide()
+        layout.addWidget(self._support_status)
+        self.retry_button = QtWidgets.QPushButton("Retry plot", self)
+        self.retry_button.clicked.connect(self.retry_render)
+        self.retry_button.hide()
+        layout.addWidget(self.retry_button, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter)
         self.setMinimumHeight(450)
 
     def set_diagnostic(self, diagnostic: TrackEvolutionDiagnostic) -> None:
-        if diagnostic is self.diagnostic:
-            return
         if diagnostic == self.diagnostic:
             self.diagnostic = diagnostic
             return
         self.diagnostic = diagnostic
+        self._support_status.setText(
+            "Track Correction unsupported: no supported driver fits."
+            if not diagnostic.series else ""
+        )
+        self._support_status.setVisible(not diagnostic.series)
+        self._start_render()
+
+    def retry_render(self) -> None:
+        """Retry the current immutable diagnostic after a rendering failure."""
+        if self.diagnostic is not None and self._render_error is not None:
+            self._start_render()
+
+    def _start_render(self) -> None:
+        if self._closed or self.diagnostic is None:
+            return
+        self._render_request += 1
+        request = self._render_request
+        self._render_error = None
+        self.retry_button.hide()
         self._plot = QtGui.QPixmap()
         if self._render_future is not None:
             self._render_future.cancel()
-        self._render_future = self._render_pool.submit(render_track_evolution_diagnostic, diagnostic)
+        try:
+            self._render_future = self._render_pool.submit(
+                render_track_evolution_diagnostic, self.diagnostic
+            )
+        except Exception as exc:
+            self._accept_render_error(request, f"{type(exc).__name__}: {exc}")
+            return
         self._render_future.add_done_callback(
-            lambda future, current=diagnostic: self._render_finished(current, future)
+            lambda future, current=request: self._render_finished(current, future)
         )
         self.update()
 
-    def _render_finished(self, diagnostic, future) -> None:
+    def _render_finished(self, request, future) -> None:
         if future.cancelled():
             return
         try:
-            self.image_ready.emit(diagnostic, future.result())
+            data = future.result()
+            if not isinstance(data, bytes):
+                raise TypeError("Plot renderer did not return PNG bytes")
+        except Exception as exc:
+            try:
+                self.render_failed.emit(request, f"{type(exc).__name__}: {exc}")
+            except RuntimeError:
+                # The view can be destroyed while its worker finishes.
+                pass
+            return
+        try:
+            self.image_ready.emit(request, data)
         except RuntimeError:
             # The view may close while a previously requested image finishes.
             pass
 
-    def _accept_image(self, diagnostic, data: bytes) -> None:
-        if diagnostic != self.diagnostic:
+    def _accept_image(self, request, data: bytes) -> None:
+        if self._closed or request != self._render_request:
             return
-        self._plot.loadFromData(data)
+        plot = QtGui.QPixmap()
+        if not plot.loadFromData(data, "PNG") or plot.isNull():
+            self._accept_render_error(request, "The rendered PNG could not be decoded.")
+            return
+        self._plot = plot
+        self._render_error = None
+        self.retry_button.hide()
+        self.update()
+
+    def _accept_render_error(self, request, error: str) -> None:
+        if self._closed or request != self._render_request:
+            return
+        self._render_error = error
+        self._plot = QtGui.QPixmap()
+        self.retry_button.show()
         self.update()
 
     def closeEvent(self, event) -> None:
+        self._closed = True
+        self._render_request += 1
         if self._render_future is not None:
             self._render_future.cancel()
         self._render_pool.shutdown(wait=False, cancel_futures=True)
@@ -149,15 +212,27 @@ class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QtGui.QPainter(self)
+        plot_rect = self.rect().adjusted(0, 0, 0, -self.layout().contentsMargins().bottom())
+        for footer in (self._support_status, self.retry_button):
+            if not footer.isHidden():
+                plot_rect.setBottom(min(plot_rect.bottom(), footer.geometry().top() - 8))
         if self.diagnostic is None:
-            painter.drawText(self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter, "No track-evolution evidence")
+            painter.drawText(plot_rect, QtCore.Qt.AlignmentFlag.AlignCenter, "No track-evolution evidence")
             return
         if not self._plot.isNull():
             painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform)
-            painter.drawPixmap(self.rect(), self._plot)
+            painter.drawPixmap(plot_rect, self._plot)
         else:
-            painter.drawText(self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter,
-                             "Rendering track-evolution plot…")
+            message = (
+                f"Track-evolution plot could not be rendered.\n{self._render_error}\n"
+                "Use Retry plot to try again."
+                if self._render_error is not None else "Rendering track-evolution plot…"
+            )
+            painter.drawText(
+                plot_rect.adjusted(12, 12, -12, -12),
+                QtCore.Qt.AlignmentFlag.AlignCenter | QtCore.Qt.TextFlag.TextWordWrap,
+                message,
+            )
 
 
 class TimelineWidget(QtWidgets.QWidget):
@@ -456,7 +531,20 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self.track_effective = QtWidgets.QLabel("—")
         self.track_source = QtWidgets.QLabel("—")
         self.track_quality = QtWidgets.QLabel("—")
+        self.track_messages = QtWidgets.QLabel()
+        self.track_messages.setWordWrap(True)
+        self.track_messages.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self.track_result_detail = QtWidgets.QPlainTextEdit()
+        self.track_result_detail.setReadOnly(True)
+        self.track_result_detail.setMaximumHeight(180)
+        self.track_detail_toggle = QtWidgets.QCheckBox("Show track-evolution details")
+        self.track_result_detail.hide()
+        self.track_detail_toggle.toggled.connect(self.track_result_detail.setVisible)
         self.track_diagnostic_summary = QtWidgets.QLabel("—")
+        self.track_telemetry_warning = QtWidgets.QLabel()
+        self.track_telemetry_warning.setObjectName("trackTelemetryDelayWarning")
+        self.track_telemetry_warning.setStyleSheet("color: #b26a00; font-weight: 600;")
+        self.track_telemetry_warning.hide()
         self.track_diagnostic = TrackEvolutionDiagnosticView()
         self.clean_air_gap = QtWidgets.QDoubleSpinBox()
         self.clean_air_gap.setRange(0.1, 30.0)
@@ -469,14 +557,22 @@ class QualiPlanDialog(QtWidgets.QDialog):
         override_row.addWidget(self.track_override_enabled)
         override_row.addWidget(self.track_override)
         override_row.addStretch(1)
-        form.addRow("Projected-cut estimate", self.track_estimated)
+        form.addRow("Automatic track rate", self.track_estimated)
+        self.track_estimated.setToolTip(
+            "Signed lap-time change per global field push: negative improves, positive worsens."
+        )
         form.addRow("User override", override_row)
         form.addRow("Effective value", self.track_effective)
         form.addRow("Source", self.track_source)
-        form.addRow("Quality / samples", self.track_quality)
+        form.addRow("Status / support", self.track_quality)
+        form.addRow("", self.track_messages)
+        form.addRow("", self.track_detail_toggle)
+        form.addRow("", self.track_result_detail)
         form.addRow("Track Evolution", self.track_diagnostic_summary)
+        form.addRow("", self.track_telemetry_warning)
         form.addRow("", self.track_diagnostic)
-        form.addRow("Clean-air threshold", self.clean_air_gap)
+        form.addRow("Traffic context threshold", self.clean_air_gap)
+        self.clean_air_gap.setToolTip("Auxiliary physical traffic only; does not control track-evolution admission or status.")
         self.track_override.valueChanged.connect(self._update_effective_track)
         self.track_override_enabled.toggled.connect(self._update_effective_track)
         self.clean_air_gap.valueChanged.connect(self._update_clean_air_gap)
@@ -654,21 +750,38 @@ class QualiPlanDialog(QtWidgets.QDialog):
             return
         snapshot = snapshot or self.live_service.snapshot
         self.track_estimated.setText(
-            f"{self.live_service.automatic_track_rate_s_per_field_push:+.4f} s / field push"
+            f"{snapshot.automatic_track_rate_s_per_field_push:+.4f} s / field push"
         )
         self.track_effective.setText(
-            f"{self.live_service.track_rate_s_per_field_push:+.4f} s / field push"
+            f"{snapshot.cutoff.track_rate_s_per_field_push:+.4f} s / field push"
         )
-        self.track_source.setText(self.live_service.track_source)
-        estimate = self.live_service.automatic_track_estimate
-        if estimate is not None:
-            _, samples, quality = estimate
-            self.track_quality.setText(
-                f"{samples} live push laps ({quality.replace('_', ' ')})"
-            )
-        else:
-            self.track_quality.setText("0 live push laps (FP prior)")
+        self.track_source.setText(snapshot.track_source)
+        warning = getattr(snapshot, "telemetry_delay_warning", "")
+        self.track_telemetry_warning.setText(warning)
+        self.track_telemetry_warning.setVisible(bool(warning))
         diagnostic = snapshot.track_evolution_diagnostic
+        result = snapshot.track_evolution_result
+        if result is not None:
+            import json
+            self.track_source.setText(SOURCE_LABELS[result['estimate_source']])
+            self.track_estimated.setText(
+                f"{snapshot.automatic_track_rate_s_per_field_push:+.4f} s / field push "
+                f"({SOURCE_LABELS[result['automatic_source']] if result['live_estimate_s_per_global_push'] is not None else fallback_label(result)})"
+            )
+            self.track_quality.setText(
+                f"{STATUS_LABELS[result['status']]} · {result['support']['fit_observations']} fitted push laps / "
+                f"{result['support']['drivers']} drivers"
+            )
+            messages = display_messages(result)
+            self.track_messages.setText("\n".join(
+                ("Information: " if m['severity'] == 'information' else "") +
+                f"{m['category']} — {m['explanation']}" for m in messages
+            ))
+            self.track_result_detail.setPlainText(json.dumps(result, indent=2))
+        else:
+            self.track_quality.setText("Track-evolution status unavailable")
+            self.track_messages.clear()
+            self.track_result_detail.clear()
         if diagnostic is not None:
             aggregate = (
                 "—" if diagnostic.aggregate_slope_s_per_push is None

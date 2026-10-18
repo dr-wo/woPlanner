@@ -57,6 +57,8 @@ class CutoffProjection:
 
     ``projected_correction_s`` is the signed model contribution before the
     observed-result invariant; ``projected_cutoff_s`` is what the UI publishes.
+    ``track_rate_s_per_field_push`` is signed lap-time seconds per global field
+    PUSH: negative improves, zero is stable, positive worsens.
     """
 
     target_kind: str
@@ -83,3 +85,10 @@ class QualiSessionSnapshot:
     clock_running: bool = False
     clock_anchor_session_time_s: float | None = None
     track_evolution_diagnostic: TrackEvolutionDiagnostic | None = None
+    # Automatic provenance remains available while a manual override supplies
+    # the effective rate in cutoff.track_rate_s_per_field_push / track_source.
+    automatic_track_rate_s_per_field_push: float = 0.0
+    automatic_track_source: str = "Configured fallback"
+    telemetry_delay_warning: str = ""
+    telemetry_delayed_lap_count: int = 0
+    track_evolution_result: dict | None = None

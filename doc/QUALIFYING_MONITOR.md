@@ -1,6 +1,6 @@
 # Qualifying Monitor
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-10-05
 
 This document is the operating and maintenance guide for `woplanner-quali`.
 The monitor combines FastF1 live timing, qualifying-only state reduction,
@@ -47,6 +47,16 @@ current official timing, so a deleted or retracted lap cannot remain the current
 result. Checkpoint-based lap projection is shown only when the reference
 checkpoints can be associated with that same valid best lap; otherwise that
 projection is withheld rather than mixing laps.
+
+### Elimination boundary
+
+The dashed red line marks the rendered elimination boundary: after row P16
+in Q1 and row P10 in Q2 (also SQ1/SQ2). Q3/SQ3 has no elimination line.
+Its position is independent of the numeric cutoff, projected time, threshold
+driver identity, and official Position values. Untimed participants still count
+as rows. If the boundary row has not arrived, the line is hidden; it appears
+below that row once available, even if the following row has not arrived yet.
+Numeric cutoff labels retain their existing availability and calculation rules.
 
 Status backgrounds are deliberately operational rather than copies of FastF1's
 display strings:
@@ -98,8 +108,8 @@ PREP is optional per planned run; the live driver state has no selected run or
 per-driver prep requirement, so the live pit warning does not assume a PREP lap.
 
 An operational completed `FAST` timed lap can count as a PUSH for effective
-finish even when it fails the stricter 2% quality filter for a track-evolution
-sample. The latter controls the evolution fit, not the driver finish decision.
+finish even when excluded by the separate track-evolution admission contract.
+Evolution admission never changes the driver finish decision.
 COOL/PREP timing follows the shared Plan policy below; without a usable value,
 no cool-duration-based effective finish is asserted.
 
@@ -174,12 +184,56 @@ decisions from local wall-clock time.
 
 ## Live track evolution and cutoff projection
 
-A completed operational `FAST` push is eligible for the evolution sample only
-when it also lies within 2% of the current fastest valid qualifying time. These
-quality-filtered times are appended in observed order. As soon as two such
-samples exist in the current Q/SQ part, every new sample refits the established
-linear `woStrategy` model. The source changes from **FP prior** to, for example,
-**Q2 live estimate**, and Plan shows the effective value and evidence count.
+The canonical policy is `production-field7-exact-lifetime-v2`, with result schema
+2 and engineering quality version `engineering-reliability-only-20261011-v2`.
+An active service-owned driver needs a uniquely identified advancing normal
+timed completion, timed eligibility, operational FAST, and a positive finite lap
+time. Pace must be at most the current causal active-field best × 1.07; equality
+passes. This is an engineering gross-sanity guard, not calibrated push quality,
+clean-air certification or statistical confidence. Missing/nonpositive/nonfinite
+references omit only that new candidate and record `FIELD_REFERENCE_UNAVAILABLE`.
+There is no own-best or sector gate and no retrospective admission or rejection.
+
+Pace passes advance the session-wide global index before tyre selection. The
+unchanged shared estimator selects the first surviving eligible observation per
+fresh installation with known compound and installation identity, then each
+driver's modal compound, fits OLS on at least two distinct global indices, and
+weights driver slopes by their fitted observation counts. Negative means improving.
+Physical traffic is auxiliary only: pending/unavailable traffic cannot veto an
+observation or downgrade a supported fit. The existing field+2 subset is retained
+solely for auxiliary traffic evaluation scheduling, with exact-key metadata
+forwarding and no synthetic clean-air result for unevaluated candidates.
+
+Exact completion invalidations and uniquely matched driver + millisecond-time
+deletion notices remove observations when published. Earlier snapshots and global
+indices remain unchanged. Selection and fits recompute, allowing the next valid
+observation from the same installation to replace the first. Ordinary best changes
+are not deletion notices; ambiguous/unmatched notices are never retried later.
+
+Effective priority is **Manual override → Live per-driver estimate → Configured
+fallback**. Result source, selected value, live value and status are separate.
+A null live value with a fallback zero is not a measured zero. Fallback provenance
+records configured default versus known loaded FP prior and reference. The generic
+`CONFIGURED_FP_DEFAULT_PRIOR` source alone never establishes FP provenance.
+
+`FALLBACK` means no supported driver fit. `LIVE_LIMITED` means supported live with
+at least one of `SPARSE_SUPPORT`, `HIGH_DRIVER_DISAGREEMENT`,
+`RECENT_ESTIMATE_JUMP`, or `DOMINATED_BY_SINGLE_DRIVER`. `LIVE_SUPPORTED` means
+supported live with none of those four reasons; it is not an accuracy guarantee.
+Thresholds are fixed engineering values with `thresholds_calibrated=false`.
+Cohort imbalance/incomplete reference, unavailable field checks and traffic
+pending/unavailable are information-only. Full metrics and raw codes remain in
+`track_evolution_payload()`; snapshots expose the compact result and the same
+immutable fit diagnostic used for the automatic cutoff rate.
+
+The Track Correction surface shows mapped source/status wording and at most two
+messages, in contract priority order; fallback has one explanation. Information
+is explicitly labeled as such. **Show track-evolution details** retains all current
+codes, metrics, weights, versioning and fallback provenance. The full debug export
+also carries fitted samples, admission decisions and the exact lifetime ledger.
+The old shadow constructor flag/debug import is a compatibility alias to the single
+production policy. It creates no separate estimator or policy state. Historical
+saved shadow schema 1 keeps its original semantics.
 
 For Q1/Q2, a negative live slope means improving lap times and a faster
 projected elimination cutoff. The forecast approximates one further field push
@@ -195,8 +249,32 @@ at that rank. Q3 targets P1 rather than an elimination rank.
 
 The Plan window's **Use override** value affects the effective projection but
 does not stop or replace automatic fitting. Clearing the override restores the
-newest live estimate. Reloading FP analysis cannot overwrite a qualifying fit
-that already has support.
+newest diagnostic aggregate, or the configured fallback if live support is unavailable.
+Reloading FP analysis updates the fallback but cannot replace a supported live
+aggregate. The traffic context threshold affects auxiliary clean-air metadata only;
+it cannot change evolution admission, support, quality status or the live rate.
+
+Q1 evidence is intentionally retained immediately on entry to Q2, and Q1/Q2
+evidence remains available immediately on entry to Q3. The diagnostic and
+global PUSH indices continue across parts rather than restarting a regression.
+The source remains session-wide even before the new part has a timed lap.
+Manual track overrides persist across part transitions and finalisation; a
+session reset clears them and live observations, restoring the stored FP prior.
+
+Historical pre-promotion evidence (superseded admission): R16 sequence 6451 supports
+ALO, BEA, LAW and OCO (two fit observations each). The reconstructed weighted
+aggregate is -0.03997906746 s/field push; the former pooled scalar is
+-0.002904150198. After the source fix the automatic/effective rate equals the
+diagnostic aggregate. With six unfinished drivers, the observed 97.990 s cutoff
+projects to 97.75012560 s. The replay verifier traces actual driver-fit and
+aggregate calls and asserts zero pooled-estimator calls during live consumption.
+It now verifies the promoted policy; the historical numbers above are migration
+context, not its current expected values. Current R13/R14/R16 results are in the
+[production promotion report](../../woStrategy/research/quali_evolution_promotion_20261011/REPORT.md):
+
+```bash
+python scripts/verify_quali_r16_canonical_track.py --output r16_canonical.json
+```
 
 ## Round 12 replay reference
 
@@ -207,7 +285,8 @@ event. The substantial Round 12 capture was consequently stored below a
 `round=1` directory. Always trust embedded session identity when diagnosing an
 old recording.
 
-Replaying the Q1/Q2 capture after the fixes produced:
+The earlier Q1/Q2 capture replay, before the October canonical-source fix,
+produced these legacy pooled-estimator reference values:
 
 | Evidence | Result |
 | --- | ---: |
@@ -224,12 +303,12 @@ behavior.
 ## Deliberate compromises and limits
 
 - FAST/SLOW pace classification uses live/FP reference evidence, not an official
-  push/prep label. The separate 2% quality filter may exclude a valid
-  operational push from the evolution fit.
-- The linear fit orders heterogeneous drivers' push times without driver,
-  compound, traffic, wind, or fuel fixed effects. Two points are sufficient for
-  responsiveness, so the earliest estimate can be noisy. It is operational
-  guidance, not a causal track-only measurement.
+  push/prep label. The separate field+7 gross guard may exclude a valid
+  operational push from the evolution fit; its thresholds are not calibrated.
+- The diagnostic fits drivers separately on selected compounds and established
+  fresh-installation evidence; physical traffic is auxiliary. Two distinct PUSH indices support a
+  driver fit, so an early single-driver aggregate can be noisy. Wind, fuel and
+  other lap-time effects remain uncontrolled; the rate is operational guidance.
 - `unfinished driver count` is a one-more-push approximation, not a simulation of
   each driver's remaining stint plan. Q1/Q2 project the elimination cutoff; Q3
   instead projects the current P1 target.

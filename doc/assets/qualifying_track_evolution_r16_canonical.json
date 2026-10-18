@@ -1,0 +1,2109 @@
+{
+  "baseline": false,
+  "recording": "/Users/zhxutong/dr-wo/woPlanner/temp/r16_q_diagnostic_20261003_01a10147/data/r16_Q_recording.jsonl",
+  "recording_sha256": "b353aa941dcd21112f48c38b2bd558a5e1d89af799555109e21af6dfa354c71b",
+  "runtime_sources": {
+    "service": "/Users/zhxutong/dr-wo/woPlanner/src/woplanner/quali/service.py",
+    "diagnostic": "/Users/zhxutong/dr-wo/woPlanner/src/woplanner/quali/track_evolution.py",
+    "legacy": "/Users/zhxutong/dr-wo/woStrategy/src/wostrategy/analysis/live_qualifying.py"
+  },
+  "source_sha256": {
+    "service": "7efbcaef4036d75823c1dd6fb5b1574a9d3f5449bc2b1c54b73d02b6e4518407",
+    "diagnostic": "2588b7bd1ea0c3badd6b5f4fa36fc48276ea6e3b8c462cb0db145f370ef85263",
+    "legacy": "7c79e8ba2cec70d2142f58d3c4d4613f4f544425136dfc6b1d70752e89b5d996"
+  },
+  "consumer_path": [
+    "QualiLiveService._build_snapshot",
+    "track_evolution_diagnostic",
+    "build_track_evolution_diagnostic",
+    "fit_driver_track_progression (per driver)",
+    "aggregate_driver_track_progression (slope, support count)",
+    "_update_track_from_diagnostic",
+    "CutoffProjection"
+  ],
+  "production_push_threshold_fraction": 0.02,
+  "live_consumer_legacy_calls": 0,
+  "supported_states_checked": 10426,
+  "transitions": [
+    {
+      "sequence": 1,
+      "part": "Q1",
+      "aggregate": null,
+      "automatic_rate": 0.0,
+      "effective_rate": 0.0,
+      "source": "FP prior",
+      "support": 0
+    },
+    {
+      "sequence": 7531,
+      "part": "Q2",
+      "aggregate": -0.04018325396825282,
+      "automatic_rate": -0.04018325396825282,
+      "effective_rate": -0.04018325396825282,
+      "source": "Live per-driver diagnostic (session-wide)",
+      "support": 10
+    },
+    {
+      "sequence": 12467,
+      "part": "Q3",
+      "aggregate": -0.02808735396456031,
+      "automatic_rate": -0.02808735396456031,
+      "effective_rate": -0.02808735396456031,
+      "source": "Live per-driver diagnostic (session-wide)",
+      "support": 29
+    }
+  ],
+  "checkpoints": [
+    {
+      "sequence": 6451,
+      "part": "Q1",
+      "series": [
+        {
+          "driver": "ALO",
+          "compound": "SOFT",
+          "support": 2,
+          "slope": -0.012866666666664662,
+          "reconstructed_slope": -0.012866666666666523,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "ALO",
+              "team": "Aston Martin",
+              "lap_number": 3,
+              "lap_time_s": 97.914,
+              "global_push_index": 7,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 8.223114266473065,
+              "ahead_coverage": 0.7301587301587301,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 126,
+              "traffic_ahead_samples": 92,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5409.345935251975,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "ALO",
+              "team": "Aston Martin",
+              "lap_number": 6,
+              "lap_time_s": 97.721,
+              "global_push_index": 22,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 11.156386372338472,
+              "ahead_coverage": 0.6742424242424242,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 132,
+              "traffic_ahead_samples": 89,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5395.626449055142,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "BEA",
+          "compound": "SOFT",
+          "support": 2,
+          "slope": -0.048285714285713655,
+          "reconstructed_slope": -0.048285714285714765,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "BEA",
+              "team": "Haas F1 Team",
+              "lap_number": 3,
+              "lap_time_s": 98.994,
+              "global_push_index": 2,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 26.14942394208654,
+              "ahead_coverage": 0.6909090909090909,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 110,
+              "traffic_ahead_samples": 76,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5422.2661736276405,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "BEA",
+              "team": "Haas F1 Team",
+              "lap_number": 9,
+              "lap_time_s": 97.97999999999999,
+              "global_push_index": 23,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 3.6886750612849237,
+              "ahead_coverage": 0.6814814814814815,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 135,
+              "traffic_ahead_samples": 92,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5394.229083326126,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "LAW",
+          "compound": "SOFT",
+          "support": 2,
+          "slope": -0.06287500000000215,
+          "reconstructed_slope": -0.06287500000000179,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "LAW",
+              "team": "Racing Bulls",
+              "lap_number": 3,
+              "lap_time_s": 97.83500000000001,
+              "global_push_index": 12,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 3.0581322181164676,
+              "ahead_coverage": 0.7304964539007093,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 141,
+              "traffic_ahead_samples": 103,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5390.264452232253,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "LAW",
+              "team": "Racing Bulls",
+              "lap_number": 6,
+              "lap_time_s": 97.332,
+              "global_push_index": 20,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 26.239490281807967,
+              "ahead_coverage": 0.7050359712230215,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 139,
+              "traffic_ahead_samples": 98,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5401.78750928905,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "OCO",
+          "compound": "SOFT",
+          "support": 2,
+          "slope": -0.03588888888888555,
+          "reconstructed_slope": -0.035888888888888144,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "OCO",
+              "team": "Haas F1 Team",
+              "lap_number": 3,
+              "lap_time_s": 98.87899999999999,
+              "global_push_index": 1,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 11.378578232505804,
+              "ahead_coverage": 0.6981132075471698,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 106,
+              "traffic_ahead_samples": 74,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5171.799192031225,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "OCO",
+              "team": "Haas F1 Team",
+              "lap_number": 9,
+              "lap_time_s": 98.233,
+              "global_push_index": 19,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 9.5272247933517,
+              "ahead_coverage": 0.7248322147651006,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 149,
+              "traffic_ahead_samples": 108,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5409.345935251975,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        }
+      ],
+      "aggregate": -0.03997906746031651,
+      "reconstructed_aggregate": -0.039979067460317805,
+      "legacy_pooled_scalar": -0.002904150197627227,
+      "legacy_pooled_support": 23,
+      "automatic_rate": -0.03997906746031651,
+      "effective_rate": -0.03997906746031651,
+      "effective_source": "Live per-driver diagnostic (session-wide)",
+      "snapshot": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "driver": "BOR",
+        "current_cutoff_s": 97.99000000000001,
+        "unfinished_driver_count": 6,
+        "track_rate_s_per_field_push": -0.03997906746031651,
+        "projected_correction_s": -0.23987440476189903,
+        "projected_cutoff_s": 97.7501255952381
+      },
+      "admitted_sample_count": 23,
+      "admitted_samples_sha256": "2993dfed42d3bbd5876c2fe4ee4e38f2c572f5635a54d682d15b0dfed05ec249",
+      "actual_aggregate_call": {
+        "driver_slopes_and_support": [
+          [
+            -0.012866666666664662,
+            2
+          ],
+          [
+            -0.048285714285713655,
+            2
+          ],
+          [
+            -0.06287500000000215,
+            2
+          ],
+          [
+            -0.03588888888888555,
+            2
+          ]
+        ],
+        "rate": -0.03997906746031651
+      },
+      "actual_driver_fit_calls": [
+        {
+          "indices": [
+            1,
+            19
+          ],
+          "lap_times_s": [
+            98.87899999999999,
+            98.233
+          ],
+          "slope": -0.03588888888888555
+        },
+        {
+          "indices": [
+            2,
+            23
+          ],
+          "lap_times_s": [
+            98.994,
+            97.97999999999999
+          ],
+          "slope": -0.048285714285713655
+        },
+        {
+          "indices": [
+            7,
+            22
+          ],
+          "lap_times_s": [
+            97.914,
+            97.721
+          ],
+          "slope": -0.012866666666664662
+        },
+        {
+          "indices": [
+            12,
+            20
+          ],
+          "lap_times_s": [
+            97.83500000000001,
+            97.332
+          ],
+          "slope": -0.06287500000000215
+        }
+      ]
+    },
+    {
+      "sequence": 16496,
+      "part": "Q3",
+      "series": [
+        {
+          "driver": "ALO",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.02011081081081008,
+          "reconstructed_slope": -0.02011081081081089,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "ALO",
+              "team": "Aston Martin",
+              "lap_number": 3,
+              "lap_time_s": 97.914,
+              "global_push_index": 7,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 8.223114266473065,
+              "ahead_coverage": 0.7301587301587301,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 126,
+              "traffic_ahead_samples": 92,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5409.345935251975,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "ALO",
+              "team": "Aston Martin",
+              "lap_number": 6,
+              "lap_time_s": 97.721,
+              "global_push_index": 22,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 11.156386372338472,
+              "ahead_coverage": 0.6742424242424242,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 132,
+              "traffic_ahead_samples": 89,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5395.626449055142,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "ALO",
+              "team": "Aston Martin",
+              "lap_number": 9,
+              "lap_time_s": 97.22,
+              "global_push_index": 42,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 7.5054109335519605,
+              "ahead_coverage": 0.7481481481481481,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 135,
+              "traffic_ahead_samples": 101,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5353.68303252591,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "ANT",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.031216417910447432,
+          "reconstructed_slope": -0.03121641791044757,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "ANT",
+              "team": "Mercedes",
+              "lap_number": 3,
+              "lap_time_s": 97.041,
+              "global_push_index": 3,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 6.163569528410666,
+              "ahead_coverage": 0.7445255474452555,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 137,
+              "traffic_ahead_samples": 102,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5263.617079257968,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "ANT",
+              "team": "Mercedes",
+              "lap_number": 6,
+              "lap_time_s": 96.075,
+              "global_push_index": 31,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 16.38399732128938,
+              "ahead_coverage": 0.7327586206896551,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 116,
+              "traffic_ahead_samples": 85,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5371.18296921253,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "ANT",
+              "team": "Mercedes",
+              "lap_number": 9,
+              "lap_time_s": 95.959,
+              "global_push_index": 39,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 37.890842090198134,
+              "ahead_coverage": 0.5638297872340425,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 94,
+              "traffic_ahead_samples": 53,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5353.68303252591,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "BEA",
+          "compound": "SOFT",
+          "support": 2,
+          "slope": -0.048285714285713655,
+          "reconstructed_slope": -0.048285714285714765,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "BEA",
+              "team": "Haas F1 Team",
+              "lap_number": 3,
+              "lap_time_s": 98.994,
+              "global_push_index": 2,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 26.14942394208654,
+              "ahead_coverage": 0.6909090909090909,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 110,
+              "traffic_ahead_samples": 76,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5422.2661736276405,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "BEA",
+              "team": "Haas F1 Team",
+              "lap_number": 9,
+              "lap_time_s": 97.97999999999999,
+              "global_push_index": 23,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 3.6886750612849237,
+              "ahead_coverage": 0.6814814814814815,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 135,
+              "traffic_ahead_samples": 92,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5394.229083326126,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "BOR",
+          "compound": "SOFT",
+          "support": 2,
+          "slope": -0.014600000000000276,
+          "reconstructed_slope": -0.01460000000000008,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "BOR",
+              "team": "Audi",
+              "lap_number": 6,
+              "lap_time_s": 97.106,
+              "global_push_index": 26,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 4.641024644314766,
+              "ahead_coverage": 0.6992481203007519,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 133,
+              "traffic_ahead_samples": 93,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5381.637031137943,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "BOR",
+              "team": "Audi",
+              "lap_number": 12,
+              "lap_time_s": 96.814,
+              "global_push_index": 46,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 4.56262033025228,
+              "ahead_coverage": 0.7557251908396947,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 131,
+              "traffic_ahead_samples": 99,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5332.365419699085,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "GAS",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.021221659919029114,
+          "reconstructed_slope": -0.021221659919028656,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "GAS",
+              "team": "Alpine",
+              "lap_number": 3,
+              "lap_time_s": 97.174,
+              "global_push_index": 9,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 4.329979449979424,
+              "ahead_coverage": 0.7426470588235294,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 136,
+              "traffic_ahead_samples": 101,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5409.345935251975,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "GAS",
+              "team": "Alpine",
+              "lap_number": 9,
+              "lap_time_s": 96.657,
+              "global_push_index": 37,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 7.045090414567373,
+              "ahead_coverage": 0.711864406779661,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 118,
+              "traffic_ahead_samples": 84,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5377.227441238034,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "GAS",
+              "team": "Alpine",
+              "lap_number": 12,
+              "lap_time_s": 96.41,
+              "global_push_index": 43,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 6.773485431629966,
+              "ahead_coverage": 0.7401574803149606,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 127,
+              "traffic_ahead_samples": 94,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5377.227441238034,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "HAD",
+          "compound": "SOFT",
+          "support": 4,
+          "slope": -0.028349924331596433,
+          "reconstructed_slope": -0.028349924331595815,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "HAD",
+              "team": "Red Bull Racing",
+              "lap_number": 3,
+              "lap_time_s": 96.898,
+              "global_push_index": 6,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 4.764753097283513,
+              "ahead_coverage": 0.7518248175182481,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 137,
+              "traffic_ahead_samples": 103,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5390.264452232253,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "HAD",
+              "team": "Red Bull Racing",
+              "lap_number": 6,
+              "lap_time_s": 96.19200000000001,
+              "global_push_index": 29,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 10.127063895324858,
+              "ahead_coverage": 0.7441860465116279,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 129,
+              "traffic_ahead_samples": 96,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5392.091093063356,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "HAD",
+              "team": "Red Bull Racing",
+              "lap_number": 9,
+              "lap_time_s": 95.55799999999999,
+              "global_push_index": 48,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 10.985222126292724,
+              "ahead_coverage": 0.7480314960629921,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 127,
+              "traffic_ahead_samples": 95,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "HAD",
+              "team": "Red Bull Racing",
+              "lap_number": 12,
+              "lap_time_s": 95.559,
+              "global_push_index": 56,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 35.39042747289397,
+              "ahead_coverage": 0.6382978723404256,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 94,
+              "traffic_ahead_samples": 60,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "HAM",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.024551020408163437,
+          "reconstructed_slope": -0.02455102040816318,
+          "samples": [
+            {
+              "part": "Q2",
+              "driver": "HAM",
+              "team": "Ferrari",
+              "lap_number": 6,
+              "lap_time_s": 96.032,
+              "global_push_index": 35,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 8.311157902403563,
+              "ahead_coverage": 0.7213114754098361,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 122,
+              "traffic_ahead_samples": 88,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5366.773379312621,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "HAM",
+              "team": "Ferrari",
+              "lap_number": 12,
+              "lap_time_s": 95.745,
+              "global_push_index": 50,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 15.850010370422549,
+              "ahead_coverage": 0.712,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 125,
+              "traffic_ahead_samples": 89,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "HAM",
+              "team": "Ferrari",
+              "lap_number": 15,
+              "lap_time_s": 95.428,
+              "global_push_index": 59,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 6.554048822961123,
+              "ahead_coverage": 0.6235294117647059,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 85,
+              "traffic_ahead_samples": 53,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 4,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "LAW",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.026394230769231603,
+          "reconstructed_slope": -0.026394230769231086,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "LAW",
+              "team": "Racing Bulls",
+              "lap_number": 3,
+              "lap_time_s": 97.83500000000001,
+              "global_push_index": 12,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 3.0581322181164676,
+              "ahead_coverage": 0.7304964539007093,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 141,
+              "traffic_ahead_samples": 103,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5390.264452232253,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "LAW",
+              "team": "Racing Bulls",
+              "lap_number": 6,
+              "lap_time_s": 97.332,
+              "global_push_index": 20,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 26.239490281807967,
+              "ahead_coverage": 0.7050359712230215,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 139,
+              "traffic_ahead_samples": 98,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5401.78750928905,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "LAW",
+              "team": "Racing Bulls",
+              "lap_number": 12,
+              "lap_time_s": 97.023,
+              "global_push_index": 40,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 11.766017262358464,
+              "ahead_coverage": 0.7557251908396947,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 131,
+              "traffic_ahead_samples": 99,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5353.68303252591,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "LEC",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.011413721413721798,
+          "reconstructed_slope": -0.011413721413721479,
+          "samples": [
+            {
+              "part": "Q2",
+              "driver": "LEC",
+              "team": "Ferrari",
+              "lap_number": 6,
+              "lap_time_s": 95.97,
+              "global_push_index": 33,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 10.527639360161016,
+              "ahead_coverage": 0.75,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 128,
+              "traffic_ahead_samples": 96,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5381.637031137943,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "LEC",
+              "team": "Ferrari",
+              "lap_number": 9,
+              "lap_time_s": 95.878,
+              "global_push_index": 49,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 6.7738033303675325,
+              "ahead_coverage": 0.7388059701492538,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 134,
+              "traffic_ahead_samples": 99,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "LEC",
+              "team": "Ferrari",
+              "lap_number": 12,
+              "lap_time_s": 95.666,
+              "global_push_index": 58,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 12.208973905924788,
+              "ahead_coverage": 0.6235294117647059,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 85,
+              "traffic_ahead_samples": 53,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5316.161828537783,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "NOR",
+          "compound": "SOFT",
+          "support": 4,
+          "slope": -0.027782599536549445,
+          "reconstructed_slope": -0.027782599536549307,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "NOR",
+              "team": "McLaren",
+              "lap_number": 3,
+              "lap_time_s": 97.092,
+              "global_push_index": 17,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 3.1324963481609966,
+              "ahead_coverage": 0.7642857142857142,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 140,
+              "traffic_ahead_samples": 107,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5409.345935251975,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "NOR",
+              "team": "McLaren",
+              "lap_number": 6,
+              "lap_time_s": 96.173,
+              "global_push_index": 34,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 9.276376729763689,
+              "ahead_coverage": 0.7441860465116279,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 129,
+              "traffic_ahead_samples": 96,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5366.773379312621,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "NOR",
+              "team": "McLaren",
+              "lap_number": 9,
+              "lap_time_s": 95.982,
+              "global_push_index": 52,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 5.107285377319813,
+              "ahead_coverage": 0.71900826446281,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 121,
+              "traffic_ahead_samples": 87,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "NOR",
+              "team": "McLaren",
+              "lap_number": 12,
+              "lap_time_s": 95.757,
+              "global_push_index": 62,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 9.280453141942278,
+              "ahead_coverage": 0.6736842105263158,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 95,
+              "traffic_ahead_samples": 64,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "OCO",
+          "compound": "SOFT",
+          "support": 2,
+          "slope": -0.03588888888888555,
+          "reconstructed_slope": -0.035888888888888144,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "OCO",
+              "team": "Haas F1 Team",
+              "lap_number": 3,
+              "lap_time_s": 98.87899999999999,
+              "global_push_index": 1,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 11.378578232505804,
+              "ahead_coverage": 0.6981132075471698,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 106,
+              "traffic_ahead_samples": 74,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5171.799192031225,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "OCO",
+              "team": "Haas F1 Team",
+              "lap_number": 9,
+              "lap_time_s": 98.233,
+              "global_push_index": 19,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 9.5272247933517,
+              "ahead_coverage": 0.7248322147651006,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 149,
+              "traffic_ahead_samples": 108,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5409.345935251975,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "PIA",
+          "compound": "SOFT",
+          "support": 4,
+          "slope": -0.02441306968893275,
+          "reconstructed_slope": -0.02441306968893188,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "PIA",
+              "team": "McLaren",
+              "lap_number": 3,
+              "lap_time_s": 96.852,
+              "global_push_index": 18,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 3.2009221473649307,
+              "ahead_coverage": 0.7676056338028169,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 142,
+              "traffic_ahead_samples": 109,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5401.78750928905,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "PIA",
+              "team": "McLaren",
+              "lap_number": 6,
+              "lap_time_s": 96.02000000000001,
+              "global_push_index": 38,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 7.011707247602905,
+              "ahead_coverage": 0.6991869918699187,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 123,
+              "traffic_ahead_samples": 86,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5377.227441238034,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "PIA",
+              "team": "McLaren",
+              "lap_number": 9,
+              "lap_time_s": 95.762,
+              "global_push_index": 53,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 11.237802754252968,
+              "ahead_coverage": 0.6982758620689655,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 116,
+              "traffic_ahead_samples": 81,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5316.161828537783,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "PIA",
+              "team": "McLaren",
+              "lap_number": 12,
+              "lap_time_s": 95.887,
+              "global_push_index": 60,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 9.789004618832164,
+              "ahead_coverage": 0.6373626373626373,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 91,
+              "traffic_ahead_samples": 58,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5283.092811240089,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "RUS",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.012912044374008922,
+          "reconstructed_slope": -0.012912044374009354,
+          "samples": [
+            {
+              "part": "Q2",
+              "driver": "RUS",
+              "team": "Mercedes",
+              "lap_number": 6,
+              "lap_time_s": 96.245,
+              "global_push_index": 32,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 6.100403717664329,
+              "ahead_coverage": 0.7355371900826446,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 121,
+              "traffic_ahead_samples": 89,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5381.637031137943,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "RUS",
+              "team": "Mercedes",
+              "lap_number": 9,
+              "lap_time_s": 96.032,
+              "global_push_index": 47,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 31.306680313434995,
+              "ahead_coverage": 0.7659574468085106,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 141,
+              "traffic_ahead_samples": 108,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5316.161828537783,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "RUS",
+              "team": "Mercedes",
+              "lap_number": 12,
+              "lap_time_s": 95.87100000000001,
+              "global_push_index": 61,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 6.795517733963146,
+              "ahead_coverage": 0.6804123711340206,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 97,
+              "traffic_ahead_samples": 66,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5283.092811240089,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "SAI",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.0170485829959508,
+          "reconstructed_slope": -0.017048582995951553,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "SAI",
+              "team": "Williams",
+              "lap_number": 3,
+              "lap_time_s": 98.102,
+              "global_push_index": 13,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 4.652100756784158,
+              "ahead_coverage": 0.7121212121212122,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 132,
+              "traffic_ahead_samples": 94,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5409.345935251975,
+              "tyre_install_index": 0,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q1",
+              "driver": "SAI",
+              "team": "Williams",
+              "lap_number": 6,
+              "lap_time_s": 97.65100000000001,
+              "global_push_index": 24,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 4.694786099355904,
+              "ahead_coverage": 0.6985294117647058,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 136,
+              "traffic_ahead_samples": 95,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5393.160088194742,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "SAI",
+              "team": "Williams",
+              "lap_number": 12,
+              "lap_time_s": 97.527,
+              "global_push_index": 44,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 3.5382534431376893,
+              "ahead_coverage": 0.7441860465116279,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 129,
+              "traffic_ahead_samples": 96,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5353.68303252591,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "STR",
+          "compound": "SOFT",
+          "support": 2,
+          "slope": -0.008149999999999531,
+          "reconstructed_slope": -0.008149999999999834,
+          "samples": [
+            {
+              "part": "Q1",
+              "driver": "STR",
+              "team": "Aston Martin",
+              "lap_number": 6,
+              "lap_time_s": 97.729,
+              "global_push_index": 21,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 6.96859023485923,
+              "ahead_coverage": 0.7210884353741497,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 147,
+              "traffic_ahead_samples": 106,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5394.229083326126,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q2",
+              "driver": "STR",
+              "team": "Aston Martin",
+              "lap_number": 12,
+              "lap_time_s": 97.566,
+              "global_push_index": 41,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 8.363543251019006,
+              "ahead_coverage": 0.7555555555555555,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 135,
+              "traffic_ahead_samples": 102,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5353.68303252591,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        },
+        {
+          "driver": "VER",
+          "compound": "SOFT",
+          "support": 3,
+          "slope": -0.02005022831050321,
+          "reconstructed_slope": -0.020050228310502308,
+          "samples": [
+            {
+              "part": "Q2",
+              "driver": "VER",
+              "team": "Red Bull Racing",
+              "lap_number": 6,
+              "lap_time_s": 95.696,
+              "global_push_index": 30,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 5.8933219652569475,
+              "ahead_coverage": 0.7355371900826446,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 121,
+              "traffic_ahead_samples": 89,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5381.637031137943,
+              "tyre_install_index": 1,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "VER",
+              "team": "Red Bull Racing",
+              "lap_number": 9,
+              "lap_time_s": 95.25,
+              "global_push_index": 54,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 3.5069466358436947,
+              "ahead_coverage": 0.6869565217391305,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 115,
+              "traffic_ahead_samples": 79,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 2,
+              "first_eligible_push_for_installation": true
+            },
+            {
+              "part": "Q3",
+              "driver": "VER",
+              "team": "Red Bull Racing",
+              "lap_number": 12,
+              "lap_time_s": 95.13,
+              "global_push_index": 57,
+              "compound": "SOFT",
+              "stint_start_laps": 0,
+              "fresh": true,
+              "physical_mean_ahead_gap_s": 8.998313522132056,
+              "ahead_coverage": 0.6235294117647059,
+              "traffic_status": "ok",
+              "traffic_method": "PHYSICAL_CIRCULAR",
+              "traffic_target_samples": 85,
+              "traffic_ahead_samples": 53,
+              "traffic_evaluator_version": "unified-traffic-v4",
+              "clean_air_at_completion": true,
+              "clean_air_gap_threshold_s": 3.0,
+              "traffic_circuit_length_m": 5302.3809056149585,
+              "tyre_install_index": 3,
+              "first_eligible_push_for_installation": true
+            }
+          ]
+        }
+      ],
+      "aggregate": -0.02320824960240663,
+      "reconstructed_aggregate": -0.02320824960240664,
+      "legacy_pooled_scalar": 0.028602941176466494,
+      "legacy_pooled_support": 16,
+      "automatic_rate": -0.02320824960240663,
+      "effective_rate": -0.02320824960240663,
+      "effective_source": "Live per-driver diagnostic (session-wide)",
+      "snapshot": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "driver": "VER",
+        "current_cutoff_s": 95.13,
+        "unfinished_driver_count": 0,
+        "track_rate_s_per_field_push": -0.02320824960240663,
+        "projected_correction_s": -0.0,
+        "projected_cutoff_s": 95.13
+      },
+      "admitted_sample_count": 62,
+      "admitted_samples_sha256": "bbd454e506db5c08a745a66439b62571b3786bdb5da7fdfd102aad1d235c8a1b",
+      "actual_aggregate_call": {
+        "driver_slopes_and_support": [
+          [
+            -0.02011081081081008,
+            3
+          ],
+          [
+            -0.031216417910447432,
+            3
+          ],
+          [
+            -0.048285714285713655,
+            2
+          ],
+          [
+            -0.014600000000000276,
+            2
+          ],
+          [
+            -0.021221659919029114,
+            3
+          ],
+          [
+            -0.028349924331596433,
+            4
+          ],
+          [
+            -0.024551020408163437,
+            3
+          ],
+          [
+            -0.026394230769231603,
+            3
+          ],
+          [
+            -0.011413721413721798,
+            3
+          ],
+          [
+            -0.027782599536549445,
+            4
+          ],
+          [
+            -0.03588888888888555,
+            2
+          ],
+          [
+            -0.02441306968893275,
+            4
+          ],
+          [
+            -0.012912044374008922,
+            3
+          ],
+          [
+            -0.0170485829959508,
+            3
+          ],
+          [
+            -0.008149999999999531,
+            2
+          ],
+          [
+            -0.02005022831050321,
+            3
+          ]
+        ],
+        "rate": -0.02320824960240663
+      },
+      "actual_driver_fit_calls": [
+        {
+          "indices": [
+            1,
+            19
+          ],
+          "lap_times_s": [
+            98.87899999999999,
+            98.233
+          ],
+          "slope": -0.03588888888888555
+        },
+        {
+          "indices": [
+            2,
+            23
+          ],
+          "lap_times_s": [
+            98.994,
+            97.97999999999999
+          ],
+          "slope": -0.048285714285713655
+        },
+        {
+          "indices": [
+            3,
+            31,
+            39
+          ],
+          "lap_times_s": [
+            97.041,
+            96.075,
+            95.959
+          ],
+          "slope": -0.031216417910447432
+        },
+        {
+          "indices": [
+            6,
+            29,
+            48,
+            56
+          ],
+          "lap_times_s": [
+            96.898,
+            96.19200000000001,
+            95.55799999999999,
+            95.559
+          ],
+          "slope": -0.028349924331596433
+        },
+        {
+          "indices": [
+            7,
+            22,
+            42
+          ],
+          "lap_times_s": [
+            97.914,
+            97.721,
+            97.22
+          ],
+          "slope": -0.02011081081081008
+        },
+        {
+          "indices": [
+            33,
+            49,
+            58
+          ],
+          "lap_times_s": [
+            95.97,
+            95.878,
+            95.666
+          ],
+          "slope": -0.011413721413721798
+        },
+        {
+          "indices": [
+            9,
+            37,
+            43
+          ],
+          "lap_times_s": [
+            97.174,
+            96.657,
+            96.41
+          ],
+          "slope": -0.021221659919029114
+        },
+        {
+          "indices": [
+            35,
+            50,
+            59
+          ],
+          "lap_times_s": [
+            96.032,
+            95.745,
+            95.428
+          ],
+          "slope": -0.024551020408163437
+        },
+        {
+          "indices": [
+            12,
+            20,
+            40
+          ],
+          "lap_times_s": [
+            97.83500000000001,
+            97.332,
+            97.023
+          ],
+          "slope": -0.026394230769231603
+        },
+        {
+          "indices": [
+            13,
+            24,
+            44
+          ],
+          "lap_times_s": [
+            98.102,
+            97.65100000000001,
+            97.527
+          ],
+          "slope": -0.0170485829959508
+        },
+        {
+          "indices": [
+            17,
+            34,
+            52,
+            62
+          ],
+          "lap_times_s": [
+            97.092,
+            96.173,
+            95.982,
+            95.757
+          ],
+          "slope": -0.027782599536549445
+        },
+        {
+          "indices": [
+            18,
+            38,
+            53,
+            60
+          ],
+          "lap_times_s": [
+            96.852,
+            96.02000000000001,
+            95.762,
+            95.887
+          ],
+          "slope": -0.02441306968893275
+        },
+        {
+          "indices": [
+            21,
+            41
+          ],
+          "lap_times_s": [
+            97.729,
+            97.566
+          ],
+          "slope": -0.008149999999999531
+        },
+        {
+          "indices": [
+            26,
+            46
+          ],
+          "lap_times_s": [
+            97.106,
+            96.814
+          ],
+          "slope": -0.014600000000000276
+        },
+        {
+          "indices": [
+            30,
+            54,
+            57
+          ],
+          "lap_times_s": [
+            95.696,
+            95.25,
+            95.13
+          ],
+          "slope": -0.02005022831050321
+        },
+        {
+          "indices": [
+            32,
+            47,
+            61
+          ],
+          "lap_times_s": [
+            96.245,
+            96.032,
+            95.87100000000001
+          ],
+          "slope": -0.012912044374008922
+        }
+      ]
+    }
+  ],
+  "baseline_comparison": {
+    "initial_current_head_reproduction": "temp/quali_canonical_live_20261003/r16_before.json",
+    "full_baseline_source": "git show b303a11eb9b14bd26db72549e3bea70d7723668f:src/woplanner/quali/service.py; loaded under woplanner.quali with current dependency modules",
+    "legacy_calls_before": 64,
+    "checkpoints": [
+      {
+        "sequence": 6451,
+        "production_admitted_samples": 23,
+        "admitted_samples_identical": true,
+        "driver_fits_identical": true,
+        "diagnostic_aggregate_identical": true,
+        "before_automatic_rate": -0.002904150197627227,
+        "after_automatic_rate": -0.03997906746031651,
+        "before_source": "Q1 live estimate",
+        "after_source": "Live per-driver diagnostic (session-wide)"
+      },
+      {
+        "sequence": 16496,
+        "production_admitted_samples": 62,
+        "admitted_samples_identical": true,
+        "driver_fits_identical": true,
+        "diagnostic_aggregate_identical": true,
+        "before_automatic_rate": 0.028602941176466494,
+        "after_automatic_rate": -0.02320824960240663,
+        "before_source": "Q3 live estimate",
+        "after_source": "Live per-driver diagnostic (session-wide)"
+      }
+    ],
+    "transitions_before": [
+      {
+        "sequence": 1,
+        "part": "Q1",
+        "aggregate": null,
+        "automatic_rate": 0.0,
+        "effective_rate": 0.0,
+        "source": "FP prior",
+        "support": 0
+      },
+      {
+        "sequence": 7531,
+        "part": "Q2",
+        "aggregate": -0.04018325396825282,
+        "automatic_rate": 0.0015399562123709894,
+        "effective_rate": 0.0015399562123709894,
+        "source": "Q1 estimate",
+        "support": 10
+      },
+      {
+        "sequence": 12467,
+        "part": "Q3",
+        "aggregate": -0.02808735396456031,
+        "automatic_rate": -0.07877812177502483,
+        "effective_rate": -0.07877812177502483,
+        "source": "Q2 estimate",
+        "support": 29
+      }
+    ]
+  },
+  "validation": {
+    "final_unique_tests_passed": 186,
+    "final_tests_failed": 0,
+    "commands_and_results": [
+      {
+        "command": "MPLCONFIGDIR=/private/tmp/quali-canonical-mpl QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 /Users/zhxutong/dr-wo/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_quali_service.py tests/test_quali_track_evolution_diagnostic.py",
+        "phase": "before",
+        "passed": 55,
+        "failed": 0,
+        "log": "temp/quali_canonical_live_20261003/tests_before.log"
+      },
+      {
+        "command": "MPLCONFIGDIR=/private/tmp/quali-canonical-mpl QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 /Users/zhxutong/dr-wo/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_quali_canonical_track_rate.py tests/test_quali_track_evolution_diagnostic.py tests/test_quali_service.py tests/test_quali_widgets.py tests/test_quali_operational_contract.py",
+        "phase": "focused",
+        "passed": 103,
+        "failed": 0,
+        "log": "temp/quali_canonical_live_20261003/tests_targeted.log"
+      },
+      {
+        "command": "MPLCONFIGDIR=/private/tmp/quali-canonical-mpl QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 /Users/zhxutong/dr-wo/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_quali_r16_replay.py tests/test_quali_r14_replay.py tests/test_quali_replay_determinism.py",
+        "phase": "initial replay, corrected production-membership fixture afterwards",
+        "passed": 2,
+        "failed": 1,
+        "failure_reason": "Initial regression assertion assumed PER/STR; replay observed BEA/OCO. Assertion corrected to the actual current-production support set. Final full suite passed.",
+        "log": "temp/quali_canonical_live_20261003/tests_replay.log"
+      },
+      {
+        "command": "MPLCONFIGDIR=/private/tmp/quali-canonical-mpl QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 /Users/zhxutong/dr-wo/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_quali_*.py",
+        "phase": "final qualifying suite",
+        "passed": 149,
+        "failed": 0,
+        "log": "temp/quali_canonical_live_20261003/tests_qualifying.log"
+      },
+      {
+        "command": "MPLCONFIGDIR=/private/tmp/quali-canonical-mpl QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 /Users/zhxutong/dr-wo/.venv/bin/python -m pytest -q -p no:cacheprovider /Users/zhxutong/dr-wo/woStrategy/tests/test_pre_quali.py /Users/zhxutong/dr-wo/woWeekend/tests/test_qualifying.py",
+        "phase": "final FP/historical boundary",
+        "passed": 8,
+        "failed": 0,
+        "log": "temp/quali_canonical_live_20261003/tests_boundary.log"
+      },
+      {
+        "command": "MPLCONFIGDIR=/private/tmp/quali-canonical-mpl QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 /Users/zhxutong/dr-wo/.venv/bin/python -m pytest -q -p no:cacheprovider /Users/zhxutong/dr-wo/woData/tests/test_quali_foundation.py /Users/zhxutong/dr-wo/woData/tests/test_quali_reducer.py",
+        "phase": "final qualifying data foundation",
+        "passed": 29,
+        "failed": 0,
+        "log": "temp/quali_canonical_live_20261003/tests_data.log"
+      }
+    ],
+    "scope": {
+      "checks": {
+        "_project": true,
+        "_refresh_projection_reference": true,
+        "_rank_and_project": true,
+        "_effective_cool_timing": true,
+        "build_track_evolution_diagnostic": true,
+        "render_track_evolution_diagnostic": true,
+        "_consume_driver_only_legacy_calls_removed": true,
+        "transition_to_only_legacy_calls_removed": true,
+        "finalise_only_legacy_calls_removed": true,
+        "src/woplanner/quali/lap_state.py_unchanged": true,
+        "src/woplanner/quali/physical_traffic.py_unchanged": true,
+        "src/woplanner/quali/gui.py_unchanged": true,
+        "woPlanner_head_unchanged": true,
+        "woStrategy_head_unchanged": true,
+        "woStrategy_dirty_status_unchanged": true,
+        "woWeekend_head_unchanged": true,
+        "woWeekend/configs/post_race.json_preserved": true,
+        "woWeekend/configs/race.json_preserved": true,
+        "woWeekend/examples/2026-R13/.DS_Store_preserved": true,
+        "woWeekend/examples/2026-R13/report-inputs/.DS_Store_preserved": true,
+        "woWeekend_dirty_status_unchanged": true,
+        "woData_head_unchanged": true,
+        "woData/pirelli_preview/year=2026/pirelli_preview_2026.csv_preserved": true,
+        "woData/src/wodata/script/fetch_replay_data.py_preserved": true,
+        "woData/pirelli_preview/year=2026/1920_14-es26-preview-en.jpg_preserved": true,
+        "woData/pirelli_preview/year=2026/1920_15-az26-preview-en.jpg_preserved": true,
+        "woData/pirelli_preview/year=2026/1920_16-bh26-preview-en.jpg_preserved": true,
+        "woData/pirelli_preview/year=2026/extracted/round=14.json_preserved": true,
+        "woData/pirelli_preview/year=2026/extracted/round=15.json_preserved": true,
+        "woData/pirelli_preview/year=2026/extracted/round=16.json_preserved": true,
+        "woData_dirty_status_unchanged": true,
+        "no_staged_changes": true,
+        "diff_check_clean": true,
+        "cutoff_equation_and_clamp_unchanged": true,
+        "new_files_whitespace_clean": true
+      },
+      "git_before": {
+        "woPlanner": {
+          "head": "b303a11eb9b14bd26db72549e3bea70d7723668f",
+          "dirty": "?? .worktrees/\n",
+          "dirty_file_hashes": {}
+        },
+        "woStrategy": {
+          "head": "e724512bb5cacb813a74241ab8da208e773e0e7e",
+          "dirty": "?? .worktrees/\n?? research/circuit_traffic_summary/\n?? research/fp3_q_relative_pace/\n?? research/fp3_single_lap_correlation/\n?? research/fp_long_run_race_pairwise_continuity/\n?? research/historical_encounter_audit/\n?? research/next_lap_pace_validation/\n?? research/pooled_pace_reference_poc/\n?? research/post_gate_probability_comparison/\n?? research/race_mc_fresh_20261002/\n?? research/rd3_design_gates_20261001/\n?? research/rear_filter_part2_20261003/\n?? research/retrospective_pace_reference_poc/\n?? research/traffic_history_integration/\n?? research/traffic_report_polish_20261003/\n?? research/traffic_report_wiring_20261003/\n",
+          "dirty_file_hashes": {}
+        },
+        "woWeekend": {
+          "head": "a662ad80813408c7d05dd36d98161ec13539f9c1",
+          "dirty": " M configs/post_race.json\n M configs/race.json\n?? .worktrees/\n?? examples/2026-R13/.DS_Store\n?? examples/2026-R13/report-inputs/.DS_Store\n",
+          "dirty_file_hashes": {
+            "configs/post_race.json": "e66c7116fc934813bd5c401e2a10c49c879b410849181d3fdf52916489eca36d",
+            "configs/race.json": "814ac93a9e309dd33e56958e931104b910d3d70db859cc0c4013c44fd6ff2210",
+            "examples/2026-R13/.DS_Store": "6869062716ebf74a5e079bd457656dbf360597d4616ebf1784b109155b3ebaa9",
+            "examples/2026-R13/report-inputs/.DS_Store": "76e85636e28caee7c88fd780e6d1b94349db4e1991894047cabccf2cb5d33092"
+          }
+        },
+        "woData": {
+          "head": "8c2ba265ca429562dc1737fb11449d3e8112bef7",
+          "dirty": " M pirelli_preview/year=2026/pirelli_preview_2026.csv\n M src/wodata/script/fetch_replay_data.py\n?? .worktrees/\n?? pirelli_preview/year=2026/1920_14-es26-preview-en.jpg\n?? pirelli_preview/year=2026/1920_15-az26-preview-en.jpg\n?? pirelli_preview/year=2026/1920_16-bh26-preview-en.jpg\n?? pirelli_preview/year=2026/extracted/round=14.json\n?? pirelli_preview/year=2026/extracted/round=15.json\n?? pirelli_preview/year=2026/extracted/round=16.json\n?? research_archive/\n?? woweekend/event_operational_inputs/schema_v1/year=2026/round=13/\n?? woweekend/event_operational_inputs/schema_v1/year=2026/round=15/\n",
+          "dirty_file_hashes": {
+            "pirelli_preview/year=2026/pirelli_preview_2026.csv": "e1c18e726d99473577c6bdf382044942e8a24f97e313c333042fcb5e13a0f2fd",
+            "src/wodata/script/fetch_replay_data.py": "e20a588111b4d3206285f455564338b234313d8df86fc395a34161232f1c892c",
+            "pirelli_preview/year=2026/1920_14-es26-preview-en.jpg": "c3b8f2e2f379341959e75b8d4743bf9166d2f1656a21ee1511615f728fdcbab9",
+            "pirelli_preview/year=2026/1920_15-az26-preview-en.jpg": "c703ea1521f7d8465beab69ec6397e7c1d9cfe611407cc49bc55991cc14ad2c2",
+            "pirelli_preview/year=2026/1920_16-bh26-preview-en.jpg": "dab01029dffbf3e54376b384fc3f9b298d7b38d8e3f96b9f04c008f677802d35",
+            "pirelli_preview/year=2026/extracted/round=14.json": "4993ed7f41c23390013d71ab138e8260f885231b2b6ac81c2ab5088831a71fe2",
+            "pirelli_preview/year=2026/extracted/round=15.json": "2fa72d065873e0489f4763c72a053c8729af0f35d62a0db82d2ed563c2d002c2",
+            "pirelli_preview/year=2026/extracted/round=16.json": "f318467e0dee9c5bb5d725a31efc8296230013677abd88fd27d992169557addd"
+          }
+        }
+      },
+      "git_after": {
+        "woPlanner": {
+          "head": "b303a11eb9b14bd26db72549e3bea70d7723668f",
+          "dirty": " M doc/QUALIFYING_MONITOR.md\n M src/woplanner/quali/models.py\n M src/woplanner/quali/service.py\n M src/woplanner/quali/track_evolution.py\n M src/woplanner/quali/widgets.py\n M tests/test_quali_operational_contract.py\n M tests/test_quali_r14_replay.py\n M tests/test_quali_replay_determinism.py\n M tests/test_quali_service.py\n M tests/test_quali_widgets.py\n?? .worktrees/\n?? doc/assets/qualifying_track_evolution_r16_canonical.json\n?? scripts/verify_quali_r16_canonical_track.py\n?? tests/test_quali_canonical_track_rate.py\n?? tests/test_quali_r16_replay.py\n"
+        },
+        "woStrategy": {
+          "head": "e724512bb5cacb813a74241ab8da208e773e0e7e",
+          "dirty": "?? .worktrees/\n?? research/circuit_traffic_summary/\n?? research/fp3_q_relative_pace/\n?? research/fp3_single_lap_correlation/\n?? research/fp_long_run_race_pairwise_continuity/\n?? research/historical_encounter_audit/\n?? research/next_lap_pace_validation/\n?? research/pooled_pace_reference_poc/\n?? research/post_gate_probability_comparison/\n?? research/race_mc_fresh_20261002/\n?? research/rd3_design_gates_20261001/\n?? research/rear_filter_part2_20261003/\n?? research/retrospective_pace_reference_poc/\n?? research/traffic_history_integration/\n?? research/traffic_report_polish_20261003/\n?? research/traffic_report_wiring_20261003/\n"
+        },
+        "woWeekend": {
+          "head": "a662ad80813408c7d05dd36d98161ec13539f9c1",
+          "dirty": " M configs/post_race.json\n M configs/race.json\n?? .worktrees/\n?? examples/2026-R13/.DS_Store\n?? examples/2026-R13/report-inputs/.DS_Store\n"
+        },
+        "woData": {
+          "head": "8c2ba265ca429562dc1737fb11449d3e8112bef7",
+          "dirty": " M pirelli_preview/year=2026/pirelli_preview_2026.csv\n M src/wodata/script/fetch_replay_data.py\n?? .worktrees/\n?? pirelli_preview/year=2026/1920_14-es26-preview-en.jpg\n?? pirelli_preview/year=2026/1920_15-az26-preview-en.jpg\n?? pirelli_preview/year=2026/1920_16-bh26-preview-en.jpg\n?? pirelli_preview/year=2026/extracted/round=14.json\n?? pirelli_preview/year=2026/extracted/round=15.json\n?? pirelli_preview/year=2026/extracted/round=16.json\n?? research_archive/\n?? woweekend/event_operational_inputs/schema_v1/year=2026/round=13/\n?? woweekend/event_operational_inputs/schema_v1/year=2026/round=15/\n"
+        }
+      }
+    },
+    "replay_command": "MPLCONFIGDIR=/private/tmp/quali-canonical-mpl PYTHONDONTWRITEBYTECODE=1 /Users/zhxutong/dr-wo/.venv/bin/python scripts/verify_quali_r16_canonical_track.py --output doc/assets/qualifying_track_evolution_r16_canonical.json",
+    "git_diff_stat_tracked": " doc/QUALIFYING_MONITOR.md                | 57 ++++++++++++++----\n src/woplanner/quali/models.py            |  6 ++\n src/woplanner/quali/service.py           | 99 ++++++++++++++------------------\n src/woplanner/quali/track_evolution.py   |  7 +++\n src/woplanner/quali/widgets.py           | 20 ++++---\n tests/test_quali_operational_contract.py |  2 +-\n tests/test_quali_r14_replay.py           | 12 ++--\n tests/test_quali_replay_determinism.py   |  8 ++-\n tests/test_quali_service.py              | 53 +++++++++++------\n tests/test_quali_widgets.py              | 16 ++++++\n 10 files changed, 176 insertions(+), 104 deletions(-)\n",
+    "new_files": [
+      "scripts/verify_quali_r16_canonical_track.py",
+      "tests/test_quali_canonical_track_rate.py",
+      "tests/test_quali_r16_replay.py",
+      "doc/assets/qualifying_track_evolution_r16_canonical.json"
+    ],
+    "diff_check": {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  }
+}

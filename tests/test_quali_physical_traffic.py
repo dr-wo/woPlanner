@@ -59,7 +59,7 @@ def test_pit_side_candidate_is_excluded_but_on_track_out_car_can_be_ahead():
     assert out_car["TrafficStatus"] == "ok"
 
 
-def test_rolling_adapter_uses_structural_evidence_and_preserves_provenance():
+def test_rolling_adapter_does_not_infer_phase_from_structural_evidence_alone():
     adapter = RollingQualiPhysicalTraffic()
     for time in np.arange(0, 20.5, .5):
         target = QualiRawDriverState(
@@ -75,10 +75,10 @@ def test_rolling_adapter_uses_structural_evidence_and_preserves_provenance():
         )
         adapter.ingest(replace(QualiRawSnapshot.empty(), drivers=(target, other)))
     traffic = adapter.finalize("AAA", 5)
-    assert traffic.available
+    assert not traffic.available
     assert traffic.method == "PHYSICAL_CIRCULAR"
-    assert traffic.ahead_samples > traffic.target_samples / 2
-    assert traffic.evaluator_version
+    assert traffic.mean_ahead_gap_s is None
+    assert not adapter._lap_spans
     assert adapter.row_count == 82
 
     pit_adapter = RollingQualiPhysicalTraffic()

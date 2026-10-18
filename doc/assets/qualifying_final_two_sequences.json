@@ -1,0 +1,108 @@
+{
+  "alias_1_events": {
+    "owner_before_position": null,
+    "owner_after_position": null,
+    "projection": null
+  },
+  "alias_2_events": {
+    "owner_before_position": null,
+    "owner_after_position": null,
+    "projection": null
+  },
+  "old_sectors": {
+    "direct": {
+      "messages": 8,
+      "B_sectors": [
+        null,
+        null,
+        null
+      ],
+      "best_key": [
+        "Q1",
+        "31",
+        4,
+        1767225900.0
+      ],
+      "projection": null
+    },
+    "canonical": {
+      "messages": 8,
+      "B_sectors": [
+        null,
+        null,
+        null
+      ],
+      "best_key": [
+        "Q1",
+        "31",
+        4,
+        1767225900.0
+      ],
+      "projection": null
+    }
+  },
+  "valid_sectors": {
+    "direct": {
+      "messages": 10,
+      "B_sectors": [
+        25.0,
+        26.0,
+        39.0
+      ],
+      "best_key": [
+        "Q1",
+        "31",
+        4,
+        1767225820.0
+      ],
+      "projection": 86.4
+    },
+    "canonical": {
+      "messages": 10,
+      "B_sectors": [
+        25.0,
+        26.0,
+        39.0
+      ],
+      "best_key": [
+        "Q1",
+        "31",
+        4,
+        1767225820.0
+      ],
+      "projection": 86.4
+    }
+  },
+  "unknown_repeat": {
+    "direct": {
+      "messages": 11,
+      "B_sectors": [
+        null,
+        null,
+        null
+      ],
+      "best_key": [
+        "Q1",
+        "31",
+        4,
+        1767225820.0
+      ],
+      "projection": null
+    },
+    "canonical": {
+      "messages": 11,
+      "B_sectors": [
+        null,
+        null,
+        null
+      ],
+      "best_key": [
+        "Q1",
+        "31",
+        4,
+        1767225820.0
+      ],
+      "projection": null
+    }
+  }
+}

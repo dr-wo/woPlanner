@@ -297,24 +297,25 @@ def test_final_lap_chequered_marker_takes_precedence_over_effective_finish():
     app.processEvents()
 
 
-def test_official_reorder_keeps_selected_driver_and_cutoff_identity():
+def test_official_reorder_keeps_selected_driver_without_inventing_boundary_rows():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = QualiWindow()
     lin = QualiDriverState("41", "LIN", "Team", rank=1, official_position=1, best_lap_s=95.149)
     tsu = QualiDriverState("22", "TSU", "Team", rank=2, official_position=2, best_lap_s=95.3)
     cutoff = SimpleNamespace(cutoff_rank=1, driver="LIN")
-    window._render_timing_table(SimpleNamespace(drivers=(lin, tsu), cutoff=cutoff))
+    window._render_timing_table(SimpleNamespace(session_part="Q1", drivers=(lin, tsu), cutoff=cutoff))
     window.table.setCurrentCell(0, 1)
 
     lin = replace(lin, rank=2, official_position=20, best_lap_s=None)
     tsu = replace(tsu, rank=1, official_position=1)
-    window._render_timing_table(SimpleNamespace(drivers=(tsu, lin), cutoff=cutoff))
+    window._render_timing_table(SimpleNamespace(session_part="Q1", drivers=(tsu, lin), cutoff=cutoff))
     assert [window.table.item(row, 1).text() for row in range(2)] == ["TSU", "LIN"]
     assert window.table.item(1, 0).text() == "20"
     assert window.table.currentItem().text() == "LIN"
-    assert window.table.cutoff_row() == 1
+    assert window.table.cutoff_row() is None  # No rendered P16 in this two-row fixture.
 
     window._render_timing_table(SimpleNamespace(
+        session_part="Q3",
         drivers=(tsu, lin), cutoff=SimpleNamespace(cutoff_rank=1, driver="TSU", target_kind="P1"),
     ))
     assert window.table.cutoff_row() is None

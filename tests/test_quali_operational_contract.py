@@ -123,7 +123,7 @@ def test_service_rejects_counter_plus_last_without_confirmed_event():
     service.consume(store.apply(timing({"NumberOfLaps": 1, "InPit": False}, 0)))
     raw = store.apply(timing({"NumberOfLaps": 2, "LastLapTime": {"Value": "1:20"}}, 80))
     service.consume(replace(raw, completed_lap_sequence=()))
-    assert not service._part_push_laps["Q1"]
+    assert not service._track_samples
 
 
 def test_sector_status_patch_after_rejected_boundary_does_not_enable_pace():

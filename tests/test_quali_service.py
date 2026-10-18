@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 
 import pandas as pd
@@ -6,6 +7,7 @@ import pytest
 
 from wodata.live import (
     DrainResult,
+    LiveTimingMessage,
     QualiCheckpoint,
     QualiPitState,
     QualiRawDriverState,
@@ -15,10 +17,16 @@ from wodata.live import (
 from wodata.live.quali_models import QualiCompletedLap
 from woplanner.quali.lap_state import LapPaceReference
 from woplanner.quali.models import FinishedReason
+from woplanner.quali.physical_traffic import PhysicalLapTraffic
 from woplanner.quali.service import QualiLiveService
 
 
 def raw(drivers, *, part="Q1", remaining=600, session_info=None):
+    # Supply explicit provenance; legacy defaults deliberately cannot create
+    # a projection reference. Identity divergence is covered separately.
+    drivers = [replace(driver, best_lap_event_key=(part, driver.driver_number, driver.completed_laps, None))
+               if driver.best_lap_s is not None and driver.completed_laps else driver
+               for driver in drivers]
     return QualiRawSnapshot(
         MappingProxyType(session_info or {}),
         "Started",
@@ -28,7 +36,8 @@ def raw(drivers, *, part="Q1", remaining=600, session_info=None):
         tuple(drivers),
         None,
         completed_lap_sequence=tuple(
-            QualiCompletedLap(part, driver.driver_number, lap, driver.last_lap_s or 0.0, None)
+            QualiCompletedLap(part, driver.driver_number, lap, driver.last_lap_s or 0.0, None,
+                              sectors_s=driver.sectors_s)
             for driver in drivers for lap in range(1, driver.completed_laps + 1)
         ),
     )
@@ -43,12 +52,123 @@ def driver(number, best=None, *, laps=1, in_pit=False, sectors=(30, 30, 30), pro
         pit_lane_progress=progress,
         timed_lap_eligible=not in_pit,
         structural_state=QualiPitState.ON_TRACK if not in_pit else QualiPitState.UNKNOWN,
+        knocked_out=False,
     )
 
 
 def with_test_pace_reference(service):
     service._common_lap_state_reference = LapPaceReference(start_to_s1_s=30.0)
     return service
+
+
+@pytest.mark.parametrize("source", ["signalr_live", "f1_archive_replay"])
+def test_q2_historical_flags_ordinary_and_final_laps_through_production_ingress(source):
+    service = with_test_pace_reference(QualiLiveService(cool_lap_s=120, eliminated_counts={"Q2": 0}))
+    origin = datetime(2026, 10, 10, tzinfo=timezone.utc)
+
+    def send(topic, payload, seconds, snapshot=False):
+        utc = origin + timedelta(seconds=seconds)
+        service.controller._enqueue_message(LiveTimingMessage(
+            topic, payload, None if snapshot else utc, utc, source=source,
+        ))
+        return service.poll()[0]
+
+    def rc_flag(kind, seconds):
+        return {"Utc": (origin + timedelta(seconds=seconds)).isoformat(),
+                "Flag": kind, "Scope": "Track"}
+
+    def lap(number, seconds):
+        return send("TimingData", {"Lines": {"1": {
+            "NumberOfLaps": number, "LastLapTime": {"Value": "90"},
+            "BestLapTime": {"Value": "90"}, "InPit": False,
+            "Sectors": [{"Value": "30"}, {"Value": "30"}, {"Value": "30"}],
+        }}}, seconds)
+
+    send("SessionInfo", {"Name": "Qualifying", "SessionPart": "Q2"}, 200, True)
+    send("DriverList", {"1": {"Tla": "AAA"}}, 200, True)
+    send("TimingData", {"Lines": {"1": {"Position": 1, "NumberOfLaps": 0, "InPit": False, "KnockedOut": False}}}, 200, True)
+    history = {"Messages": [rc_flag("GREEN", 0), rc_flag("CHEQUERED", 100), rc_flag("GREEN", 150)]}
+    # Q17-02 is independent: Q2 was already established through SessionInfo.
+    assert not send("RaceControlMessages", history, 200, True).normal_finished
+    send("ExtrapolatedClock", {"Remaining": "10:00", "Extrapolating": True}, 200)
+    ordinary = lap(1, 300)
+    assert not ordinary.normal_finished
+    assert not ordinary.drivers[0].finished
+    send("RaceControlMessages", history, 301, True)
+    assert not lap(2, 400).drivers[0].finished
+    # Predictive finish retains its own reason before the actual flag.
+    send("ExtrapolatedClock", {"Remaining": "01:40", "Extrapolating": True}, 400)
+    predictive = lap(3, 490).drivers[0]
+    assert predictive.finished_reason == FinishedReason.NO_TIME_FOR_NEXT_PUSH
+    assert not service.snapshot.normal_finished
+    genuine = {"Messages": {"3": rc_flag("CHEQUERED", 500)}}
+    assert send("RaceControlMessages", genuine, 500).normal_finished
+    final = lap(4, 590).drivers[0]
+    assert final.finished_reason == FinishedReason.FINAL_LAP_COMPLETED
+    send("RaceControlMessages", history, 591, True)
+    assert service.snapshot.normal_finished  # Reconnect does not undo real finish.
+    next_part = send("TimingData", {"SessionPart": 3}, 600)
+    assert next_part.session_part == "Q3" and not next_part.normal_finished
+    assert not next_part.drivers[0].finished
+    assert not send("RaceControlMessages", genuine, 601, True).normal_finished
+
+
+def test_q2_initial_snapshot_uses_feed_survivors_and_reconnection_keeps_them():
+    service = QualiLiveService(eliminated_counts={"Q2": 1})
+    store = service.controller.store
+    now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+
+    def send(topic, payload):
+        service.controller._enqueue_message(LiveTimingMessage(topic, payload, None, now))
+        return service.poll()[0]
+
+    send("SessionInfo", {"Name": "Qualifying"})
+    send("DriverList", {str(n): {"Tla": f"D{n}"} for n in (1, 2, 3)})
+    packet = {"SessionPart": 2, "Lines": {
+        "1": {"Position": 1, "KnockedOut": False, "BestLapTime": {"Value": "88"},
+              "BestLapTimes": [{"Value": "90"}, {"Value": "88"}, {}]},
+        "2": {"Position": 2, "KnockedOut": False, "BestLapTime": {"Value": "89"},
+              "BestLapTimes": [{"Value": "91"}, {"Value": "89"}, {}]},
+        "3": {"Position": 3, "KnockedOut": True, "BestLapTime": {"Value": "92"},
+              "BestLapTimes": [{"Value": "92"}, {}, {}]},
+    }}
+    initial = send("TimingData", packet)
+    assert initial.session_part == "Q2"
+    assert {d.driver for d in initial.drivers if d.active} == {"D1", "D2"}
+    assert initial.cutoff.current_cutoff_s == 88
+    assert initial.cutoff.cutoff_rank == 1
+    assert dict(store.snapshot().drivers[0].historical_results) == {"Q1": 90}
+    assert next(d for d in initial.drivers if d.driver == "D3").frozen_part == "Q1"
+    assert send("TimingData", packet).drivers == initial.drivers
+    service.reset()
+    assert not service._initial_timing_received
+
+
+def test_q3_initial_snapshot_keeps_p1_and_both_previous_part_owners():
+    service = QualiLiveService()
+    now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+
+    def send(topic, payload):
+        service.controller._enqueue_message(LiveTimingMessage(topic, payload, None, now))
+        return service.poll()[0]
+
+    send("SessionInfo", {"Name": "Qualifying"})
+    send("DriverList", {str(n): {"Tla": f"D{n}"} for n in (1, 2, 3, 4)})
+    snapshot = send("TimingData", {"SessionPart": 3, "Lines": {
+        "1": {"Position": 1, "KnockedOut": False, "BestLapTime": {"Value": "87"},
+              "BestLapTimes": [{"Value": "90"}, {"Value": "88"}, {"Value": "87"}]},
+        "2": {"Position": 2, "KnockedOut": False, "BestLapTime": {"Value": "89"}},
+        "3": {"Position": 3, "KnockedOut": True,
+              "BestLapTimes": [{"Value": "92"}, {"Value": "90"}, {}]},
+        "4": {"Position": 4, "KnockedOut": True,
+              "BestLapTimes": [{"Value": "93"}, {}, {}]},
+    }})
+    assert snapshot.session_part == "Q3"
+    assert snapshot.cutoff.target_kind == "P1" and snapshot.cutoff.cutoff_rank == 1
+    assert snapshot.cutoff.current_cutoff_s == 87
+    assert {d.driver for d in snapshot.drivers if d.active} == {"D1", "D2"}
+    assert next(d for d in snapshot.drivers if d.driver == "D3").frozen_part == "Q2"
+    assert next(d for d in snapshot.drivers if d.driver == "D4").frozen_part == "Q1"
 
 
 def test_ranking_no_time_gap_interval_and_projection_reference_replacement():
@@ -222,16 +342,18 @@ def test_sq1_sq2_transition_uses_sprint_parts_without_phantom_q1_elimination():
     states = {state.driver: state for state in service._states.values()}
     assert states["D3"].finished_reason == FinishedReason.ELIMINATED
     assert states["D1"].active is True
-    assert service.track_source == "SQ1 estimate"
+    # Raw field laps alone cannot establish per-driver diagnostic support.
+    assert service.track_source == "Configured fallback"
 
 
-def test_completed_part_updates_existing_track_evolution_fit():
+def test_completed_part_without_diagnostic_support_preserves_prior():
     service = with_test_pace_reference(QualiLiveService(eliminated_counts={"Q1": 0}))
     service.consume(raw([driver(1, 91, laps=1), driver(2, 92, laps=1)]))
     service.consume(raw([driver(1, 90, laps=2), driver(2, 91, laps=2)]))
     service.transition_to("Q2")
-    assert service._track_estimates["Q1"][2] == "estimated"
-    assert service.track_source == "Q1 estimate"
+    assert len(service._track_samples) == 2
+    assert service.automatic_track_estimate is None
+    assert service.track_source == "Configured fallback"
 
 
 def test_global_push_index_continues_across_qualifying_parts():
@@ -251,38 +373,74 @@ def test_global_push_index_continues_across_qualifying_parts():
     ]
 
 
-def test_track_evolution_updates_live_before_part_transition():
+def test_track_evolution_updates_live_before_part_transition(monkeypatch):
     service = with_test_pace_reference(QualiLiveService(
         eliminated_counts={"Q1": 0}, track_rate_s_per_field_push=0.25
     ))
-    service.consume(raw([driver(1, 90, laps=1)]))
-    service.consume(raw([driver(1, 89, laps=2)]))
-    assert service.track_source == "FP prior"
+    monkeypatch.setattr(service._physical_traffic, "finalize", lambda *_: PhysicalLapTraffic(4, .8, "ok"))
 
-    snapshot = service.consume(raw([driver(1, 88, laps=3)]))
+    def fresh_driver(laps, best):
+        return replace(driver(1, best, laps=laps),
+                       tyre_history=(QualiTyreStint("SOFT", 0, True, laps),))
+
+    service.consume(raw([fresh_driver(1, 90)]))
+    service.consume(raw([fresh_driver(2, 89)]))
+    assert service.track_source == "Configured fallback"
+
+    snapshot = service.consume(raw([fresh_driver(3, 88)]))
 
     assert service.session_part == "Q1"
-    assert service.track_source == "Q1 live estimate"
-    rate, samples, quality = service._track_estimates["Q1"]
-    assert rate == pytest.approx(1.0)
+    assert service.track_source == "Live per-driver diagnostic (session-wide)"
+    rate, samples, quality = service.automatic_track_estimate
+    assert rate == pytest.approx(-1.0)
     assert (samples, quality) == (2, "estimated")
-    assert snapshot.cutoff.track_rate_s_per_field_push == pytest.approx(1.0)
+    assert snapshot.cutoff.track_rate_s_per_field_push == pytest.approx(-1.0)
 
 
-def test_manual_track_override_does_not_replace_latest_automatic_fit():
+def test_manual_track_override_does_not_replace_latest_automatic_fit(monkeypatch):
     service = with_test_pace_reference(QualiLiveService(eliminated_counts={"Q1": 0}))
-    service.consume(raw([driver(1, 90, laps=1)]))
-    service.consume(raw([driver(1, 89, laps=2)]))
-    service.consume(raw([driver(1, 88, laps=3)]))
-    service.set_track_override(0.5)
+    monkeypatch.setattr(service._physical_traffic, "finalize", lambda *_: PhysicalLapTraffic(4, .8, "ok"))
 
-    service.consume(raw([driver(1, 87, laps=4)]))
+    def fresh_driver(laps, best):
+        return replace(driver(1, best, laps=laps),
+                       tyre_history=(QualiTyreStint("SOFT", 0, True, laps),))
 
-    assert service.track_rate_s_per_field_push == 0.5
-    assert service.track_source == "Manual override"
+    service.consume(raw([fresh_driver(1, 90)]))
+    service.consume(raw([fresh_driver(2, 89)]))
+    service.consume(raw([fresh_driver(3, 88)]))
+    automatic_before = service.automatic_track_rate_s_per_field_push
+    assert automatic_before == pytest.approx(-1.0)
+    live_source = "Live per-driver diagnostic (session-wide)"
+    assert service.snapshot.automatic_track_source == live_source
+    manual_override = 0.5
+    assert manual_override != pytest.approx(automatic_before)
+    service.set_track_override(manual_override)
+
+    # A third fresh-installation observation changes the fitted times from
+    # [89, 88] to [89, 88, 86] on global PUSH indices [1, 2, 3].
+    snapshot = service.consume(raw([fresh_driver(4, 86)]))
+    diagnostic = snapshot.track_evolution_diagnostic
+    assert diagnostic.lap_count == 3
+    automatic_during_override = service.automatic_track_rate_s_per_field_push
+    assert automatic_during_override == pytest.approx(-1.5)
+    assert automatic_during_override != pytest.approx(automatic_before)
+    assert automatic_during_override == diagnostic.aggregate_slope_s_per_push
+    assert snapshot.automatic_track_rate_s_per_field_push == automatic_during_override
+    assert service.automatic_track_source == snapshot.automatic_track_source == live_source
+    assert service.track_override_s_per_field_push == manual_override
+    assert service.track_rate_s_per_field_push == manual_override
+    assert snapshot.cutoff.track_rate_s_per_field_push == manual_override
+    assert service.track_source == snapshot.track_source == "Manual override"
+
     service.set_track_override(None)
-    assert service.track_rate_s_per_field_push == pytest.approx(1.0)
-    assert service.track_source == "Q1 live estimate"
+    # Clearing publishes the latest automatic value immediately, without
+    # consuming another observation or rebuilding the diagnostic.
+    assert service.track_rate_s_per_field_push == automatic_during_override
+    assert service.snapshot.cutoff.track_rate_s_per_field_push == automatic_during_override
+    assert service.track_rate_s_per_field_push != pytest.approx(automatic_before)
+    assert service.track_source == service.snapshot.track_source == live_source
+    assert service.snapshot.automatic_track_source == live_source
+    assert service.snapshot.track_evolution_diagnostic is diagnostic
 
 
 def test_pit_groups_are_exclusive_and_queue_uses_physical_progress():
@@ -568,7 +726,7 @@ def test_projected_cutoff_uses_rate_sign_and_never_slows_current_cutoff(rate, ex
 def test_cutoff_with_insufficient_live_support_uses_zero_prior_and_current_result():
     service = QualiLiveService(eliminated_counts={"Q1": 1})
     snapshot = service.consume(raw([driver(1, 90), driver(2, 91)]))
-    assert service.track_source == "FP prior"
+    assert service.track_source == "Configured fallback"
     assert snapshot.cutoff.track_rate_s_per_field_push == 0
     assert snapshot.cutoff.projected_cutoff_s == snapshot.cutoff.current_cutoff_s == 90
 

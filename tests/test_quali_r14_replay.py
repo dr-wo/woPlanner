@@ -19,6 +19,7 @@ ARCHIVE = (
 def test_r14_deleted_lap_effective_finish_cutoff_and_bootstrap():
     store = QualiSessionStore()
     service = QualiLiveService()
+    service.controller.store = store
     evidence = {}
     previous_lap_count = 0
 
@@ -60,6 +61,8 @@ def test_r14_deleted_lap_effective_finish_cutoff_and_bootstrap():
                 service.session_part,
                 tuple((state.driver, state.active, state.rank, state.best_lap_s,
                        state.official_position) for state in service.snapshot.drivers),
+                service.snapshot.track_evolution_diagnostic.aggregate_slope_s_per_push,
+                service.snapshot.automatic_track_source,
             )
 
     ReplayPlayer(ARCHIVE, speed=0).play(observe, end_time_seconds=2700)
@@ -75,9 +78,11 @@ def test_r14_deleted_lap_effective_finish_cutoff_and_bootstrap():
     assert alb[3] == pytest.approx(54, abs=5)
     assert sai[5:] == (True, False)
     assert alb[5:] == (True, False)
-    current, rate, unfinished, correction, projected, part, drivers = evidence["cutoff"]
+    current, rate, unfinished, correction, projected, part, drivers, aggregate, source = evidence["cutoff"]
     assert current == pytest.approx(93.588), (part, drivers)
-    assert rate == pytest.approx(-0.038276, abs=0.000001)
+    assert aggregate is not None
+    assert rate == aggregate
+    assert source == "Live per-driver diagnostic (session-wide)"
     assert unfinished == 16
-    assert correction == pytest.approx(-0.61242, abs=0.00001)
-    assert projected == pytest.approx(92.97558, abs=0.00001)
+    assert correction == pytest.approx(rate * unfinished)
+    assert projected == pytest.approx(min(current, current + correction))

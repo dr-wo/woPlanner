@@ -1,0 +1,43 @@
+{
+  "states_compared": 16496,
+  "changed_envelopes": 0,
+  "changed_raw_states": 0,
+  "changed_service_states": 0,
+  "counts": {
+    "Q1": {
+      "states": 7530,
+      "states_with_reference": 5846,
+      "projections": 47324
+    },
+    "Q2": {
+      "states": 4936,
+      "states_with_reference": 3526,
+      "projections": 20123
+    },
+    "Q3": {
+      "states": 4030,
+      "states_with_reference": 2882,
+      "projections": 14907
+    }
+  },
+  "anchors": {
+    "1685": {
+      "oco_key": [
+        "Q1",
+        "31",
+        3,
+        1791014637.756
+      ],
+      "ver_projection": null
+    },
+    "2465": {
+      "oco_key": [
+        "Q1",
+        "31",
+        3,
+        1791014637.756
+      ],
+      "ver_projection": 96.72203499686125
+    }
+  }
+}

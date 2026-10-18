@@ -1,0 +1,329 @@
+{
+  "task": "R17-Q Q17-01/02 independent review corrections",
+  "verdict": "READY FOR INDEPENDENT RE-REVIEW",
+  "corrections": {
+    "stale_clock": {
+      "root_cause": "Transition inference and countdown mutation preceded source freshness checks.",
+      "change": "Reject non-increasing Clock.Utc or original publication time before state mutation; infer resets only across known chronological clocks in the same coordinate.",
+      "result": "PASS",
+      "tests": [
+        "stale_synthetic_clock_and_duplicate_cannot_advance_or_rewrite_part",
+        "original_r17_clock_five_redelivery_after_genuine_q2_finish"
+      ]
+    },
+    "pre_Q3_join": {
+      "root_cause": "Bootstrap discovery had no ownership boundary; paused clocks and repeated Q2 end-status snapshots inherited finish state.",
+      "change": "Establish a stable initial clock/part boundary for paused or running clocks; explicit part plus full paused countdown identifies preparation and reconciles previous-part end status.",
+      "result": "PASS",
+      "tests": [
+        "original_r17_pre_q3_start_reconnect_and_repeat_snapshot",
+        "original_r17_finished_q2_reconnect_preserves_current_chequered"
+      ]
+    },
+    "genuine_finish_and_precision": {
+      "root_cause": "Ordinary clock observations moved the lower boundary; exact float comparisons ignored flag source precision.",
+      "change": "Keep the boundary stable and latch an owned finish; use the timestamp precision interval to compare flag ownership, with explicit transitions/newer GREEN reopening the part.",
+      "result": "PASS",
+      "tests": [
+        "shortened_finish_latches_through_positive_clock_and_marks_completed_lap",
+        "second_precision_finish_overlaps_subsecond_boundary_without_admitting_previous_second",
+        "explicit_part_owned_finish_survives_first_positive_clock",
+        "newer_green_restarts_same_part_and_old_finish_redelivery_stays_old"
+      ]
+    },
+    "partial_participation": {
+      "root_cause": "First positions completed bootstrap and absent KnockedOut was coerced to False.",
+      "change": "Preserve unknown participation as None, reconcile sparse registers until complete, exclude pending drivers from active cutoffs, and initialise independently of positions.",
+      "result": "PASS",
+      "tests": [
+        "split_original_r17_participation_bootstrap_and_repeated_registers",
+        "participation_initialisation_does_not_require_positions"
+      ]
+    }
+  },
+  "r17": {
+    "segments": [
+      {
+        "part": "Q2",
+        "remaining": 512.0,
+        "active": 16,
+        "target": "CUTOFF",
+        "rank": 10
+      },
+      {
+        "part": "Q3",
+        "remaining": null,
+        "active": 10,
+        "target": "P1",
+        "rank": 1
+      }
+    ],
+    "finishes": {
+      "Q2": "clock_zero",
+      "Q3": "clock_zero"
+    },
+    "final_laps": {
+      "Q2": [
+        "BEA",
+        "LIN",
+        "LEC",
+        "BOR",
+        "LAW",
+        "OCO",
+        "RUS",
+        "HAM"
+      ],
+      "Q3": [
+        "PIA",
+        "HAM",
+        "LEC",
+        "LIN",
+        "LAW",
+        "GAS",
+        "VER"
+      ]
+    },
+    "premature_q2_finish": [],
+    "premature_q2_flags": [],
+    "q2_ordinary_completions": 35,
+    "last_targets": {
+      "Q2": {
+        "kind": "CUTOFF",
+        "rank": 10,
+        "driver": "GAS",
+        "time": 92.602
+      },
+      "Q3": {
+        "kind": "P1",
+        "rank": 1,
+        "driver": "VER",
+        "time": 91.373
+      }
+    },
+    "checkpoints": {
+      "6": {
+        "part": "Q2",
+        "finished": false,
+        "source": null,
+        "active": 16
+      },
+      "12": {
+        "part": "Q2",
+        "finished": false,
+        "source": null,
+        "active": 16
+      },
+      "2751": {
+        "part": "Q2",
+        "finished": true,
+        "source": "race_control",
+        "active": 16
+      },
+      "4064": {
+        "part": "Q3",
+        "finished": false,
+        "source": null,
+        "active": 10
+      },
+      "4196": {
+        "part": "Q3",
+        "finished": false,
+        "source": null,
+        "active": 10
+      },
+      "7566": {
+        "part": "Q3",
+        "finished": true,
+        "source": "race_control",
+        "active": 10
+      }
+    },
+    "recording": "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=17/session=Q/live_timing_24c397c4a58944febd83dac4664d8ac9.jsonl",
+    "message_count": 8134,
+    "status": "completed",
+    "actual_cutoffs": {
+      "Q2": 92.602
+    },
+    "scenario_results": {
+      "initial_Q2": "PASS",
+      "no_premature_Q2_chequered": "PASS",
+      "genuine_Q2_finish": "PASS",
+      "actual_Q3": "PASS",
+      "genuine_Q3_finish": "PASS",
+      "segment_cutoff_and_P1": "PASS"
+    },
+    "recording_sha256": "8d084328530605780c74035c13d6ad339e0a5e6270f7c535c6761e4683012388"
+  },
+  "r16": {
+    "recording": "/Users/zhxutong/dr-wo/woPlanner/temp/r16_q_diagnostic_20261003_01a10147/data/r16_Q_recording.jsonl",
+    "sha256": "b353aa941dcd21112f48c38b2bd558a5e1d89af799555109e21af6dfa354c71b",
+    "messages_compared": 16496,
+    "completed_events_compared": 77,
+    "changed_completed_events": 0,
+    "projection_rows_compared": 362868,
+    "changed_projection_outputs": 0,
+    "cutoffs": {
+      "Q1": 97.88300000000001,
+      "Q2": 96.814
+    },
+    "counts": {
+      "Q1": {
+        "states": 7524,
+        "states_with_reference": 5840,
+        "projection_outputs": 47324
+      },
+      "Q2": {
+        "states": 4940,
+        "states_with_reference": 3524,
+        "projection_outputs": 20123
+      },
+      "Q3": {
+        "states": 4032,
+        "states_with_reference": 2882,
+        "projection_outputs": 14907
+      }
+    },
+    "transitions": [
+      {
+        "sequence": 1,
+        "part": "Q1",
+        "topic": "Heartbeat",
+        "declared_part": null
+      },
+      {
+        "sequence": 7525,
+        "part": "Q2",
+        "topic": "TimingData",
+        "declared_part": 2
+      },
+      {
+        "sequence": 12465,
+        "part": "Q3",
+        "topic": "TimingData",
+        "declared_part": 3
+      }
+    ],
+    "source_transitions": [
+      {
+        "sequence": 6,
+        "part": 1,
+        "source_timestamp": "None"
+      },
+      {
+        "sequence": 7525,
+        "part": 2,
+        "source_timestamp": "2026-10-03 08:23:59.611000+00:00"
+      },
+      {
+        "sequence": 12465,
+        "part": 3,
+        "source_timestamp": "2026-10-03 08:45:59.523000+00:00"
+      }
+    ],
+    "baseline_reducer_sha256": "d6b8d7b1ab9a04575ad0fb5be237b692a7535c6818839ed5c9b27b838bf4433a",
+    "baseline_service_sha256": "ce3ee02eca4961afdab64573fec744661d6e4a6ed1cf53b1a67fc219d57ad574",
+    "concurrent_later_hook_note": "Full event-history comparison preceded optional shadow hook insertion. Those hooks default to disabled; Q17 correction logic stayed unchanged. Latest focused checks verify the current shared service."
+  },
+  "tests": {
+    "wodata_qualifying": {
+      "passed": 147,
+      "failed": 0,
+      "log": "/tmp/q17-review-data-final.log"
+    },
+    "woplanner_qualifying_full_run": {
+      "passed": 461,
+      "failed": 2,
+      "log": "/tmp/q17-review-planner-final.log"
+    },
+    "resolved_full_run_failures": {
+      "tests": [
+        "test_stale_part_key_cannot_match_reused_numbers[Q2]",
+        "test_stale_part_key_cannot_match_reused_numbers[Q3]"
+      ],
+      "cause": "Projection fixtures declared active Q2/Q3 drivers without affirmative participation metadata.",
+      "repair": "Added KnockedOut=False to confirmed participant fixture rows; projection assertions and expected values unchanged.",
+      "affected_file_rerun": {
+        "passed": 22,
+        "failed": 0,
+        "log": "/tmp/q17-review-projection-final.log"
+      }
+    },
+    "latest_focused_integration": {
+      "passed": 92,
+      "failed": 0,
+      "log": "/tmp/q17-review-current-integration.log"
+    },
+    "saved_defective_implementation": {
+      "passed": 2,
+      "failed": 9,
+      "log": "/tmp/q17-review-fail-before.log"
+    },
+    "unresolved_failures": 0,
+    "qualifying_tests_excluded": 0,
+    "intermediate_runs": "Two planner suite runs were interrupted and restarted after production corrections; they are not counted as completed validation.",
+    "not_executed": [
+      "Full unrelated repository suites",
+      "Historical closure verifier recovery-writing procedure",
+      "Actual R17 GUI/feed end-to-end validation",
+      "Concurrent optional shadow-analysis mode"
+    ],
+    "previous_unrelated_failures": "Previously documented race-strategy/R12 recovery and fetch-script failures were not rerun or changed."
+  },
+  "historical_closure_verifier": {
+    "reference_counts_rebased": {
+      "Q1": [
+        5846,
+        5840
+      ],
+      "Q2": [
+        3526,
+        3524
+      ],
+      "Q3": [
+        2882,
+        2882
+      ]
+    },
+    "unchanged_projection_counts": {
+      "Q1": 47324,
+      "Q2": 20123,
+      "Q3": 14907
+    },
+    "source_justification": "Original TimingData.SessionPart changes at 7525/12465, before clock resets 7531/12467. The 6/2 reference-only states retire at the declared boundaries.",
+    "side_effects_inspected": "Recovery writes within TemporaryDirectory; CLI --output is caller-supplied. Procedure not executed; R16 comparison used the read-only verifier.",
+    "baseline_note": "Strict historical full-state comparisons need a baseline with matching Q17 part ownership semantics."
+  },
+  "fixture_corrections": "Clock events in chronological-reset tests now have distinct source timestamps; participation/projection fixtures now affirm intended active participants. No R16 result or projection expected values changed.",
+  "source_sha256": {
+    "/Users/zhxutong/dr-wo/woData/src/wodata/live/quali_reducer.py": "9257369eab6bd8e9b45df2f81d770e5f982f36c4d99de86379f096a46bed8257",
+    "/Users/zhxutong/dr-wo/woData/src/wodata/live/quali_models.py": "4330124e1ae7c5e03837999302a5a48d70ead0db2b2d674e032dc22a4abf84fa",
+    "/Users/zhxutong/dr-wo/woPlanner/src/woplanner/quali/service.py": "841b7d1ad49fc33755979ee14454478ba7e0449ec48257f8baafb339dc413135",
+    "/Users/zhxutong/dr-wo/woPlanner/tests/test_quali_review_corrections.py": "cea13a76a095fd9f9313c749f81d1eac279781f7db47a647ece650ecf914aee9",
+    "/Users/zhxutong/dr-wo/woPlanner/tests/test_quali_service.py": "879239327eaa88e9e76fbab6a044a5ab0bfb5fffb8d7e1da596f1c32482abff0",
+    "/Users/zhxutong/dr-wo/woPlanner/tests/test_quali_projection_identity.py": "f6fa432a1748584c2e898aae6a8e8f04be130c185903e59f599ea4642ff6bbe6",
+    "/Users/zhxutong/dr-wo/woData/tests/test_quali_reducer.py": "c49f8cf0f13cba77a994d9a983d2c7809d05ba1cb7a7c234df11a119bdbf22f8",
+    "/Users/zhxutong/dr-wo/woData/tests/test_quali_foundation.py": "6f81fdd274d03b8f26324d7ffd7d028d4106a25e3072507906f3c9e9ec12d64c",
+    "/Users/zhxutong/dr-wo/woPlanner/scripts/verify_quali_r16_final_closure.py": "3b9f89bd2fd8ac183c1afd75189640471e67b76292133df18337982e5c5ce832",
+    "/Users/zhxutong/dr-wo/woPlanner/scripts/verify_quali_review_r16.py": "877b92bc5783af6170f578252757a2200c0bd04ed96e156eaf52aa4883d74e1b"
+  },
+  "latest_integration_start_sha256": {
+    "/Users/zhxutong/dr-wo/woData/src/wodata/live/quali_reducer.py": "9257369eab6bd8e9b45df2f81d770e5f982f36c4d99de86379f096a46bed8257",
+    "/Users/zhxutong/dr-wo/woData/src/wodata/live/quali_models.py": "4330124e1ae7c5e03837999302a5a48d70ead0db2b2d674e032dc22a4abf84fa",
+    "/Users/zhxutong/dr-wo/woPlanner/src/woplanner/quali/service.py": "841b7d1ad49fc33755979ee14454478ba7e0449ec48257f8baafb339dc413135",
+    "/Users/zhxutong/dr-wo/woPlanner/tests/test_quali_review_corrections.py": "cea13a76a095fd9f9313c749f81d1eac279781f7db47a647ece650ecf914aee9"
+  },
+  "baseline": {
+    "directory": "/Users/zhxutong/dr-wo/woPlanner/temp/q17_review_corrections_20261010_01a12664/baseline",
+    "note": "Saved defective implementation; no working-tree rollback performed."
+  },
+  "scope": {
+    "concurrent_Q17_03": "Preserved acquisition-coordinate, traffic-clock, polling/stop and telemetry changes. No edits to their algorithms by this correction. Later optional shadow-analysis hooks were preserved and their disabled default verified; latest focused integration and R17 replay were repeated after insertion.",
+    "commits_created": 0
+  },
+  "remaining_risks": [
+    "Real interrupted/restarted or altered-duration sessions are not present in these recordings; restart and shortened-finish coverage is synthetic.",
+    "Unmapped or unknown publication coordinates cannot establish chronological clock-reset inference.",
+    "Missing participation metadata keeps drivers pending and excluded until resolved.",
+    "Live/replay reducer and service paths tested; no actual R17 GUI/feed verification claimed."
+  ]
+}

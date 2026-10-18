@@ -1,0 +1,98 @@
+{
+  "recording": "/Users/zhxutong/dr-wo/woPlanner/temp/r16_q_diagnostic_20261003_01a10147/data/r16_Q_recording.jsonl",
+  "recording_sha256": "b353aa941dcd21112f48c38b2bd558a5e1d89af799555109e21af6dfa354c71b",
+  "baseline": "/private/tmp/quali-final-two-baseline",
+  "states_compared_per_path": 16496,
+  "changed_raw_states_vs_corresponding_task_start_path": 0,
+  "changed_service_states": 0,
+  "changed_reference_states": 0,
+  "preexisting_canonical_order_differences_vs_direct": {
+    "within_message_evidence_order": 177
+  },
+  "canonical_input_messages": 32992,
+  "canonical_output_messages": 16496,
+  "task_start_canonical_output_messages": 16496,
+  "recovered_topic_occurrences": {},
+  "counts": {
+    "player": {
+      "Q1": {
+        "states": 7530,
+        "states_with_reference": 5846,
+        "projections": 47324
+      },
+      "Q2": {
+        "states": 4936,
+        "states_with_reference": 3526,
+        "projections": 20123
+      },
+      "Q3": {
+        "states": 4030,
+        "states_with_reference": 2882,
+        "projections": 14907
+      }
+    },
+    "canonical": {
+      "Q1": {
+        "states": 7530,
+        "states_with_reference": 5846,
+        "projections": 47324
+      },
+      "Q2": {
+        "states": 4936,
+        "states_with_reference": 3526,
+        "projections": 20123
+      },
+      "Q3": {
+        "states": 4030,
+        "states_with_reference": 2882,
+        "projections": 14907
+      }
+    }
+  },
+  "anchors": {
+    "player": {
+      "1685": {
+        "oco_key": [
+          "Q1",
+          "31",
+          3,
+          1791014637.756
+        ],
+        "reference_s": 98.87899999999999,
+        "ver_projection_s": null
+      },
+      "2465": {
+        "oco_key": [
+          "Q1",
+          "31",
+          3,
+          1791014637.756
+        ],
+        "reference_s": 98.87899999999999,
+        "ver_projection_s": 96.72203499686125
+      }
+    },
+    "canonical": {
+      "1685": {
+        "oco_key": [
+          "Q1",
+          "31",
+          3,
+          1791014637.756
+        ],
+        "reference_s": 98.87899999999999,
+        "ver_projection_s": null
+      },
+      "2465": {
+        "oco_key": [
+          "Q1",
+          "31",
+          3,
+          1791014637.756
+        ],
+        "reference_s": 98.87899999999999,
+        "ver_projection_s": 96.72203499686125
+      }
+    }
+  }
+}

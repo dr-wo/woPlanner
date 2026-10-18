@@ -337,7 +337,8 @@ def test_real_plan_track_view_uses_snapshot_diagnostic_through_transition_and_fi
     service.session_is_qualifying = True
 
     def add(part, index, install):
-        service._track_samples.append(TrackEvolutionSample(
+        from test_quali_canonical_track_rate import seed
+        seed(service, TrackEvolutionSample(
             part, "AAA", "Ferrari", index, 90. - index, index,
             "SOFT", 0, True, 4., .8, "ok", tyre_install_index=install,
         ))
@@ -356,16 +357,32 @@ def test_real_plan_track_view_uses_snapshot_diagnostic_through_transition_and_fi
     assert dialog.track_diagnostic.diagnostic is diagnostic
     assert (diagnostic.driver_count, diagnostic.lap_count) == (1, 2)
     assert "1 drivers / 2 laps" in dialog.track_diagnostic_summary.text()
+    assert dialog.track_estimated.text() == "-1.0000 s / field push (Live per-driver estimate)"
+    assert dialog.track_effective.text() == "-1.0000 s / field push"
+    assert dialog.track_source.text() == "Live per-driver estimate"
+    assert "2 fitted push laps / 1 drivers" in dialog.track_quality.text()
+    dialog.track_override.setValue(.25)
+    dialog.track_override_enabled.setChecked(True)
+    assert dialog.track_estimated.text() == "-1.0000 s / field push (Live per-driver estimate)"
+    assert dialog.track_effective.text() == "+0.2500 s / field push"
+    assert dialog.track_source.text() == "Manual override"
+    assert "Live — limited" in dialog.track_quality.text()
 
     service.transition_to("Q3")
     add("Q3", 3, 2)
     window._poll()
     assert dialog.track_diagnostic.diagnostic is service.snapshot.track_evolution_diagnostic
     assert dialog.track_diagnostic.diagnostic.lap_count == 3
+    assert dialog.track_effective.text() == "+0.2500 s / field push"
+    assert service.snapshot.cutoff.track_rate_s_per_field_push == .25
     service.finalise()
     window._poll()
     diagnostic = service.snapshot.track_evolution_diagnostic
     assert dialog.track_diagnostic.diagnostic is diagnostic
+    assert dialog.track_estimated.text() == "-1.0000 s / field push (Live per-driver estimate)"
+    assert dialog.track_effective.text() == "+0.2500 s / field push"
+    dialog.track_override_enabled.setChecked(False)
+    assert dialog.track_effective.text() == "-1.0000 s / field push"
     deadline = time.monotonic() + 3
     while dialog.track_diagnostic._plot.isNull() and time.monotonic() < deadline:
         app.processEvents()

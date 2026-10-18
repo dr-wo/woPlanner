@@ -1,0 +1,149 @@
+{
+  "segments": [
+    {
+      "part": "Q2",
+      "remaining": 512.0,
+      "active": 16,
+      "target": "CUTOFF",
+      "rank": 10
+    },
+    {
+      "part": "Q3",
+      "remaining": null,
+      "active": 10,
+      "target": "P1",
+      "rank": 1
+    }
+  ],
+  "finishes": {
+    "Q2": "clock_zero",
+    "Q3": "clock_zero"
+  },
+  "final_laps": {
+    "Q2": [
+      "BEA",
+      "LIN",
+      "LEC",
+      "BOR",
+      "LAW",
+      "OCO",
+      "RUS",
+      "HAM"
+    ],
+    "Q3": [
+      "PIA",
+      "HAM",
+      "LEC",
+      "LIN",
+      "LAW",
+      "GAS",
+      "VER"
+    ]
+  },
+  "premature_q2_finish": [],
+  "premature_q2_flags": [],
+  "q2_ordinary_completions": 35,
+  "last_targets": {
+    "Q2": {
+      "kind": "CUTOFF",
+      "rank": 10,
+      "driver": "GAS",
+      "time": 92.602
+    },
+    "Q3": {
+      "kind": "P1",
+      "rank": 1,
+      "driver": "VER",
+      "time": 91.373
+    }
+  },
+  "checkpoints": {
+    "6": {
+      "part": "Q2",
+      "finished": false,
+      "source": null,
+      "active": 16
+    },
+    "12": {
+      "part": "Q2",
+      "finished": false,
+      "source": null,
+      "active": 16
+    },
+    "2751": {
+      "part": "Q2",
+      "finished": true,
+      "source": "race_control",
+      "active": 16
+    },
+    "4064": {
+      "part": "Q3",
+      "finished": false,
+      "source": null,
+      "active": 10
+    },
+    "4196": {
+      "part": "Q3",
+      "finished": false,
+      "source": null,
+      "active": 10
+    },
+    "7566": {
+      "part": "Q3",
+      "finished": true,
+      "source": "race_control",
+      "active": 10
+    }
+  },
+  "recording": "/Users/zhxutong/dr-wo/woData/wodata/live_timing/schema_v1/year=2026/round=17/session=Q/live_timing_24c397c4a58944febd83dac4664d8ac9.jsonl",
+  "message_count": 8134,
+  "status": "completed",
+  "actual_cutoffs": {
+    "Q2": 92.602
+  },
+  "scenario_results": {
+    "initial_Q2": "PASS",
+    "no_premature_Q2_chequered": "PASS",
+    "genuine_Q2_finish": "PASS",
+    "actual_Q3": "PASS",
+    "genuine_Q3_finish": "PASS",
+    "segment_cutoff_and_P1": "PASS"
+  },
+  "recording_sha256": "8d084328530605780c74035c13d6ad339e0a5e6270f7c535c6761e4683012388",
+  "before_change_replay": {
+    "parts": [
+      "Q1",
+      "Q2"
+    ],
+    "initial_race_control_finished": true,
+    "premature_flag_snapshots": 2604
+  },
+  "validation_level": "ReplayPlayer -> production controller -> reducer -> service; no R17 GUI-level validation",
+  "runtime_source_sha256": {
+    "/Users/zhxutong/dr-wo/woData/src/wodata/live/quali_reducer.py": "ec0d19e73325195a098df71542db654991cc30cadbf39619813b364edf665ec3",
+    "/Users/zhxutong/dr-wo/woData/src/wodata/live/quali_models.py": "a689966d74faa80ddc2259c5275a336729a3200fd72034841bd619adb51bdc42",
+    "/Users/zhxutong/dr-wo/woPlanner/src/woplanner/quali/service.py": "685308bcb9620ed6513aeae727af4c9a7f9914d2930f5471777b59c81dfe5d95"
+  },
+  "test_results": {
+    "wodata": {
+      "passed": 425,
+      "deselected": 1,
+      "deselected_case": "tests/test_fetch_replay_data_script.py::test_download_resolves_session_by_round_without_event",
+      "reason": "Existing SCRIPT_CONFIG session FP1 conflicts with test expectation R; untouched by Q17 changes"
+    },
+    "woplanner_qualifying": {
+      "passed_in_suite": 401,
+      "updated_R16_expectation_rerun_passed": 1,
+      "total_cases_passing_across_runs": 402,
+      "note": "The running suite had collected the former R16 reference counts before they were updated; the current test is rerun separately"
+    },
+    "woplanner_full_initial_run": {
+      "passed": 863,
+      "failed": 24,
+      "qualifying_failures_addressed": 5,
+      "unrelated_race_planning_and_R12_failures": 19
+    },
+    "unrelated_failure_comparison": "Representative standard race-planning and R12 failures reproduce using saved pre-change qualifying reducer/service modules",
+    "gui": "Existing offscreen qualifying tests pass; original R17 recording validated only through ReplayPlayer, controller, reducer and service"
+  }
+}
