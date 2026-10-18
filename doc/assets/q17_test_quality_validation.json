@@ -1,0 +1,957 @@
+{
+  "parent": "12aacb0392a422eb57440ff13300326a5005c641",
+  "branch": "codex/q17-test-quality-followup",
+  "source": {
+    "woPlanner": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner",
+      "head": "12aacb0392a422eb57440ff13300326a5005c641",
+      "python_source_files": 55,
+      "python_source_manifest_sha256": "fc809da645da560a99312eb21409b2755f9138bb13df66e4e6d3879a293e4397"
+    },
+    "woData": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData",
+      "head": "7580ccb614d2d7d2173ac6c9fc91409bfb338559",
+      "python_source_files": 33,
+      "python_source_manifest_sha256": "b4347fcb96e850ceb32d0f04b7154b5f71b083e85ad4e7fadeb06c34f4e06a66"
+    },
+    "woStrategy": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy",
+      "head": "336098b146c93c53b46b998ba62416aadcc0391d",
+      "python_source_files": 117,
+      "python_source_manifest_sha256": "a9626007fb9f62dffa2c5d8d7ad94084efaef4e572885e62fbc858122b184a0f"
+    },
+    "critical_sha256": {
+      "wodata.live.quali_reducer": "57e1f77a14eb1dd11d79d242c7dc4fdf912074776a5d9f5568965c3e98162738",
+      "woplanner.quali.service": "c743bf69f4badc613073c364969b977f2e6c55de20e52610b4789756e3b91d73",
+      "woplanner.quali.track_evolution_policy": "597e5890ba07835b03e173d42d18fee642de9f976ab51a9c758d110f7ee8ceea"
+    }
+  },
+  "actual_imports": {
+    "wodata": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/__init__.py",
+      "sha256": "79d1a18d9aaa814d33383dc55178f71594d43859c181d6c4c6445095aee01338"
+    },
+    "wodata.artifacts": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/artifacts.py",
+      "sha256": "1972c7e6b47a9ac3452264a00a517004961b59f9927494f435672710660b5e11"
+    },
+    "wodata.colours": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/colours.py",
+      "sha256": "b59057122d5f689432e7742d1ea3129f57cec03a549ccd6e10d1ce79ecbc2666"
+    },
+    "wodata.contracts": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/contracts.py",
+      "sha256": "d5f9e540ea1a68f9b84a8446ba04062cf0c40221e096fc36bb26776fff06d708"
+    },
+    "wodata.event_operational": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/event_operational.py",
+      "sha256": "ce979b52bcc7a098b7f0576527817115d33638389e8184998b5fab6f8f90da78"
+    },
+    "wodata.events": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/events.py",
+      "sha256": "40bc73dd855a03f25c7858e7e6a296b6a9bf0402a95c00c233fe212b6bfc3963"
+    },
+    "wodata.live": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/__init__.py",
+      "sha256": "d17a9c96e94fdf3633b7dbbc0839ec6eb449fb08336b699947c4adb7b7103b3e"
+    },
+    "wodata.live.controller": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/controller.py",
+      "sha256": "537d1d98837af3daaf9d433dff12ea4b7fddd513bca57714f22c232ec362780e"
+    },
+    "wodata.live.fastf1_source": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/fastf1_source.py",
+      "sha256": "81063e06e1b507f52b1f7e4767b83833c9de658f475c41273be67402ce3d25cd"
+    },
+    "wodata.live.models": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/models.py",
+      "sha256": "60248042e0624676c362ddd34442857cb4cfe36e3b1df12564bf3fd6faa39c74"
+    },
+    "wodata.live.quali_clock": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_clock.py",
+      "sha256": "71e9b9f4c4108b39ead114701c0126f440c70fb989393f2dbd49b03477f4adb7"
+    },
+    "wodata.live.quali_models": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_models.py",
+      "sha256": "0f5cfc471fca8d18dacce3e91f680274a73f05e3c69fdf100ffe593290806380"
+    },
+    "wodata.live.quali_reducer": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_reducer.py",
+      "sha256": "57e1f77a14eb1dd11d79d242c7dc4fdf912074776a5d9f5568965c3e98162738"
+    },
+    "wodata.live.recorder": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/recorder.py",
+      "sha256": "584317d6a108558ca66df30012dad54d3ecb7312994fa342bc49e4da1933cf78"
+    },
+    "wodata.live.recovery": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/recovery.py",
+      "sha256": "1eeae9f2813e8160772445d060e8a76629740c6f3f08e5e5e8ea0135a8bbea4c"
+    },
+    "wodata.live.reducer": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/reducer.py",
+      "sha256": "22a90bde3dd81eb54573240975bc43eccd09296ef925f2c30772bf0dfcbf2587"
+    },
+    "wodata.live.replay": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/replay/__init__.py",
+      "sha256": "5244c0cc7eca62eda17bf992f48e7cf23316550e50f6617551868f638afef40d"
+    },
+    "wodata.live.replay.archive": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/replay/archive.py",
+      "sha256": "f66e52f87997ba2ee5f3e8fbbb982ad857311b8ef1e98dc4ce3bd816bca297d6"
+    },
+    "wodata.live.replay.builder": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/replay/builder.py",
+      "sha256": "c996638b201fde61e0b99eed7091ba4f7e7634d6a59bcbe4a7a5b3cf2e9ed97a"
+    },
+    "wodata.live.replay.faults": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/replay/faults.py",
+      "sha256": "1a333127ea9deeeca86fcd8222f6d9f3eafb639f408e9b4af33ea7c983dd2a77"
+    },
+    "wodata.live.replay.player": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/replay/player.py",
+      "sha256": "29763e6a3c194737189bfb8368755ba89d752a4615b92ad1fe2d2c731d1e963c"
+    },
+    "wodata.live.replay.schema": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/replay/schema.py",
+      "sha256": "300c6756c01829a5812991bc5447fdac09cc74c5b77872e76a950dbbc73b7feb"
+    },
+    "wodata.live.session_identity": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/session_identity.py",
+      "sha256": "66d9fc83af70eabfa49914a74d956e9814f1cd78f057de5098162d1486dba281"
+    },
+    "wodata.live.source": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/source.py",
+      "sha256": "6c60f77b13aa1e2b4f0321029559ec377660ff8936e2eafea89ea50f389007c4"
+    },
+    "wodata.live.synthetic_source": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/synthetic_source.py",
+      "sha256": "490a97684332fdd74a0c3ec67b66634d1a741ff9eb6c70b42cb8c0d3eb5514f3"
+    },
+    "wodata.weekend_runs": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/weekend_runs.py",
+      "sha256": "5f5f2641d442fb4328efb1e574fd0ff93e0347d450861b3572b90132bd9d0f90"
+    },
+    "woplanner": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/__init__.py",
+      "sha256": "86f9f47b64dc8a6b66b3d38937f7bdc8538de6e4bc85d5edf2aabd8aa01a1bf2"
+    },
+    "woplanner.analysis": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/analysis/__init__.py",
+      "sha256": "f4b6f62eaf9a0094078cf7d34b542c352fb4209746e011caeb6d2a621a4868ef"
+    },
+    "woplanner.analysis.compound_offsets": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/analysis/compound_offsets.py",
+      "sha256": "5084b2088193b65f5cc26ac7f4552d2fe8d0d556123848654cebe52cf1457078"
+    },
+    "woplanner.analysis.service": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/analysis/service.py",
+      "sha256": "7d45601ad39ef1aed8253443cac9a0b900bbedcc7ffa1bd929522582b07ca5f3"
+    },
+    "woplanner.analysis.tyre_inputs": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/analysis/tyre_inputs.py",
+      "sha256": "309f2c27e01e5ee55c15a5ab980411ec1be91c0093a45692376ee382852305be"
+    },
+    "woplanner.analysis.weekend_tyre_import": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/analysis/weekend_tyre_import.py",
+      "sha256": "b97cef4f90f88942bb9a7eef87885bbf326dca5efb6a2efa0cfdf962f3b979d7"
+    },
+    "woplanner.analysis.worker": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/analysis/worker.py",
+      "sha256": "089e3667d4640e9e7b31e8067c1a6a28a1b5cdd49cf46d6673973728919dd1e9"
+    },
+    "woplanner.common": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/__init__.py",
+      "sha256": "5c62d6fe3a4b32d951533d1975275c318226c3369611c96b5c922642f53fb3a2"
+    },
+    "woplanner.common.driver_styles": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/driver_styles.py",
+      "sha256": "b0d0feb4871f82e04d04aa4efa8adf05e61f237c8ebdd22cb343c6fbf88a3722"
+    },
+    "woplanner.common.formatting": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/formatting.py",
+      "sha256": "417f6b6c293689341dbdbced86769b483249b13d07b5687ca9b0ed8f8940f94c"
+    },
+    "woplanner.common.plot_data": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/plot_data.py",
+      "sha256": "07eb0ae0a710c9d9ac628905607b8575f130cedcf9d1a224983f8c408dc4fc2b"
+    },
+    "woplanner.common.plot_interactions": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/plot_interactions.py",
+      "sha256": "263a481ce66ba92556e34138486e09e6992777c66af161f1229b941e058be64d"
+    },
+    "woplanner.common.plot_widget": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/plot_widget.py",
+      "sha256": "ac35e097d9e0dcb4bc237f6599d9f55b5298231f0581ee9f0b5bb10eeb7685e9"
+    },
+    "woplanner.common.reference": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/reference.py",
+      "sha256": "873be74ddca304a892189445893fe9c46abcdf809987ae655452af84966c3250"
+    },
+    "woplanner.common.session_info": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/session_info.py",
+      "sha256": "65db4cf2b8940d863f1cde774e787d2d6a0c724326f9b83fc47a5d1fafc9bbe2"
+    },
+    "woplanner.common.timing": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/timing.py",
+      "sha256": "bc1f8a5e63995c62d4c07bafd951b66bd068cc7471300ffa688bdb2004056446"
+    },
+    "woplanner.common.visual_styles": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/common/visual_styles.py",
+      "sha256": "ce4e9f4c707aa460f3bddc6bd03af14ab7df0c9c8c69b4cf4e2183280f60d98b"
+    },
+    "woplanner.live": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/live/__init__.py",
+      "sha256": "e363b5839f5b33c9c0e1207a431500ec505d1c6a7715ac82891d51a3b0d36f60"
+    },
+    "woplanner.live.presentation": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/live/presentation.py",
+      "sha256": "fc7da1f432629d720a0617276f065621325a4139ba178488b63f809757fe9bc1"
+    },
+    "woplanner.live.service": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/live/service.py",
+      "sha256": "fb7035e6de67609b353427ade02ddfd861ab0618d9382fadfcd3645cc6ee0d6f"
+    },
+    "woplanner.live.telemetry": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/live/telemetry.py",
+      "sha256": "f586e55941c64b4cd4f3847cf06918661b740e0db69069c1c9a49bee385241e1"
+    },
+    "woplanner.quali": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/__init__.py",
+      "sha256": "76cf9f0fbbef6a07dcb00c9e4f754205f86aeddd29fd179fdc46b357ac043f09"
+    },
+    "woplanner.quali.analysis": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/analysis.py",
+      "sha256": "ac28caebcdd1bb8661fd3850caa74e0667868fc12008686aecb8f6013c2010c2"
+    },
+    "woplanner.quali.gui": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/gui.py",
+      "sha256": "a54a5ca9f36f0d28e48a623b213c6c5ad20195aa746ac7081038728f18429869"
+    },
+    "woplanner.quali.lap_state": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/lap_state.py",
+      "sha256": "8fd73c3daf78c63daab2c5bb0b6eb1f662b8f41d6105ffebab030118705af5e6"
+    },
+    "woplanner.quali.models": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/models.py",
+      "sha256": "1e52e6cbce21169aae1e771015be1eca72e18182dbeda49c2726a83c888b5bcd"
+    },
+    "woplanner.quali.physical_traffic": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/physical_traffic.py",
+      "sha256": "f4bf9a6f1d049aa9c2ee48909c36038c544d4b896c82e56e5190b4e4c9d5a4b9"
+    },
+    "woplanner.quali.planning": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/planning.py",
+      "sha256": "724c37d2373ca7e5e73c2c58469c446b301de257a8623615f1a81dd85ceea170"
+    },
+    "woplanner.quali.service": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/service.py",
+      "sha256": "c743bf69f4badc613073c364969b977f2e6c55de20e52610b4789756e3b91d73"
+    },
+    "woplanner.quali.shadow_track_evolution": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/shadow_track_evolution.py",
+      "sha256": "563e9c8cd76112b4bb02dd9486c71c78b91d40fa433c5e327afd3abb31ae9ac6"
+    },
+    "woplanner.quali.track_evolution": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/track_evolution.py",
+      "sha256": "dfe03f6b73cf05c9f47397fdd0be2683c9293a19b7a2382486575e52755f26c0"
+    },
+    "woplanner.quali.track_evolution_policy": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/track_evolution_policy.py",
+      "sha256": "597e5890ba07835b03e173d42d18fee642de9f976ab51a9c758d110f7ee8ceea"
+    },
+    "woplanner.quali.track_evolution_presentation": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/track_evolution_presentation.py",
+      "sha256": "42466eb62bb1608fb97107cf7d0c9bbb7cbb47704dc198f1991ddd1081c4c4fc"
+    },
+    "woplanner.quali.traffic_finalisation": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/traffic_finalisation.py",
+      "sha256": "5ebcb326f8b4b9d103a102594aea2c5ffd61422a1c343cb1d71bc0b1fb34e7e1"
+    },
+    "woplanner.quali.widgets": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/widgets.py",
+      "sha256": "bff3498c9f38d96aa1eb375b9be998008837b24adf2c396c0f9507283e0ad111"
+    },
+    "woplanner.standard": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/standard/__init__.py",
+      "sha256": "6a1574a32f21aeef242b8e11325ecf5c01bb48df04cc17d8036a14c4ae7d903e"
+    },
+    "woplanner.standard.models": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/standard/models.py",
+      "sha256": "c64722c0bf96e962ef1ad475e278a72f104067bd627df7aa0a38319607ed23ac"
+    },
+    "woplanner.standard.normalize": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/standard/normalize.py",
+      "sha256": "c3a30c7c7d0a91408772147f4bb82f675ef0818c423b5befb5b9949a0681e866"
+    },
+    "woplanner.standard.service": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/standard/service.py",
+      "sha256": "2235c0d8706c7533a20c7c499ac6e7fbdfd909a2e7ab104c121bc507936deb7a"
+    },
+    "woplanner.standard.strategy_model": {
+      "path": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/standard/strategy_model.py",
+      "sha256": "63c0575817fe751ee78233c7b284b4b7845f83fd2e31f6ab968b2223fb14878b"
+    },
+    "wostrategy": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/__init__.py",
+      "sha256": "980664c07c4c019dfcf0dac9fc116af5621690bf93be1b41b78e90384149efe9"
+    },
+    "wostrategy.algorithm": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/algorithm/__init__.py",
+      "sha256": "b63ef852f08f316394a329b5d0300e912c7f11bd3692093a49eea1a49d11dd4f"
+    },
+    "wostrategy.algorithm.exact_strategy_search": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/algorithm/exact_strategy_search.py",
+      "sha256": "e90c4afee39c7164b503c86cfa913cd78e45c0dded6ec0660a782fddb991e07e"
+    },
+    "wostrategy.algorithm.monte_carlo_race_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/algorithm/monte_carlo_race_performance.py",
+      "sha256": "ffbe97e16b88b7a769815e6f241ef46845b7f5183b5b11a6b74cb52a19297a5c"
+    },
+    "wostrategy.algorithm.sampling": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/algorithm/sampling.py",
+      "sha256": "fc1e9000beff0492e4b839163d63f33cb774141e46a7a97fcadf24c10d73cd7d"
+    },
+    "wostrategy.analysis": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/__init__.py",
+      "sha256": "4921302ba9f61b2e06a86b2cc09bcf9ef1b4b2759b5c9e03fa6e6dfa109ecf4f"
+    },
+    "wostrategy.analysis.fp_tyre_evidence": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/fp_tyre_evidence.py",
+      "sha256": "253af674e4e2e37838b5478ed745c72aaf78b701d9c0b9786ded7fe1dbd33e6e"
+    },
+    "wostrategy.analysis.live_qualifying": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/live_qualifying.py",
+      "sha256": "7c79e8ba2cec70d2142f58d3c4d4613f4f544425136dfc6b1d70752e89b5d996"
+    },
+    "wostrategy.analysis.long_run_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/long_run_performance.py",
+      "sha256": "afc0a7a177b909dd6fe3e63e54a239436b473d34bd92114be91898aa76704a54"
+    },
+    "wostrategy.analysis.pre_quali": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/pre_quali.py",
+      "sha256": "70d5ceda3c914eb040e085692f234e8cd9bf684715edc8ba45d9b90308a1dd73"
+    },
+    "wostrategy.analysis.pre_race_model_config": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/pre_race_model_config.py",
+      "sha256": "48a1a0a9af63b427d75134beee975c064e0b263b357416b756198b3e56fe3c55"
+    },
+    "wostrategy.analysis.pre_race_tyre_prediction": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/pre_race_tyre_prediction.py",
+      "sha256": "3db6058eac6d36b27606ac81a79b31260dd12880a85a40013590ab99d699544b"
+    },
+    "wostrategy.analysis.push_laps": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/push_laps.py",
+      "sha256": "329f99d59546e525c499d197237749c913edeb537245e6b2bc0c7ea4fb291bee"
+    },
+    "wostrategy.analysis.quali_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/quali_performance.py",
+      "sha256": "f9ae2074abce38f1222ff3410c8d53030ba74c815eb97637310793988495b10c"
+    },
+    "wostrategy.analysis.race_performance_review": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/race_performance_review.py",
+      "sha256": "2dde81b7d11d97412e14201c10f9460ff389244b2d17778ae810365c9cc76858"
+    },
+    "wostrategy.analysis.traffic": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/traffic.py",
+      "sha256": "16f44199b8e515aa048bed684e524dcb6f259ead5d4892fc31b8f5275dafb933"
+    },
+    "wostrategy.analysis.traffic_contract": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/traffic_contract.py",
+      "sha256": "4a97beee4ad4a3be757ddcbd970cb6e1b6082bbca23b72353f7b8c5d8a04ec9b"
+    },
+    "wostrategy.core": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/core/__init__.py",
+      "sha256": "7b01fa717607e37a1a8422ce9d8bbf52ade174ffff84f77e6af29ab7b8e59507"
+    },
+    "wostrategy.core.planner_loader": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/core/planner_loader.py",
+      "sha256": "e9a7c7104960894f21e416a6da1900fd24df478c017d592860cd0bea394b5a8c"
+    },
+    "wostrategy.core.pre_race_session_data": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/core/pre_race_session_data.py",
+      "sha256": "29606499886847f3e7c567a70636fd5f35e155ccb96e14f173c0107a1f07a548"
+    },
+    "wostrategy.core.race_performance_settings": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/core/race_performance_settings.py",
+      "sha256": "b4fbf0c69d836dd75bb36005219e1255eab38cea8f17a5c3ec2f3a1f7b7b52bb"
+    },
+    "wostrategy.core.session": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/core/session.py",
+      "sha256": "b0bf2b6f311f6eeaa1bd43e4f253e7e7ce258c3f94e23f2b43b503955aa28023"
+    },
+    "wostrategy.core.session_loader": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/core/session_loader.py",
+      "sha256": "b8317f91bec4a4a2b34682e2db6476aefa5d2aca8d132f48a21a97a796d5c119"
+    },
+    "wostrategy.core.telemetry_loader": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/core/telemetry_loader.py",
+      "sha256": "38cd64992d642ab92d12ce04bc1efab552df4a0d49a767efd5e7ab00dde63f74"
+    },
+    "wostrategy.model": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/__init__.py",
+      "sha256": "92ca5a8db85cc5d58abde3d8b835a14f4dc7069c2333652d3e52e512267562b0"
+    },
+    "wostrategy.model.correction_identifiability": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/correction_identifiability.py",
+      "sha256": "472fb33a23283a0f0686c45ad90ad29ae212c3fbf3a1e87380ae0dc703f5df94"
+    },
+    "wostrategy.model.fuel_consumption": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/fuel_consumption.py",
+      "sha256": "dde3af07701055142c1b7485362b4ffb24df84e5eb0e51539d158d28c85c882e"
+    },
+    "wostrategy.model.live_retro_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/live_retro_performance.py",
+      "sha256": "992acb0a40e6e09c4e1d11541f5400344f7c4d2b9f4de919e182b3b84ed2e13a"
+    },
+    "wostrategy.model.long_run_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/long_run_performance.py",
+      "sha256": "3cf02e994946d3b846c00b28eb62d2a874e4ff3f4ce091c7762baf09f874c654"
+    },
+    "wostrategy.model.pace_contract": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/pace_contract.py",
+      "sha256": "6fbc3a4984779a5861f350938d7e929f302f94d3a7a81e2a6fab6bc13d873ea2"
+    },
+    "wostrategy.model.pre_race_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/pre_race_performance.py",
+      "sha256": "8fc35ac4411e4d9676f502a666d8b1d454f64a05a0de57b60c39936968925945"
+    },
+    "wostrategy.model.race_specific_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/race_specific_performance.py",
+      "sha256": "cd574813db8a86edc069921ced8bfee04bfeaf7a99b4f7d66d0af08c16ce2f22"
+    },
+    "wostrategy.model.track_evolution": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/track_evolution.py",
+      "sha256": "1251fc310c02b6e7b86a153c6d400a39fb38b84b871b04efeb84b4484353d655"
+    },
+    "wostrategy.model.tyre_degragation": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/tyre_degragation.py",
+      "sha256": "b404542c93f0ff23572a363727a6123aa34d6bfb5c466fe92e22f645c74c8322"
+    },
+    "wostrategy.model.tyre_prediction": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/model/tyre_prediction.py",
+      "sha256": "531ff0486c9fa22f808f79b12fd365ad26f1b0eda0a351ad435e736a99f939ab"
+    },
+    "wostrategy.plots": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/__init__.py",
+      "sha256": "90be3316d2a712dc1730ac13a3df9d8b3601f202763657cb7f85a66ec821de16"
+    },
+    "wostrategy.plots.pre_race_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/pre_race_performance.py",
+      "sha256": "8a683deefac826724431a4e6c88798667a603350fb9219802d8b6f1561243b18"
+    },
+    "wostrategy.plots.pre_season_test": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/pre_season_test/__init__.py",
+      "sha256": "b4aab5c2e0ff8d2061ef77ba725a22256b592a2ef0300510152af4063e2f9d83"
+    },
+    "wostrategy.plots.pre_season_test.cumulative_laps_by_day": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/pre_season_test/cumulative_laps_by_day.py",
+      "sha256": "af52b9d11563fe66eb918129d941e2108cfa3d08d6b062172b56fd507d70f8a5"
+    },
+    "wostrategy.plots.pre_season_test.race_sim": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/pre_season_test/race_sim.py",
+      "sha256": "b220e631dafeaf0c862f634c74f53d931b54a6529431fe2933ccc6d81c4c4305"
+    },
+    "wostrategy.plots.pre_season_test.single_lap_comparison": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/pre_season_test/single_lap_comparison.py",
+      "sha256": "be17a73424d5c794a7a3f70c70b22dd51600e08d79ccf5c613a4f651df6c8916"
+    },
+    "wostrategy.plots.quali_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/quali_performance.py",
+      "sha256": "d775409f6b171c7bf4b179bd75ad8ba671c55ae257a6d6b0c2b2b7c7016a6ae1"
+    },
+    "wostrategy.plots.race_labels": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/race_labels.py",
+      "sha256": "1d6c2afc60ca8495d4e48ce7d4237fb1bb18740275341066e22c633ee3741e06"
+    },
+    "wostrategy.plots.race_performance": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/race_performance.py",
+      "sha256": "1dcaf66dff036c2568f65438c60a5d5c03a1536c4fb8e1942ec995963126b63a"
+    },
+    "wostrategy.plots.style_maps": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/style_maps.py",
+      "sha256": "f1d304e4b8019bb4089ba79b8a1098b330b6b2b88682e416b0baedb268949bcc"
+    },
+    "wostrategy.plots.telemetry": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/telemetry.py",
+      "sha256": "c6be46fe8b1ce2e84d3b171da77b17ff50af1d964d319a5f5324fa4f043ee675"
+    },
+    "wostrategy.plots.track_development": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/plots/track_development.py",
+      "sha256": "eb0bb41e50017d05bc9ac1a72fb44cd94e26c650043408355b41fa7f9e1b622f"
+    },
+    "wostrategy.tools": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/__init__.py",
+      "sha256": "ed61ee2ecb88d2a4a10efc5d18a10982a914e1e898141725b730d8d3568c80dd"
+    },
+    "wostrategy.tools.forenoon_afternoon": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/forenoon_afternoon.py",
+      "sha256": "47965986cc945bf032598bfe48306db827f2cae326868f96cc796e8062f674ee"
+    },
+    "wostrategy.tools.load_sessions": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/load_sessions.py",
+      "sha256": "3b7bfac346cddb88b804341b870ef3a5974d7722a24c42740627a7591f447873"
+    },
+    "wostrategy.tools.long_effective_stints": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/long_effective_stints.py",
+      "sha256": "568b6865d62ecf1745d92ddda9f1a8c5c64ddfc7a7c12db63db16f35cbeaec2d"
+    },
+    "wostrategy.tools.pre_season_test": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/pre_season_test/__init__.py",
+      "sha256": "cd528d2ac806e5d25f330dc5615e2d5f211feff6bf8802c36ac4a205215c0f36"
+    },
+    "wostrategy.tools.pre_season_test.prepare_cumulative_laps_by_day": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/pre_season_test/prepare_cumulative_laps_by_day.py",
+      "sha256": "0f5f532aafb63dad800db8c06d5d18e72f639e14b71c030db49ade336872ee71"
+    },
+    "wostrategy.tools.pre_season_test.prepare_race_sim": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/pre_season_test/prepare_race_sim.py",
+      "sha256": "562b0a2437f91e1f98e69dcafff8b60692383696de46ac032e11d46f8866a4d6"
+    },
+    "wostrategy.tools.pre_season_test.prepare_single_lap_comparison": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/pre_season_test/prepare_single_lap_comparison.py",
+      "sha256": "71de52164b37e80ee47fe5303ecf2266daf894327365d6f07e72ed721f06dbe4"
+    },
+    "wostrategy.tools.race_range": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/race_range.py",
+      "sha256": "9efa4191a771ede16de6e9966a3ed76cad4820724ad3c94cb678e38657f12fd9"
+    },
+    "wostrategy.tools.session_values": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/session_values.py",
+      "sha256": "5384e1649801175ccf45c37a32147d577972fa6517fc00a4853d198431def83f"
+    },
+    "wostrategy.tools.team_reference": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/team_reference.py",
+      "sha256": "1c013d061ded7950d828976018e3bb12aae2cb17dc61aefa66c55b8a30fc6afe"
+    },
+    "wostrategy.tools.two_day_benchmark_race_sim": {
+      "path": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/tools/two_day_benchmark_race_sim.py",
+      "sha256": "72f9ef61b8cc317f939e6758e53e7019b467d5218853361e9b7b10548aa604ae"
+    }
+  },
+  "validation": {
+    "planner": {
+      "passed": 541,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "data": {
+      "passed": 190,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "strategy": {
+      "passed": 61,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "distinct_current_runtime_tests": 792,
+  "planner_command": [
+    "/Users/zhxutong/dr-wo/.venv/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_real_consume_publication.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_core_promotion_integration.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_track_evolution_promotion.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_canonical_track_rate.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_publication_contract.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_shadow_track_evolution.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_shadow_traffic_forwarding.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_monotonic_receipts.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_epoch_witness_scope.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_segment_epoch_ownership.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_c3_independent_corrections.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_c3_ownership_reconciliation.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_boundary_coordinate_retention.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_calibration_lifecycle.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_live_traffic_clock.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_traffic_lifecycle.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_third_historical_evidence.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_third_corrected_spans.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_physical_traffic.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_physical_traffic_late.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_delay_revocation.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_final_review_state.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_final_review_adversarial.py",
+    "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_service.py",
+    "-q",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "--junitxml=/private/tmp/q17-test-quality/planner.xml"
+  ],
+  "execution_wrapper": "#!/bin/sh\nexport PYTHONDONTWRITEBYTECODE=1\nexport PYTHONPATH=/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src:/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src:/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src\nexport QT_QPA_PLATFORM=offscreen\nexport MPLCONFIGDIR=/private/tmp/q17-test-quality/mpl\nexec /Users/zhxutong/dr-wo/.venv/bin/python -B \"$@\"\n",
+  "verification_layout": {
+    "path": "/private/tmp/q17-test-quality/verification",
+    "R17_sha256": "8d084328530605780c74035c13d6ad339e0a5e6270f7c535c6761e4683012388",
+    "copied_test_source": "All Python test files copied from this feature worktree; new real-consume test resynchronised before final 541-test run; no production source copied."
+  },
+  "negative_controls": {
+    "original": {
+      "control_source": "/Users/zhxutong/dr-wo/q17-integration/core-promotion-20261018/inputs/core/candidate/evidence/c3_partial_chronology/baseline_quali_reducer.py",
+      "control_sha256": "5fa63156b82add28e0b9c69ded36631b362071c198027fd93cb681b749092bdd",
+      "imports": {
+        "wodata.live.quali_reducer": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_reducer.py",
+        "woplanner.quali.service": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/service.py",
+        "wostrategy": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/__init__.py"
+      },
+      "pytest_exit": 1,
+      "categories": {
+        "private_field_incompatibility": 4,
+        "business_assertion_failure": 14,
+        "preservation_pass": 2,
+        "collection_errors": 0
+      },
+      "deselected": 36,
+      "outcomes": {
+        "test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[reducer-signalr_live]": {
+          "category": "private_field_incompatibility",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:74: in test_equivalent_source_schedules_converge\n    assert not store._race_control_undated\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AttributeError: 'QualiSessionStore' object has no attribute '_race_control_undated'"
+        },
+        "test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[reducer-f1_archive_replay]": {
+          "category": "private_field_incompatibility",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:74: in test_equivalent_source_schedules_converge\n    assert not store._race_control_undated\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AttributeError: 'QualiSessionStore' object has no attribute '_race_control_undated'"
+        },
+        "test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[service-signalr_live]": {
+          "category": "private_field_incompatibility",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:74: in test_equivalent_source_schedules_converge\n    assert not store._race_control_undated\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AttributeError: 'QualiSessionStore' object has no attribute '_race_control_undated'"
+        },
+        "test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[service-f1_archive_replay]": {
+          "category": "private_field_incompatibility",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:74: in test_equivalent_source_schedules_converge\n    assert not store._race_control_undated\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AttributeError: 'QualiSessionStore' object has no attribute '_race_control_undated'"
+        },
+        "test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[350.5-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:207: in test_closure_precision_enrichment_schedules_converge\n    if transition < 351: assert IDENTITY not in store._race_control_owners\n                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q3'}\nE    +  where {('2', 'CHEQUERED'): 'Q3'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11b742d50>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[350.5-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:207: in test_closure_precision_enrichment_schedules_converge\n    if transition < 351: assert IDENTITY not in store._race_control_owners\n                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q3'}\nE    +  where {('2', 'CHEQUERED'): 'Q3'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11b58fa90>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[351-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[351-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[reducer-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:251: in test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment\n    assert ('4','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('4', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q1', ('4', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q1', ('4', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11b58fb10>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[reducer-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:251: in test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment\n    assert ('4','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('4', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q1', ('4', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q1', ('4', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11b57d350>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[service-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:251: in test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment\n    assert ('4','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('4', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q1', ('4', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q1', ('4', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11bdbe450>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[service-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:251: in test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment\n    assert ('4','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('4', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q1', ('4', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q1', ('4', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11bc1a710>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[reducer-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:275: in test_unknown_closure_can_fall_inside_target_precision_interval\n    assert ('3','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('3', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11bcda890>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[reducer-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:275: in test_unknown_closure_can_fall_inside_target_precision_interval\n    assert ('3','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('3', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11bd966d0>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[service-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:275: in test_unknown_closure_can_fall_inside_target_precision_interval\n    assert ('3','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('3', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11b762710>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[service-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:275: in test_unknown_closure_can_fall_inside_target_precision_interval\n    assert ('3','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('3', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11b763010>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[GREEN-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:300: in test_overlapping_predecessors_keep_their_full_precision_frontier\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q2'}\nE    +  where {('2', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11bd43950>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[GREEN-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:300: in test_overlapping_predecessors_keep_their_full_precision_frontier\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q2'}\nE    +  where {('2', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11bccee50>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[CHEQUERED-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:300: in test_overlapping_predecessors_keep_their_full_precision_frontier\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q3'}\nE    +  where {('2', 'CHEQUERED'): 'Q3'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11b762990>._race_control_owners"
+        },
+        "test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[CHEQUERED-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/original-verification/woPlanner/tests/test_quali_partial_chronology.py:300: in test_overlapping_predecessors_keep_their_full_precision_frontier\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q3'}\nE    +  where {('2', 'CHEQUERED'): 'Q3'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11bc78350>._race_control_owners"
+        }
+      },
+      "collection_errors": []
+    },
+    "corrected": {
+      "control_source": "/Users/zhxutong/dr-wo/q17-integration/core-promotion-20261018/inputs/core/candidate/evidence/c3_partial_chronology/baseline_quali_reducer.py",
+      "control_sha256": "5fa63156b82add28e0b9c69ded36631b362071c198027fd93cb681b749092bdd",
+      "imports": {
+        "wodata.live.quali_reducer": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_reducer.py",
+        "woplanner.quali.service": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/service.py",
+        "wostrategy": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/__init__.py"
+      },
+      "pytest_exit": 1,
+      "categories": {
+        "business_assertion_failure": 18,
+        "preservation_pass": 2,
+        "collection_errors": 0
+      },
+      "deselected": 36,
+      "outcomes": {
+        "tests/test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[reducer-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:71: in test_equivalent_source_schedules_converge\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('2', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('2', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d7880d0>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[reducer-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:71: in test_equivalent_source_schedules_converge\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('2', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('2', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d791cd0>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[service-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:71: in test_equivalent_source_schedules_converge\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('2', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('2', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d759a90>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[service-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:71: in test_equivalent_source_schedules_converge\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('2', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('2', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d70b610>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[350.5-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:210: in test_closure_precision_enrichment_schedules_converge\n    if transition < 351: assert IDENTITY not in store._race_control_owners\n                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q3'}\nE    +  where {('2', 'CHEQUERED'): 'Q3'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d79e4d0>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[350.5-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:210: in test_closure_precision_enrichment_schedules_converge\n    if transition < 351: assert IDENTITY not in store._race_control_owners\n                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q3'}\nE    +  where {('2', 'CHEQUERED'): 'Q3'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d78a790>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[351-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[351-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[reducer-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:254: in test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment\n    assert ('4','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('4', 'CHEQUERED') not in {('4', 'CHEQUERED'): 'Q2', ('0', 'CHEQUERED'): 'Q1'}\nE    +  where {('4', 'CHEQUERED'): 'Q2', ('0', 'CHEQUERED'): 'Q1'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d77a9d0>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[reducer-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:254: in test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment\n    assert ('4','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('4', 'CHEQUERED') not in {('4', 'CHEQUERED'): 'Q2', ('0', 'CHEQUERED'): 'Q1'}\nE    +  where {('4', 'CHEQUERED'): 'Q2', ('0', 'CHEQUERED'): 'Q1'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d759210>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[service-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:254: in test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment\n    assert ('4','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('4', 'CHEQUERED') not in {('4', 'CHEQUERED'): 'Q2', ('0', 'CHEQUERED'): 'Q1'}\nE    +  where {('4', 'CHEQUERED'): 'Q2', ('0', 'CHEQUERED'): 'Q1'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d7dce90>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[service-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:254: in test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment\n    assert ('4','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('4', 'CHEQUERED') not in {('4', 'CHEQUERED'): 'Q2', ('0', 'CHEQUERED'): 'Q1'}\nE    +  where {('4', 'CHEQUERED'): 'Q2', ('0', 'CHEQUERED'): 'Q1'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d7dcbd0>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[reducer-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:278: in test_unknown_closure_can_fall_inside_target_precision_interval\n    assert ('3','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('3', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11cf7c090>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[reducer-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:278: in test_unknown_closure_can_fall_inside_target_precision_interval\n    assert ('3','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('3', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d7cbd90>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[service-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:278: in test_unknown_closure_can_fall_inside_target_precision_interval\n    assert ('3','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('3', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d7dd050>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[service-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:278: in test_unknown_closure_can_fall_inside_target_precision_interval\n    assert ('3','CHEQUERED') not in store._race_control_owners\nE   AssertionError: assert ('3', 'CHEQUERED') not in {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'}\nE    +  where {('0', 'CHEQUERED'): 'Q2', ('3', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d180710>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[GREEN-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:303: in test_overlapping_predecessors_keep_their_full_precision_frontier\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q2'}\nE    +  where {('2', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11cf7c910>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[GREEN-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:303: in test_overlapping_predecessors_keep_their_full_precision_frontier\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q2'}\nE    +  where {('2', 'CHEQUERED'): 'Q2'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d7220d0>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[CHEQUERED-signalr_live]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:303: in test_overlapping_predecessors_keep_their_full_precision_frontier\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q3'}\nE    +  where {('2', 'CHEQUERED'): 'Q3'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d73d110>._race_control_owners"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[CHEQUERED-f1_archive_replay]": {
+          "category": "business_assertion_failure",
+          "phase": "call",
+          "detail": "/private/tmp/q17-test-quality/verification/woPlanner/tests/test_quali_partial_chronology.py:303: in test_overlapping_predecessors_keep_their_full_precision_frontier\n    assert IDENTITY not in store._race_control_owners\nE   AssertionError: assert ('2', 'CHEQUERED') not in {('2', 'CHEQUERED'): 'Q3'}\nE    +  where {('2', 'CHEQUERED'): 'Q3'} = <wodata.live._q17_verified_historical_control.QualiSessionStore object at 0x11d778c90>._race_control_owners"
+        }
+      },
+      "collection_errors": []
+    },
+    "accepted": {
+      "control_source": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_reducer.py",
+      "control_sha256": "57e1f77a14eb1dd11d79d242c7dc4fdf912074776a5d9f5568965c3e98162738",
+      "imports": {
+        "wodata.live.quali_reducer": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_reducer.py",
+        "woplanner.quali.service": "/Users/zhxutong/dr-wo/q17-worktrees/test-quality/woPlanner/src/woplanner/quali/service.py",
+        "wostrategy": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/__init__.py"
+      },
+      "pytest_exit": 0,
+      "categories": {
+        "preservation_pass": 20,
+        "collection_errors": 0
+      },
+      "deselected": 36,
+      "outcomes": {
+        "tests/test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[reducer-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[reducer-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[service-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_equivalent_source_schedules_converge[service-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[350.5-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[350.5-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[351-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_closure_precision_enrichment_schedules_converge[351-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[reducer-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[reducer-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[service-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_dated_boundaries_cannot_hide_next_part_before_enrichment[service-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[reducer-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[reducer-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[service-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_unknown_closure_can_fall_inside_target_precision_interval[service-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[GREEN-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[GREEN-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[CHEQUERED-signalr_live]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        },
+        "tests/test_quali_partial_chronology.py::test_overlapping_predecessors_keep_their_full_precision_frontier[CHEQUERED-f1_archive_replay]": {
+          "category": "preservation_pass",
+          "phase": "call"
+        }
+      },
+      "collection_errors": []
+    }
+  },
+  "preservation": {
+    "checked_worktrees": 18,
+    "identical_worktrees": 17,
+    "observed_concurrent_changes": {
+      "/Users/zhxutong/dr-wo/q17-worktrees/q17-04/woPlanner": {
+        "before": {
+          "git": " M src/woplanner/quali/gui.py\n M src/woplanner/quali/widgets.py\n?? tests/test_quali_out_colours.py\n",
+          "head": "12aacb0392a422eb57440ff13300326a5005c641",
+          "branch": "codex/q17-04-out-lap-colours"
+        },
+        "after": {
+          "git": "",
+          "head": "d9c25d7109b050c13fad1ffdf398987f09579031",
+          "branch": "codex/q17-04-out-lap-colours"
+        },
+        "production_source_unchanged": true
+      }
+    },
+    "before_manifest_sha256": "2f8dc78ca1f1a0e44900c10489caa8799866780044549f96ad2fdacd1e44551b",
+    "after_manifest_sha256": "11e1a84d3cda488856bd54c088725868e50b3b445e7bead91dfcbad77e0832da"
+  },
+  "logs": {
+    "planner-final.log": "........................................................................ [ 13%]\n........................................................................ [ 26%]\n........................................................................ [ 39%]\n........................................................................ [ 53%]\n........................................................................ [ 66%]\n........................................................................ [ 79%]\n........................................................................ [ 93%]\n.....................................                                    [100%]\n541 passed in 17.52s\nVerified actual project module imports: 125\n",
+    "data.log": "........................................................................ [ 37%]\n........................................................................ [ 75%]\n..............................................                           [100%]\n190 passed in 2.50s\n",
+    "strategy.log": ".............................................................            [100%]\n61 passed in 2.25s\n",
+    "real-consume-final.log": "........                                                                 [100%]\n8 passed in 2.61s\n",
+    "preservation-control.log": "....................                                                     [100%]\n20 passed, 36 deselected in 0.17s\n{\"collection_errors\": 0, \"preservation_pass\": 20}\n"
+  }
+}

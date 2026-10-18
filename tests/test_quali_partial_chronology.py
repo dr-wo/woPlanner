@@ -71,7 +71,10 @@ def test_equivalent_source_schedules_converge(source, path):
                 assert IDENTITY not in store._race_control_owners
         assert store._race_control_owners == {('0', 'CHEQUERED'): 'Q2', IDENTITY: 'Q3'}
         assert store.snapshot().normal_finished
-        assert not store._race_control_undated
+        assert store.snapshot().session_part == "Q3"
+        if service:
+            assert service.snapshot.session_part == "Q3"
+            assert service.snapshot.normal_finished
         initial = (dict(store._race_control_owners), store.snapshot().normal_finished)
         results.append((initial, downstream(source, store, service, send)))
     assert all(r == results[0] for r in results)
