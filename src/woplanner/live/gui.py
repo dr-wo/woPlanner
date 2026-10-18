@@ -30,6 +30,7 @@ from ..operational_inputs import (
     save_operational_pit_losses,
 )
 from .track_map_widget import TrackMapWidget
+from .race_info import RaceControlEventsWidget
 
 
 WORKSPACE_DATA_ROOT = Path(__file__).resolve().parents[4] / "woData"
@@ -191,15 +192,13 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         connection_controls.addStretch(1)
         for label, widget in (
             ("Reference", self.reference_driver), ("Mode", self.reference_mode),
-            ("Width", self.line_width), ("Pit", self.normal_pit_loss),
-            ("SC", self.sc_pit_loss), ("VSC", self.vsc_pit_loss),
+            ("Width", self.line_width),
         ):
             presentation_controls.addWidget(QtWidgets.QLabel(label))
             presentation_controls.addWidget(widget)
         presentation_controls.addWidget(self.strategy_prediction_button)
         presentation_controls.addWidget(self.track_map_button)
         presentation_controls.addWidget(self.track_map_collapse_button)
-        presentation_controls.addWidget(self.apply_pit_loss_button)
         presentation_controls.addStretch(1)
         controls.addLayout(connection_controls)
         controls.addLayout(presentation_controls)
@@ -230,7 +229,6 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         status_row.addWidget(self.connection_status)
         status_row.addStretch(1)
         status_row.addWidget(self.session_status)
-        status_row.addWidget(self.pit_loss_status)
         status_row.addWidget(self.plot_progress_status)
         status_row.addWidget(self.last_message_status)
         self.relative_plot = RelativeDeltaPlotWidget()
@@ -246,9 +244,40 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         visual_splitter.setStretchFactor(0, 3)
         visual_splitter.setStretchFactor(1, 2)
         layout.addWidget(self.controls_scroll)
-        layout.addWidget(self.axis_controls)
         layout.addLayout(status_row)
-        layout.addWidget(visual_splitter, stretch=1)
+        self.tabs = QtWidgets.QTabWidget()
+        live_tab = QtWidgets.QWidget()
+        live_layout = QtWidgets.QVBoxLayout(live_tab)
+        live_layout.setContentsMargins(0, 0, 0, 0)
+        live_layout.addWidget(self.axis_controls)
+        live_layout.addWidget(visual_splitter, stretch=1)
+        self.tabs.addTab(live_tab, "Live")
+        self.race_info_tab = QtWidgets.QWidget()
+        race_info_layout = QtWidgets.QVBoxLayout(self.race_info_tab)
+        self.race_control_section = QtWidgets.QGroupBox("Race Control Events")
+        events_layout = QtWidgets.QVBoxLayout(self.race_control_section)
+        self.race_control_events = RaceControlEventsWidget()
+        events_layout.addWidget(self.race_control_events)
+        race_info_layout.addWidget(self.race_control_section, stretch=1)
+        self.pit_delta_section = QtWidgets.QGroupBox("Pit Delta")
+        pit_layout = QtWidgets.QVBoxLayout(self.pit_delta_section)
+        pit_controls = QtWidgets.QHBoxLayout()
+        for label, widget in (
+            ("Green", self.normal_pit_loss), ("SC", self.sc_pit_loss),
+            ("VSC", self.vsc_pit_loss),
+        ):
+            pit_controls.addWidget(QtWidgets.QLabel(label))
+            pit_controls.addWidget(widget)
+        pit_controls.addWidget(self.apply_pit_loss_button)
+        pit_controls.addStretch()
+        pit_layout.addLayout(pit_controls)
+        pit_layout.addWidget(self.pit_loss_status)
+        pit_layout.addWidget(QtWidgets.QLabel(
+            "Select a driver in Live to display the existing pit windows on the plot and track map."
+        ))
+        race_info_layout.addWidget(self.pit_delta_section)
+        self.tabs.addTab(self.race_info_tab, "Race Info")
+        layout.addWidget(self.tabs, stretch=1)
         self.setCentralWidget(central)
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(100)
@@ -277,6 +306,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         )
         self.track_map_button.clicked.connect(self._show_track_map_window)
         self.track_map_collapse_button.toggled.connect(self._set_embedded_map_visible)
+        self.tabs.currentChanged.connect(self._refresh_active_tab)
         self._load_operational_inputs()
 
     @staticmethod
@@ -459,6 +489,7 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._tyre_event_signature = ()
         self._track_map_signature = None
         self.track_map.clear()
+        self.race_control_events.clear()
         if self.track_map_window is not None:
             self.track_map_window.track_map.clear()
         self._metadata_warning_shown = False
@@ -501,6 +532,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 self.connect_button.setEnabled(True)
                 self.replay_button.setEnabled(True)
         snapshot = update.snapshot
+        # Recovery restores the store before queue draining, so there may be
+        # no new topic notification. The widget skips unchanged snapshots.
+        self.race_control_events.set_events(snapshot.race_control_events)
         if (
             self.strategy_prediction_window is not None
             and update.changes.intersection({"drivers", "timing", "tyres", "lap_count", "track_status", "session"})
@@ -764,6 +798,12 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
                 self.service.latest_track_map_snapshot(),
                 self.service.available_drivers(),
             )
+
+    def _refresh_active_tab(self, index: int) -> None:
+        if index == 0:
+            self._set_embedded_map_visible(self.track_map_collapse_button.isChecked())
+        else:
+            self.race_control_events.table.resizeRowsToContents()
 
     def _show_track_map_window(self) -> None:
         if self.track_map_window is None:

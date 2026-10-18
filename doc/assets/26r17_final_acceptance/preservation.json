@@ -1,0 +1,29 @@
+{
+  "unchanged_preexisting_modified_file_counts": {
+    "woPlanner": 21,
+    "woData": 18,
+    "woStrategy": 3,
+    "woWeekend": 3
+  },
+  "intentional_feature_repairs": {
+    "woPlanner": [
+      "src/woplanner/analysis/worker.py"
+    ],
+    "woData": [
+      "src/wodata/live/reducer.py"
+    ],
+    "woStrategy": [],
+    "woWeekend": []
+  },
+  "observed_concurrent_changes_not_written_by_acceptance": {
+    "woPlanner": [
+      "src/woplanner/live/telemetry.py",
+      "tests/test_telemetry_worker.py"
+    ],
+    "woData": [],
+    "woStrategy": [],
+    "woWeekend": []
+  },
+  "unrelated_worktree_content_preserved": true,
+  "note": "Concurrent telemetry logging and telemetry-test version-tag updates observed during acceptance; neither modified nor staged. Mixed task files staged by selected hunks; Automatic/Sector, readiness, qualifying, telemetry, configs and research remain outside commits."
+}

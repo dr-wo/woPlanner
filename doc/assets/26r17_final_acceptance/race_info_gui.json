@@ -1,0 +1,14 @@
+{
+  "archived_events": 8,
+  "lap_deletions": 3,
+  "duplicate_replay": "unchanged",
+  "filters": "passed",
+  "synthetic_penalty": "passed",
+  "live_tab_return": "passed",
+  "reset_clears_events": true,
+  "screenshots": [
+    "/Users/zhxutong/dr-wo/woPlanner/doc/assets/26r17_final_acceptance/race_info_archived.png",
+    "/Users/zhxutong/dr-wo/woPlanner/doc/assets/26r17_final_acceptance/race_info_deleted.png",
+    "/Users/zhxutong/dr-wo/woPlanner/doc/assets/26r17_final_acceptance/race_info_penalty.png"
+  ]
+}

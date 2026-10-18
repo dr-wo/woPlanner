@@ -1,0 +1,65 @@
+{
+  "reviewer": "independent MC/domain reviewer",
+  "sample_count": 2000,
+  "baseline_worker": "git HEAD:src/woplanner/analysis/worker.py",
+  "baseline_service": "/private/tmp/r17-p1-followup-baseline/woPlanner/src/woplanner/analysis/service.py",
+  "finding": "Shared serializer originally forwarded scheduled distance to standard worker requests, altering standard fuel coordinates and baseline pace medians by approximately 2.6 seconds at R17 L14.",
+  "resolution": "Generic serializer retains race-distance metadata by default. LiveAnalysisProcessService.submit explicitly passes include_race_distance=False to retain the original standard worker contract. P1ReferenceProcessService.submit explicitly passes True.",
+  "verification": "Captured actual standard submit requests in Automatic and Sector modes and actual P1 submit request without executing child processes; fed standard request snapshot through the real fitter against original HEAD serializer output.",
+  "tests": [
+    {
+      "leader_lap": 12,
+      "status": "waiting-for-clean-laps",
+      "eligible_laps": 0,
+      "original_standard_distance": null,
+      "actual_fixed_standard_submit_distance": null,
+      "actual_p1_submit_distance": 62,
+      "generic_serializer_distance": 62,
+      "standard_automatic_and_sector_requests_verified": true,
+      "numerical_comparison": "No standard fit at this prefix; waiting status and eligibility exactly match."
+    },
+    {
+      "leader_lap": 13,
+      "status": "waiting-for-clean-laps",
+      "eligible_laps": 0,
+      "original_standard_distance": null,
+      "actual_fixed_standard_submit_distance": null,
+      "actual_p1_submit_distance": 62,
+      "generic_serializer_distance": 62,
+      "standard_automatic_and_sector_requests_verified": true,
+      "numerical_comparison": "No standard fit at this prefix; waiting status and eligibility exactly match."
+    },
+    {
+      "leader_lap": 14,
+      "status": "updated",
+      "eligible_laps": 16,
+      "original_standard_distance": null,
+      "actual_fixed_standard_submit_distance": null,
+      "actual_p1_submit_distance": 62,
+      "generic_serializer_distance": 62,
+      "standard_automatic_and_sector_requests_verified": true,
+      "candidates_exactly_equal": true,
+      "costs_and_weights_exactly_equal": true,
+      "all_parameter_quantiles_exactly_equal": true,
+      "baseline_medians": [
+        {
+          "team": "Alpine",
+          "median": 98.10850813574852
+        },
+        {
+          "team": "Cadillac",
+          "median": 100.00556727481757
+        },
+        {
+          "team": "Haas F1 Team",
+          "median": 96.4891287667514
+        },
+        {
+          "team": "Racing Bulls",
+          "median": 96.33909740175413
+        }
+      ]
+    }
+  ],
+  "decision": "PASS; material standard-worker regression resolved at the production request boundary."
+}

@@ -1043,7 +1043,7 @@ def test_narrow_window_keeps_two_control_rows_scrollable():
 
     bar = window.controls_scroll.horizontalScrollBar()
     assert bar.maximum() > 0
-    window.controls_scroll.ensureWidgetVisible(window.apply_pit_loss_button)
+    window.controls_scroll.ensureWidgetVisible(window.disconnect_button)
     app.processEvents()
     assert bar.value() > 0
     assert window.strategy_prediction_button.text() == "Strategy"
@@ -1066,10 +1066,13 @@ def test_validated_normal_window_fits_both_control_rows_without_scrolling():
         window.strategy_prediction_button,
         window.track_map_button,
         window.track_map_collapse_button,
-        window.apply_pit_loss_button,
     ):
         assert control.isVisible()
         assert control.isEnabled()
+    window.tabs.setCurrentWidget(window.race_info_tab)
+    app.processEvents()
+    assert window.apply_pit_loss_button.isVisible()
+    assert window.apply_pit_loss_button.isEnabled()
     window.close()
     app.processEvents()
 
