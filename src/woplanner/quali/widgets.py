@@ -26,11 +26,12 @@ from .track_evolution_presentation import (
 )
 
 
+PREP_COOL_COLOUR = "#ffe69a"
 ROLE_COLOURS = {
-    "OUT": "#b3d9ff",
+    "OUT": PREP_COOL_COLOUR,
     "IN": "#c7b3ff",
-    "PREP": "#ffe69a",
-    "COOL": "#ffe69a",
+    "PREP": PREP_COOL_COLOUR,
+    "COOL": PREP_COOL_COLOUR,
     "PUSH": "#a7e8a7",
     "OTHER": "#dddddd",
 }
