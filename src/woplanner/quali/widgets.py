@@ -95,6 +95,22 @@ class CutoffTable(QtWidgets.QTableWidget):
         return row if self.item(row, 0) is not None else None
 
 
+class _TrackWrappingLabel(QtWidgets.QLabel):
+    """Keep wrapped text's minimum height in sync inside a scrollable form."""
+
+    def __init__(self, *args) -> None:
+        super().__init__(*args)
+        self.setWordWrap(True)
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self.setMinimumHeight(max(0, self.heightForWidth(self.width())))
+
+    def resizeEvent(self, event) -> None:
+        self.setMinimumHeight(max(0, self.heightForWidth(event.size().width())))
+        super().resizeEvent(event)
+
+
 class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
     """Qt consumer of the shared track-evolution diagnostic view model."""
 
@@ -114,7 +130,7 @@ class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
         self.render_failed.connect(self._accept_render_error)
         layout = QtWidgets.QVBoxLayout(self)
         layout.addStretch(1)
-        self._support_status = QtWidgets.QLabel(self)
+        self._support_status = _TrackWrappingLabel(self)
         self._support_status.setWordWrap(True)
         self._support_status.hide()
         layout.addWidget(self._support_status)
@@ -122,7 +138,34 @@ class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
         self.retry_button.clicked.connect(self.retry_render)
         self.retry_button.hide()
         layout.addWidget(self.retry_button, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter)
-        self.setMinimumHeight(450)
+        policy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred
+        )
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def sizeHint(self) -> QtCore.QSize:
+        return QtCore.QSize(900, self.heightForWidth(900))
+
+    def minimumSizeHint(self) -> QtCore.QSize:
+        return QtCore.QSize(240, self.heightForWidth(240))
+
+    def heightForWidth(self, width: int) -> int:
+        # The renderer produces a landscape PNG, not an embedded Qt canvas.
+        ratio = self._plot.height() / self._plot.width() if not self._plot.isNull() else 0.5
+        margins = self.layout().contentsMargins()
+        height = math.ceil(width * ratio) + margins.bottom()
+        for footer in (self._support_status, self.retry_button):
+            if not footer.isHidden():
+                available = max(1, width - margins.left() - margins.right())
+                height += max(footer.sizeHint().height(), footer.heightForWidth(available)) + 8
+        return height
+
+    def resizeEvent(self, event) -> None:
+        # Reserve the image's natural aspect at the available width. The enclosing
+        # scroll area supplies vertical space instead of compressing the plot.
+        self.setMinimumHeight(self.heightForWidth(event.size().width()))
+        super().resizeEvent(event)
 
     def set_diagnostic(self, diagnostic: TrackEvolutionDiagnostic) -> None:
         if diagnostic == self.diagnostic:
@@ -191,6 +234,7 @@ class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
             self._accept_render_error(request, "The rendered PNG could not be decoded.")
             return
         self._plot = plot
+        self.updateGeometry()
         self._render_error = None
         self.retry_button.hide()
         self.update()
@@ -222,7 +266,10 @@ class TrackEvolutionDiagnosticView(QtWidgets.QWidget):
             return
         if not self._plot.isNull():
             painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform)
-            painter.drawPixmap(plot_rect, self._plot)
+            target = self._plot.size().scaled(plot_rect.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+            image_rect = QtCore.QRect(QtCore.QPoint(), target)
+            image_rect.moveCenter(plot_rect.center())
+            painter.drawPixmap(image_rect, self._plot)
         else:
             message = (
                 f"Track-evolution plot could not be rendered.\n{self._render_error}\n"
@@ -446,7 +493,16 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self._build_planning_tab()
         self._build_track_tab()
         self._build_debug_tab()
+        self.tabs.currentChanged.connect(self._track_tab_sizing)
         self.load_analysis(self.result)
+
+    def _track_tab_sizing(self, index: int) -> None:
+        # Hidden Planning controls have a wide minimum size. They must not
+        # prevent the independently scrollable Track Correction page shrinking.
+        policy = (QtWidgets.QSizePolicy.Policy.Ignored if index == 1
+                  else QtWidgets.QSizePolicy.Policy.Preferred)
+        for page_index in (0, 2):
+            self.tabs.widget(page_index).setSizePolicy(policy, policy)
 
     def _build_planning_tab(self) -> None:
         page = QtWidgets.QWidget()
@@ -517,8 +573,19 @@ class QualiPlanDialog(QtWidgets.QDialog):
 
     def _build_track_tab(self) -> None:
         page = QtWidgets.QWidget()
-        form = QtWidgets.QFormLayout(page)
-        self.track_estimated = QtWidgets.QLabel("—")
+        outer = QtWidgets.QVBoxLayout(page)
+        self.track_scroll = QtWidgets.QScrollArea()
+        self.track_scroll.setWidgetResizable(True)
+        self.track_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        body = QtWidgets.QWidget()
+        form = QtWidgets.QFormLayout(body)
+        # Native macOS form defaults otherwise keep fields in a narrow column.
+        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setSizeConstraint(QtWidgets.QLayout.SizeConstraint.SetMinimumSize)
+        self.track_scroll.setWidget(body)
+        outer.addWidget(self.track_scroll)
+        self.track_estimated = _TrackWrappingLabel("—")
         self.track_override_enabled = QtWidgets.QCheckBox("Use override")
         self.track_override = QtWidgets.QDoubleSpinBox()
         self.track_override.setRange(-10, 10)
@@ -529,10 +596,10 @@ class QualiPlanDialog(QtWidgets.QDialog):
             if existing_override is not None:
                 self.track_override.setValue(existing_override)
                 self.track_override_enabled.setChecked(True)
-        self.track_effective = QtWidgets.QLabel("—")
-        self.track_source = QtWidgets.QLabel("—")
-        self.track_quality = QtWidgets.QLabel("—")
-        self.track_messages = QtWidgets.QLabel()
+        self.track_effective = _TrackWrappingLabel("—")
+        self.track_source = _TrackWrappingLabel("—")
+        self.track_quality = _TrackWrappingLabel("—")
+        self.track_messages = _TrackWrappingLabel()
         self.track_messages.setWordWrap(True)
         self.track_messages.setTextFormat(QtCore.Qt.TextFormat.PlainText)
         self.track_result_detail = QtWidgets.QPlainTextEdit()
@@ -541,11 +608,15 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self.track_detail_toggle = QtWidgets.QCheckBox("Show track-evolution details")
         self.track_result_detail.hide()
         self.track_detail_toggle.toggled.connect(self.track_result_detail.setVisible)
-        self.track_diagnostic_summary = QtWidgets.QLabel("—")
-        self.track_telemetry_warning = QtWidgets.QLabel()
+        self.track_diagnostic_summary = _TrackWrappingLabel("—")
+        self.track_telemetry_warning = _TrackWrappingLabel()
         self.track_telemetry_warning.setObjectName("trackTelemetryDelayWarning")
         self.track_telemetry_warning.setStyleSheet("color: #b26a00; font-weight: 600;")
         self.track_telemetry_warning.hide()
+        for label in (self.track_estimated, self.track_effective, self.track_source,
+                      self.track_quality, self.track_diagnostic_summary,
+                      self.track_telemetry_warning):
+            label.setWordWrap(True)
         self.track_diagnostic = TrackEvolutionDiagnosticView()
         self.clean_air_gap = QtWidgets.QDoubleSpinBox()
         self.clean_air_gap.setRange(0.1, 30.0)
@@ -566,12 +637,12 @@ class QualiPlanDialog(QtWidgets.QDialog):
         form.addRow("Effective value", self.track_effective)
         form.addRow("Source", self.track_source)
         form.addRow("Status / support", self.track_quality)
-        form.addRow("", self.track_messages)
-        form.addRow("", self.track_detail_toggle)
-        form.addRow("", self.track_result_detail)
+        form.addRow(self.track_messages)
+        form.addRow(self.track_detail_toggle)
+        form.addRow(self.track_result_detail)
         form.addRow("Track Evolution", self.track_diagnostic_summary)
-        form.addRow("", self.track_telemetry_warning)
-        form.addRow("", self.track_diagnostic)
+        form.addRow(self.track_telemetry_warning)
+        form.addRow(self.track_diagnostic)
         form.addRow("Traffic context threshold", self.clean_air_gap)
         self.clean_air_gap.setToolTip("Auxiliary physical traffic only; does not control track-evolution admission or status.")
         self.track_override.valueChanged.connect(self._update_effective_track)

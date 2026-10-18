@@ -25,7 +25,7 @@ def test_track_tab_warning_is_amber_nonmodal_and_clears_without_fit(monkeypatch)
     assert not label.isHidden()
     assert label.text() == warning
     assert "#b26a00" in label.styleSheet()
-    assert not label.wordWrap()
+    assert label.wordWrap()  # Long warnings remain readable in narrow Track Correction windows.
     for _ in range(10):
         dialog.refresh_live_track(snapshot)
     assert label.text() == warning
