@@ -1,0 +1,60 @@
+{
+  "external_monotonic_clock_s": 120.0,
+  "result": "PASS",
+  "checkpoints": 137,
+  "exact_production_output_sha256": "9e1e98c078b7a9cd9d95d64b81b7844514e3497e3a84b352036b47dc7b91d6be",
+  "repeated_experimental_reads": 411,
+  "experimental_statuses": [
+    "FALLBACK",
+    "LIVE_LIMITED",
+    "LIVE_SUPPORTED",
+    "UNAVAILABLE"
+  ],
+  "accepted_commit": "ac03ee3bae5c34fb24e067584fa4ee84b10ad427",
+  "module_provenance": {
+    "accepted": {
+      "wodata": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_models.py",
+      "woplanner": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woPlanner/src/woplanner/quali/service.py",
+      "wostrategy": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/live_qualifying.py"
+    },
+    "feature": {
+      "wodata": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woData/src/wodata/live/quali_models.py",
+      "woplanner": "/private/tmp/quali-half-live-20261019/src/woplanner/quali/service.py",
+      "wostrategy": "/Users/zhxutong/dr-wo/q17-release/controlled-20261018/woStrategy/src/wostrategy/analysis/live_qualifying.py"
+    }
+  },
+  "unchanged_core_source_sha256": {
+    "src/woplanner/quali/service.py": "fda20d2f87342799095160de7ac1daea93525fc4e78ba3ab7a92d0f4c3e50401",
+    "src/woplanner/quali/models.py": "1e52e6cbce21169aae1e771015be1eca72e18182dbeda49c2726a83c888b5bcd",
+    "src/woplanner/quali/track_evolution.py": "dfe03f6b73cf05c9f47397fdd0be2683c9293a19b7a2382486575e52755f26c0",
+    "src/woplanner/quali/track_evolution_policy.py": "597e5890ba07835b03e173d42d18fee642de9f976ab51a9c758d110f7ee8ceea",
+    "src/woplanner/quali/planning.py": "724c37d2373ca7e5e73c2c58469c446b301de257a8623615f1a81dd85ceea170"
+  },
+  "coverage": [
+    "Q1/Q2/Q3",
+    "negative/zero/positive rates",
+    "manual with fallback/live",
+    "configured fallback changes",
+    "cross-part fit retention",
+    "finalise/reset",
+    "empty/unavailable",
+    "real archive/live ingestion",
+    "atomic new fit plus causal revocation",
+    "normal/grace/hard-lock/late receipts",
+    "timer publication",
+    "duplicate consume",
+    "late correction"
+  ],
+  "compared": [
+    "entire session snapshot including driver projections and actual cutoffs",
+    "full track publication including diagnostic and as-of identity",
+    "traffic finalisation records",
+    "track samples",
+    "pit status groups"
+  ],
+  "dependency_commits": {
+    "woData": "6518a871434d784bf0f3365855970712b694e085",
+    "woStrategy": "4c02e0bf123809e1de55be0532c8159bdd7aa073"
+  },
+  "trace_location": "/private/tmp/half-live-accepted-dependencies/evidence"
+}

@@ -37,6 +37,13 @@ Practice, or other non-qualifying session is rejected, its timing table is
 cleared, and the analysis/plan actions remain unavailable. Sprint Qualifying is
 labelled SQ1/SQ2/SQ3 and uses its own segment durations.
 
+The status area shows the accepted **Current** prediction with **R&D · Half-live
+[Experimental]** directly underneath. The second row uses half the automatic
+live track slope, or the full configured fallback when no live fit exists;
+manual overrides affect Current only. Its source status is shown explicitly.
+See [Experimental Half-live cutoff](QUALIFYING_HALF_LIVE.md) for the exact
+calculation, missing-data behavior and historical validation limits.
+
 ## Timing table
 
 The table shows position, driver/team, status, sectors, last/best lap, gaps, and

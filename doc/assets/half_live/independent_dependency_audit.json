@@ -1,0 +1,28 @@
+{
+  "woData": {
+    "research_python_files": 33,
+    "accepted_commit": "6518a871434d784bf0f3365855970712b694e085",
+    "missing_in_accepted": [],
+    "different_common_files": [
+      "src/wodata/live/controller.py",
+      "src/wodata/live/models.py",
+      "src/wodata/live/reducer.py"
+    ],
+    "accepted_only_files": [
+      "src/wodata/live/race_control.py"
+    ]
+  },
+  "woStrategy": {
+    "research_python_files": 117,
+    "accepted_commit": "4c02e0bf123809e1de55be0532c8159bdd7aa073",
+    "missing_in_accepted": [],
+    "different_common_files": [],
+    "accepted_only_files": []
+  },
+  "qualifying_dependency_files": {
+    "src/wodata/live/quali_models.py": "0f5cfc471fca8d18dacce3e91f680274a73f05e3c69fdf100ffe593290806380",
+    "src/wodata/live/quali_reducer.py": "57e1f77a14eb1dd11d79d242c7dc4fdf912074776a5d9f5568965c3e98162738",
+    "src/wodata/live/quali_clock.py": "71e9b9f4c4108b39ead114701c0126f440c70fb989393f2dbd49b03477f4adb7"
+  },
+  "review": "Differences are ordinary race-control support in LiveSessionStore/model/controller. Qualifying reducer/model/clock are byte-identical; controller source subscription for QualiSessionStore is equivalent. Exact preservation was independently checked on both dependency stacks."
+}

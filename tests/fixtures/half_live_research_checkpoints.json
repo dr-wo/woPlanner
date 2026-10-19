@@ -1,0 +1,1802 @@
+{
+  "schema_version": 1,
+  "description": "Frozen half_live research checkpoints. Inputs and expected predictions are copied from the original historical evaluation; outcomes are scoring-only and must never enter prediction. Paths in provenance are relative to the original research artifact root and are not runtime dependencies.",
+  "candidate": "half_live",
+  "definition": {
+    "rate": "0.5 * live_estimate_s_per_global_push if live is not None else configured_fallback_s_per_global_push",
+    "prediction": "min(current_cutoff_s + rate * unfinished_driver_count, current_cutoff_s)",
+    "manual_override": "Not consumed; candidate independently uses automatic live or full configured fallback.",
+    "support": "LIVE_SUPPORTED and LIVE_LIMITED both use the numeric live fit."
+  },
+  "provenance": {
+    "research_artifact": "track-correction-research",
+    "research_date": "2026-10-19",
+    "pinned_commits": {
+      "woPlanner": "ce67da8c6c492f54a91045496e5250918aa0a050",
+      "woData": "7580ccb614d2d7d2173ac6c9fc91409bfb338559",
+      "woStrategy": "336098b146c93c53b46b998ba62416aadcc0391d"
+    },
+    "runtime_manifest_sha256": "cc62859432f43d5333d4b3589361208d983983f42d6025828e7633bb6f6ad685",
+    "source_sha256": {
+      "scripts/evaluate.py": "6fc07befda3401d35d7715dc0dacb2e843ac89987f9e43d28e1b6b194cf14158",
+      "REPORT.txt": "fe595ab848545e74d8aa955717543a81792268cac89e4442cb875c71660fffcc",
+      "results/cutoff_predictions.csv": "120576c225d652fe914f664f14d14786c79a6c72bb4b2a0f31319d2dddd3918a",
+      "data/source_provenance.json": "6d27b1a218e5fe90fca3f3892141535a5de5fd56982650043fba187760566adc",
+      "data/pinned_source_vs_runtime_manifest.json": "128bfbc341204bc098d1bbdc3f1fe601dc42d2ba9e2ba31b975834fddfdad85f",
+      "data/replay_R13_archive_checkpoints.jsonl": "e709214064f72226c9b083125180dfbddee29ce67527657425ce242d08fcd524",
+      "data/replay_R13_archive_no_fp_checkpoints.jsonl": "77a78dfca8b0d837e060c72e9034f2c35132121369160d80f533c5434a8b4d4d",
+      "data/replay_R14_archive_checkpoints.jsonl": "275966662f109d07346a5ac5bdcffd32d999074df9a8de28a17967ce955c16ed",
+      "data/replay_R14_live_checkpoints.jsonl": "7e0418f90514cae8aef911a81aaec820eeb8a7952d92bb4548070cb43bef1115",
+      "data/replay_R16_live_checkpoints.jsonl": "b7eb59166b01a37612e1eb56d3b7e29bfb4dfd31f9068dc803e6fcef5237bc98",
+      "data/replay_R17_live_checkpoints.jsonl": "2bc90b50d28c475413d8dddc50d04ef70ad95e31d6957f06041f20d7c64750fb",
+      "data/replay_R17_live_no_fp_checkpoints.jsonl": "6c3a83ced34aec7b16416c8758871550fd26d80b31ef80e186d2f2b5b6a60115"
+    }
+  },
+  "checkpoint_count": 63,
+  "checkpoints": [
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q1",
+      "message_index": 4331,
+      "threshold_s": 600,
+      "remaining_s": 600.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 86.947,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 86.947
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 86.947,
+      "outcome_s": 83.616,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q1",
+      "message_index": 5941,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 83.89099999999999,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 83.89099999999999
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 83.89099999999999,
+      "outcome_s": 83.616,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q1",
+      "message_index": 6725,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 83.89099999999999,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 83.89099999999999
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 83.89099999999999,
+      "outcome_s": 83.616,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q1",
+      "message_index": 7182,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 83.89099999999999,
+        "unfinished_driver_count": 18,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 83.89099999999999
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 83.89099999999999,
+      "outcome_s": 83.616,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q2",
+      "message_index": 12060,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 82.57300000000001,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 82.57300000000001
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 82.57300000000001,
+      "outcome_s": 82.51599999999999,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q2",
+      "message_index": 12691,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 82.566,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 82.566
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 82.566,
+      "outcome_s": 82.51599999999999,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q2",
+      "message_index": 13042,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 82.566,
+        "unfinished_driver_count": 15,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 82.566
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 82.566,
+      "outcome_s": 82.51599999999999,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q3",
+      "message_index": 17063,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 81.929,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 81.929
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 81.929,
+      "outcome_s": 81.786,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q3",
+      "message_index": 17471,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 81.929,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 81.929
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 81.929,
+      "outcome_s": 81.786,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R13_archive_no_fp",
+      "part": "Q3",
+      "message_index": 17746,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 81.929,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 81.929
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 81.929,
+      "outcome_s": 81.786,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q1",
+      "message_index": 4331,
+      "threshold_s": 600,
+      "remaining_s": 600.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 86.947,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 86.947
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 86.947,
+      "outcome_s": 83.616,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q1",
+      "message_index": 5941,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 83.89099999999999,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": -0.02344837662337699,
+        "projected_correction_s": -0.5158642857142938,
+        "projected_cutoff_s": 83.37513571428569
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.02344837662337699,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 83.63306785714285,
+      "outcome_s": 83.616,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q1",
+      "message_index": 6725,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 83.89099999999999,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": -0.02344837662337699,
+        "projected_correction_s": -0.5158642857142938,
+        "projected_cutoff_s": 83.37513571428569
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.02344837662337699,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 83.63306785714285,
+      "outcome_s": 83.616,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q1",
+      "message_index": 7182,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 83.89099999999999,
+        "unfinished_driver_count": 18,
+        "track_rate_s_per_field_push": -0.02344837662337699,
+        "projected_correction_s": -0.4220707792207858,
+        "projected_cutoff_s": 83.4689292207792
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.02344837662337699,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 83.6799646103896,
+      "outcome_s": 83.616,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q2",
+      "message_index": 12060,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 82.57300000000001,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.01692223073752816,
+        "projected_correction_s": -0.27075569180045056,
+        "projected_cutoff_s": 82.30224430819956
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.01692223073752816,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 82.43762215409978,
+      "outcome_s": 82.51599999999999,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q2",
+      "message_index": 12691,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 82.566,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.015851624568099847,
+        "projected_correction_s": -0.25362599308959755,
+        "projected_cutoff_s": 82.3123740069104
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.015851624568099847,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 82.4391870034552,
+      "outcome_s": 82.51599999999999,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q2",
+      "message_index": 13042,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 82.566,
+        "unfinished_driver_count": 15,
+        "track_rate_s_per_field_push": -0.015851624568099847,
+        "projected_correction_s": -0.2377743685214977,
+        "projected_cutoff_s": 82.3282256314785
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.015851624568099847,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 82.44711281573926,
+      "outcome_s": 82.51599999999999,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q3",
+      "message_index": 17063,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 81.929,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.010725593604546323,
+        "projected_correction_s": -0.10725593604546323,
+        "projected_cutoff_s": 81.82174406395454
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.010725593604546323,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 81.87537203197726,
+      "outcome_s": 81.786,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q3",
+      "message_index": 17471,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 81.929,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.010725593604546323,
+        "projected_correction_s": -0.10725593604546323,
+        "projected_cutoff_s": 81.82174406395454
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.010725593604546323,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 81.87537203197726,
+      "outcome_s": 81.786,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R13_archive",
+      "part": "Q3",
+      "message_index": 17746,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 81.929,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.010725593604546323,
+        "projected_correction_s": -0.10725593604546323,
+        "projected_cutoff_s": 81.82174406395454
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.010725593604546323,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 81.87537203197726,
+      "outcome_s": 81.786,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q1",
+      "message_index": 5047,
+      "threshold_s": 600,
+      "remaining_s": 600.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 136.128,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 136.128
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 136.128,
+      "outcome_s": 95.307,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q1",
+      "message_index": 7064,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 95.672,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": -0.04451960784313791,
+        "projected_correction_s": -0.979431372549034,
+        "projected_cutoff_s": 94.69256862745097
+      },
+      "result": {
+        "status": "LIVE_LIMITED",
+        "live_estimate_s_per_global_push": -0.04451960784313791,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.18228431372548,
+      "outcome_s": 95.307,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q1",
+      "message_index": 8151,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 95.672,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": -0.04451960784313791,
+        "projected_correction_s": -0.979431372549034,
+        "projected_cutoff_s": 94.69256862745097
+      },
+      "result": {
+        "status": "LIVE_LIMITED",
+        "live_estimate_s_per_global_push": -0.04451960784313791,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.18228431372548,
+      "outcome_s": 95.307,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q1",
+      "message_index": 8567,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 95.532,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.03364731866772634,
+        "projected_correction_s": -0.33647318667726345,
+        "projected_cutoff_s": 95.19552681332273
+      },
+      "result": {
+        "status": "LIVE_LIMITED",
+        "live_estimate_s_per_global_push": -0.03364731866772634,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.36376340666136,
+      "outcome_s": 95.307,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q2",
+      "message_index": 12214,
+      "threshold_s": 600,
+      "remaining_s": 600.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 95.532,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.0380073673378701,
+        "projected_correction_s": -0.6081178774059216,
+        "projected_cutoff_s": 94.92388212259408
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.0380073673378701,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.22794106129703,
+      "outcome_s": 93.20400000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q2",
+      "message_index": 13397,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 93.588,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.03280955846388199,
+        "projected_correction_s": -0.5249529354221119,
+        "projected_cutoff_s": 93.06304706457789
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.03280955846388199,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 93.32552353228894,
+      "outcome_s": 93.20400000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q2",
+      "message_index": 14259,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 93.588,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.03280955846388199,
+        "projected_correction_s": -0.5249529354221119,
+        "projected_cutoff_s": 93.06304706457789
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.03280955846388199,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 93.32552353228894,
+      "outcome_s": 93.20400000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q2",
+      "message_index": 14717,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 93.588,
+        "unfinished_driver_count": 15,
+        "track_rate_s_per_field_push": -0.03280955846388199,
+        "projected_correction_s": -0.49214337695822985,
+        "projected_cutoff_s": 93.09585662304177
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.03280955846388199,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 93.34192831152087,
+      "outcome_s": 93.20400000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q3",
+      "message_index": 18759,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 92.07900000000001,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.02604305401839251,
+        "projected_correction_s": -0.2604305401839251,
+        "projected_cutoff_s": 91.81856945981609
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.02604305401839251,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.94878472990804,
+      "outcome_s": 91.824,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q3",
+      "message_index": 19408,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 92.07900000000001,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.02604305401839251,
+        "projected_correction_s": -0.2604305401839251,
+        "projected_cutoff_s": 91.81856945981609
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.02604305401839251,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.94878472990804,
+      "outcome_s": 91.824,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R14_archive",
+      "part": "Q3",
+      "message_index": 19743,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 92.07900000000001,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.02604305401839251,
+        "projected_correction_s": -0.2604305401839251,
+        "projected_cutoff_s": 91.81856945981609
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.02604305401839251,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.94878472990804,
+      "outcome_s": 91.824,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q1",
+      "message_index": 2067,
+      "threshold_s": 600,
+      "remaining_s": 599.957171,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 136.128,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 136.128
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 136.128,
+      "outcome_s": 95.307,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q1",
+      "message_index": 4150,
+      "threshold_s": 300,
+      "remaining_s": 299.957171,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 95.672,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 95.672
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 95.672,
+      "outcome_s": 95.307,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q1",
+      "message_index": 5253,
+      "threshold_s": 120,
+      "remaining_s": 119.95717100000002,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 95.672,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 95.672
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 95.672,
+      "outcome_s": 95.307,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q1",
+      "message_index": 5697,
+      "threshold_s": 60,
+      "remaining_s": 59.95717100000002,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 95.532,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.023318181818181634,
+        "projected_correction_s": -0.23318181818181632,
+        "projected_cutoff_s": 95.29881818181818
+      },
+      "result": {
+        "status": "LIVE_LIMITED",
+        "live_estimate_s_per_global_push": -0.023318181818181634,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.4154090909091,
+      "outcome_s": 95.307,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q2",
+      "message_index": 9418,
+      "threshold_s": 600,
+      "remaining_s": 600.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 95.532,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.04545921578421577,
+        "projected_correction_s": -0.7273474525474524,
+        "projected_cutoff_s": 94.80465254745255
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.04545921578421577,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.16832627372627,
+      "outcome_s": 93.20400000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q2",
+      "message_index": 10612,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 93.588,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.03681150036831859,
+        "projected_correction_s": -0.5889840058930974,
+        "projected_cutoff_s": 92.9990159941069
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.03681150036831859,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 93.29350799705344,
+      "outcome_s": 93.20400000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q2",
+      "message_index": 11474,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 93.588,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.03681150036831859,
+        "projected_correction_s": -0.5889840058930974,
+        "projected_cutoff_s": 92.9990159941069
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.03681150036831859,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 93.29350799705344,
+      "outcome_s": 93.20400000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q2",
+      "message_index": 11949,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 93.588,
+        "unfinished_driver_count": 15,
+        "track_rate_s_per_field_push": -0.03681150036831859,
+        "projected_correction_s": -0.5521725055247788,
+        "projected_cutoff_s": 93.03582749447521
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.03681150036831859,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 93.31191374723761,
+      "outcome_s": 93.20400000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q3",
+      "message_index": 16050,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 92.07900000000001,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.025003670369735918,
+        "projected_correction_s": -0.2500367036973592,
+        "projected_cutoff_s": 91.82896329630265
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.025003670369735918,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.95398164815133,
+      "outcome_s": 91.824,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q3",
+      "message_index": 16697,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 92.07900000000001,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.025003670369735918,
+        "projected_correction_s": -0.2500367036973592,
+        "projected_cutoff_s": 91.82896329630265
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.025003670369735918,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.95398164815133,
+      "outcome_s": 91.824,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R14_live",
+      "part": "Q3",
+      "message_index": 17043,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 92.07900000000001,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.025003670369735918,
+        "projected_correction_s": -0.2500367036973592,
+        "projected_cutoff_s": 91.82896329630265
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.025003670369735918,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.95398164815133,
+      "outcome_s": 91.824,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q1",
+      "message_index": 4914,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 98.227,
+        "unfinished_driver_count": 22,
+        "track_rate_s_per_field_push": 0.011409090909090315,
+        "projected_correction_s": 0.25099999999998696,
+        "projected_cutoff_s": 98.227
+      },
+      "result": {
+        "status": "LIVE_LIMITED",
+        "live_estimate_s_per_global_push": 0.011409090909090315,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 98.227,
+      "outcome_s": 97.88300000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q1",
+      "message_index": 5416,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 98.227,
+        "unfinished_driver_count": 13,
+        "track_rate_s_per_field_push": -0.012909090909090117,
+        "projected_correction_s": -0.1678181818181715,
+        "projected_cutoff_s": 98.05918181818183
+      },
+      "result": {
+        "status": "LIVE_LIMITED",
+        "live_estimate_s_per_global_push": -0.012909090909090117,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 98.14309090909092,
+      "outcome_s": 97.88300000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q1",
+      "message_index": 5686,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 16,
+        "current_cutoff_s": 98.227,
+        "unfinished_driver_count": 13,
+        "track_rate_s_per_field_push": -0.012909090909090117,
+        "projected_correction_s": -0.1678181818181715,
+        "projected_cutoff_s": 98.05918181818183
+      },
+      "result": {
+        "status": "LIVE_LIMITED",
+        "live_estimate_s_per_global_push": -0.012909090909090117,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 98.14309090909092,
+      "outcome_s": 97.88300000000001,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q2",
+      "message_index": 10226,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 97.773,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": -0.0320541501807222,
+        "projected_correction_s": -0.5128664028915552,
+        "projected_cutoff_s": 97.26013359710844
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.0320541501807222,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 97.51656679855422,
+      "outcome_s": 96.814,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q2",
+      "message_index": 10762,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 97.12,
+        "unfinished_driver_count": 9,
+        "track_rate_s_per_field_push": -0.03153996188266514,
+        "projected_correction_s": -0.2838596569439863,
+        "projected_cutoff_s": 96.83614034305602
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.03153996188266514,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 96.97807017152802,
+      "outcome_s": 96.814,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q2",
+      "message_index": 11003,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 97.12,
+        "unfinished_driver_count": 9,
+        "track_rate_s_per_field_push": -0.03153996188266514,
+        "projected_correction_s": -0.2838596569439863,
+        "projected_cutoff_s": 96.83614034305602
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.03153996188266514,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 96.97807017152802,
+      "outcome_s": 96.814,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q3",
+      "message_index": 14478,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 95.25,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.024798009185464896,
+        "projected_correction_s": -0.24798009185464898,
+        "projected_cutoff_s": 95.00201990814536
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.024798009185464896,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.12600995407267,
+      "outcome_s": 95.13,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q3",
+      "message_index": 15026,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 95.25,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.02471785234952789,
+        "projected_correction_s": -0.2471785234952789,
+        "projected_cutoff_s": 95.00282147650472
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.02471785234952789,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.12641073825236,
+      "outcome_s": 95.13,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R16_live",
+      "part": "Q3",
+      "message_index": 15291,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 95.25,
+        "unfinished_driver_count": 9,
+        "track_rate_s_per_field_push": -0.02471785234952789,
+        "projected_correction_s": -0.22246067114575102,
+        "projected_cutoff_s": 95.02753932885425
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.02471785234952789,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 95.13876966442713,
+      "outcome_s": 95.13,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R17_live_no_fp",
+      "part": "Q2",
+      "message_index": 947,
+      "threshold_s": 300,
+      "remaining_s": 299.955102,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 92.963,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 92.963
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 92.963,
+      "outcome_s": 92.602,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R17_live_no_fp",
+      "part": "Q2",
+      "message_index": 1882,
+      "threshold_s": 120,
+      "remaining_s": 119.95510200000001,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 92.963,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 92.963
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 92.963,
+      "outcome_s": 92.602,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R17_live_no_fp",
+      "part": "Q2",
+      "message_index": 2298,
+      "threshold_s": 60,
+      "remaining_s": 59.95510200000001,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 92.963,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 92.963
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 92.963,
+      "outcome_s": 92.602,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R17_live_no_fp",
+      "part": "Q3",
+      "message_index": 6334,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 91.373,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 91.373
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 91.373,
+      "outcome_s": 91.373,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R17_live_no_fp",
+      "part": "Q3",
+      "message_index": 6922,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 91.373,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 91.373
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 91.373,
+      "outcome_s": 91.373,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R17_live_no_fp",
+      "part": "Q3",
+      "message_index": 7219,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": false,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 91.373,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 91.373
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 91.373,
+      "outcome_s": 91.373,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R17_live",
+      "part": "Q2",
+      "message_index": 947,
+      "threshold_s": 300,
+      "remaining_s": 299.955102,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 92.963,
+        "unfinished_driver_count": 16,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 92.963
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 92.963,
+      "outcome_s": 92.602,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R17_live",
+      "part": "Q2",
+      "message_index": 1882,
+      "threshold_s": 120,
+      "remaining_s": 119.95510200000001,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 92.963,
+        "unfinished_driver_count": 15,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 92.963
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 92.963,
+      "outcome_s": 92.602,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R17_live",
+      "part": "Q2",
+      "message_index": 2298,
+      "threshold_s": 60,
+      "remaining_s": 59.95510200000001,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "CUTOFF",
+        "cutoff_rank": 10,
+        "current_cutoff_s": 92.963,
+        "unfinished_driver_count": 15,
+        "track_rate_s_per_field_push": 0.0,
+        "projected_correction_s": 0.0,
+        "projected_cutoff_s": 92.963
+      },
+      "result": {
+        "status": "FALLBACK",
+        "live_estimate_s_per_global_push": null,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "CONFIGURED_FP_DEFAULT_PRIOR",
+        "automatic_source": "CONFIGURED_FP_DEFAULT_PRIOR"
+      },
+      "expected_half_live_s": 92.963,
+      "outcome_s": 92.602,
+      "outcome_source": "canonical_finalized_actual_cutoff"
+    },
+    {
+      "stream": "R17_live",
+      "part": "Q3",
+      "message_index": 6334,
+      "threshold_s": 300,
+      "remaining_s": 300.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 91.373,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.015432407407406623,
+        "projected_correction_s": -0.15432407407406623,
+        "projected_cutoff_s": 91.21867592592594
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.015432407407406623,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.29583796296298,
+      "outcome_s": 91.373,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R17_live",
+      "part": "Q3",
+      "message_index": 6922,
+      "threshold_s": 120,
+      "remaining_s": 120.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 91.373,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.015432407407406623,
+        "projected_correction_s": -0.15432407407406623,
+        "projected_cutoff_s": 91.21867592592594
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.015432407407406623,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.29583796296298,
+      "outcome_s": 91.373,
+      "outcome_source": "last_observed_current_cutoff"
+    },
+    {
+      "stream": "R17_live",
+      "part": "Q3",
+      "message_index": 7219,
+      "threshold_s": 60,
+      "remaining_s": 60.0,
+      "primary_stream": true,
+      "cutoff": {
+        "target_kind": "P1",
+        "cutoff_rank": 1,
+        "current_cutoff_s": 91.373,
+        "unfinished_driver_count": 10,
+        "track_rate_s_per_field_push": -0.015432407407406623,
+        "projected_correction_s": -0.15432407407406623,
+        "projected_cutoff_s": 91.21867592592594
+      },
+      "result": {
+        "status": "LIVE_SUPPORTED",
+        "live_estimate_s_per_global_push": -0.015432407407406623,
+        "configured_fallback_s_per_global_push": 0.0,
+        "manual_override_s_per_global_push": null,
+        "estimate_source": "LIVE_PER_DRIVER",
+        "automatic_source": "LIVE_PER_DRIVER"
+      },
+      "expected_half_live_s": 91.29583796296298,
+      "outcome_s": 91.373,
+      "outcome_source": "last_observed_current_cutoff"
+    }
+  ]
+}

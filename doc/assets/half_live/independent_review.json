@@ -1,0 +1,28 @@
+{
+  "reviewer": "independent regression/review agent",
+  "blocking_findings": [],
+  "implementation_review": {
+    "candidate_definition": "Matches research scripts/evaluate.py frozen_predictions: live*0.5 when available, otherwise configured fallback unchanged; projection min(current + rate*unfinished,current).",
+    "coordinate": "Published canonical session-wide per-driver fit in seconds per global field PUSH; no alternative fit or local-push coordinate introduced.",
+    "manual_override": "Experimental calculation reads live_estimate_s_per_global_push, never the manual effective estimate; fallback is unchanged.",
+    "missing_data": "Missing observed cutoff/published estimate, invalid fit/fallback, invalid unfinished count or nonfinite result explicitly unavailable.",
+    "production_isolation": "New helper imports only snapshot contract; GUI calls it once per render on the same snapshot already used for Current. No service/reducer/model/policy writes or telemetry callback changes.",
+    "current_gui": "Original formatting and missing-data branch moved unchanged to the paired-label renderer. Timing table/pit groups/plan dialog refresh calls stay in original order."
+  },
+  "visual_review": {
+    "images_inspected": [
+      "r14_live_q2_supported_wide.png",
+      "r17_live_q2_fallback_narrow.png",
+      "r17_live_q3_supported_narrow.png",
+      "r17_live_q1_unavailable_wide.png"
+    ],
+    "result": "Current remains above the clearly marked R&D Half-live Experimental row. Q3 P1 wording, fallback wording, and unavailable em dash/status are correct; inspected 1100px and 1500px layouts show no label overlaps or clipped prediction text. White background retained."
+  },
+  "preservation_reports": [
+    "independent_preservation_report.json",
+    "accepted_dependencies_preservation.json"
+  ],
+  "dependency_report": "independent_dependency_audit.json",
+  "regression_status": "Completed by primary agent: accepted 1003 passed / 5 skipped; feature 1139 passed / 5 skipped; shared outcomes identical, 136 new tests pass. One R13 multi-pass replay intentionally unfinished. See independent_regression_report.json.",
+  "regression_completion_owner": "Primary agent, after independent reviewer usage limit; independent implementation review findings unchanged."
+}
