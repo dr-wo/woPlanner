@@ -19,6 +19,7 @@ from ..common.session_info import (
     resolve_session_identity,
 )
 from .analysis import QualiAnalysisService
+from .experimental_cutoff import calculate_half_live
 from .models import FinishedReason
 from .runtime_paths import ArtifactError, RuntimePaths, resolve_runtime_paths
 from .service import QualiLiveService
@@ -208,13 +209,26 @@ class QualiWindow(QtWidgets.QMainWindow):
         status = QtWidgets.QHBoxLayout()
         self.connection = QtWidgets.QLabel("Idle")
         self.clock = QtWidgets.QLabel("Q1 —:—")
-        self.cutoff = QtWidgets.QLabel("Projected cutoff: —")
         self.normal_finish = QtWidgets.QLabel("")
+        self.cutoff = QtWidgets.QLabel("Projected cutoff: —")
+        self.current_prediction_label = QtWidgets.QLabel("Current")
+        self.experimental_cutoff = QtWidgets.QLabel()
+        self.experimental_cutoff.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self.experimental_cutoff.setWordWrap(True)
+        self.experimental_cutoff.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self._clear_experimental_cutoff("Waiting for a qualifying snapshot.")
+        predictions = QtWidgets.QVBoxLayout()
+        predictions.setSpacing(2)
+        current = QtWidgets.QHBoxLayout()
+        current.addStretch(1)
+        current.addWidget(self.clock)
+        current.addWidget(self.normal_finish)
+        current.addWidget(self.current_prediction_label)
+        current.addWidget(self.cutoff)
+        predictions.addLayout(current)
+        predictions.addWidget(self.experimental_cutoff)
         status.addWidget(self.connection)
-        status.addStretch(1)
-        status.addWidget(self.clock)
-        status.addWidget(self.normal_finish)
-        status.addWidget(self.cutoff)
+        status.addLayout(predictions, 1)
         return status
 
     def _connect(self) -> None:
@@ -345,6 +359,14 @@ class QualiWindow(QtWidgets.QMainWindow):
         remaining_text = format_countdown(self._presentation_countdown.update(snapshot))
         self.clock.setText(f"{snapshot.session_part} {remaining_text}")
         self._render_normal_finish(snapshot)
+        self._render_cutoff_predictions(snapshot)
+        self._render_timing_table(snapshot)
+        self._render_pit_status()
+        if self.plan_dialog is not None:
+            self.plan_dialog.refresh_live_track(snapshot)
+
+    def _render_cutoff_predictions(self, snapshot) -> None:
+        # Keep the production label's existing publication and missing-data rule.
         projected_cutoff = snapshot.cutoff.projected_cutoff_s
         target_name = "Projected P1" if snapshot.cutoff.target_kind == "P1" else "Projected cutoff"
         if snapshot.cutoff.current_cutoff_s is None:
@@ -353,10 +375,29 @@ class QualiWindow(QtWidgets.QMainWindow):
             self.cutoff.setText(
                 f"{target_name}: {format_time(projected_cutoff)}"
             )
-        self._render_timing_table(snapshot)
-        self._render_pit_status()
-        if self.plan_dialog is not None:
-            self.plan_dialog.refresh_live_track(snapshot)
+        experimental = calculate_half_live(snapshot)
+        status = {
+            "LIVE_SUPPORTED": "Live supported",
+            "LIVE_LIMITED": "Live limited",
+            "FALLBACK": "Fallback · FP/default prior",
+            "UNAVAILABLE": "Unavailable",
+        }[experimental.status]
+        self.experimental_cutoff.setText(
+            f"R&D · Half-live [Experimental] · {target_name}: "
+            f"{format_time(experimental.projected_cutoff_s)} · {status}"
+        )
+        self.experimental_cutoff.setToolTip(
+            "Candidate: half_live (experimental; limited historical evaluation, "
+            "not validated prospective performance).\n"
+            "Independent of manual overrides: uses half the automatic fitted live "
+            "rate, or the configured FP/default prior unchanged when no live fit is available.\n"
+            f"Source: {experimental.source}\nStatus: {experimental.status}\n"
+            f"{experimental.reason}"
+        )
+
+    def _clear_experimental_cutoff(self, reason: str) -> None:
+        self.experimental_cutoff.setText("R&D · Half-live [Experimental] · Unavailable")
+        self.experimental_cutoff.setToolTip(f"Candidate: half_live\n{reason}")
 
     def _render_normal_finish(self, snapshot) -> None:
         self.normal_finish.setText("SESSION CHEQUERED" if snapshot.normal_finished else "")
@@ -365,6 +406,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         )
 
     def _prepare_session_start(self) -> None:
+        self._clear_experimental_cutoff("Waiting for the new qualifying session.")
         self._session_metadata_signature = None
         self._non_quali_warning_shown = False
         self.analyze.setEnabled(False)
@@ -423,6 +465,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.plan.setEnabled(False)
         self.table.setRowCount(0)
         self.pit_table.clearContents()
+        self._clear_experimental_cutoff("The received session is not Qualifying.")
         self._show_non_quali_warning()
 
     def _show_non_quali_warning(self) -> None:

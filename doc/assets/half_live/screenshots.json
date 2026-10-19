@@ -1,0 +1,322 @@
+[
+  {
+    "image": "r14_live_q2_supported_wide.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R14_live_checkpoints.jsonl",
+    "message_index": 10612,
+    "remaining_s": 300.0,
+    "part": "Q2",
+    "status": "LIVE_SUPPORTED",
+    "requested_width": 1500,
+    "actual_width": 1500,
+    "height": 900,
+    "current_text": "Projected cutoff: 1:32.999",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected cutoff: 1:33.294 \u00b7 Live supported",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: LIVE_PER_DRIVER\nStatus: LIVE_SUPPORTED\nHalf of the canonical session-wide live fit; manual override excluded",
+    "current_rect": [
+      1337,
+      41,
+      154,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      1317,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1482,
+      661
+    ]
+  },
+  {
+    "image": "r14_live_q2_supported_narrow.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R14_live_checkpoints.jsonl",
+    "message_index": 10612,
+    "remaining_s": 300.0,
+    "part": "Q2",
+    "status": "LIVE_SUPPORTED",
+    "requested_width": 1100,
+    "actual_width": 1100,
+    "height": 750,
+    "current_text": "Projected cutoff: 1:32.999",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected cutoff: 1:33.294 \u00b7 Live supported",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: LIVE_PER_DRIVER\nStatus: LIVE_SUPPORTED\nHalf of the canonical session-wide live fit; manual override excluded",
+    "current_rect": [
+      937,
+      41,
+      154,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      917,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1082,
+      511
+    ]
+  },
+  {
+    "image": "r17_live_q3_supported_wide.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R17_live_checkpoints.jsonl",
+    "message_index": 6334,
+    "remaining_s": 300.0,
+    "part": "Q3",
+    "status": "LIVE_SUPPORTED",
+    "requested_width": 1500,
+    "actual_width": 1500,
+    "height": 900,
+    "current_text": "Projected P1: 1:31.219",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected P1: 1:31.296 \u00b7 Live supported",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: LIVE_PER_DRIVER\nStatus: LIVE_SUPPORTED\nHalf of the canonical session-wide live fit; manual override excluded",
+    "current_rect": [
+      1362,
+      41,
+      129,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      1317,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1482,
+      661
+    ]
+  },
+  {
+    "image": "r17_live_q3_supported_narrow.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R17_live_checkpoints.jsonl",
+    "message_index": 6334,
+    "remaining_s": 300.0,
+    "part": "Q3",
+    "status": "LIVE_SUPPORTED",
+    "requested_width": 1100,
+    "actual_width": 1100,
+    "height": 750,
+    "current_text": "Projected P1: 1:31.219",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected P1: 1:31.296 \u00b7 Live supported",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: LIVE_PER_DRIVER\nStatus: LIVE_SUPPORTED\nHalf of the canonical session-wide live fit; manual override excluded",
+    "current_rect": [
+      962,
+      41,
+      129,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      917,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1082,
+      511
+    ]
+  },
+  {
+    "image": "r16_live_q1_limited_wide.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R16_live_checkpoints.jsonl",
+    "message_index": 4914,
+    "remaining_s": 300.0,
+    "part": "Q1",
+    "status": "LIVE_LIMITED",
+    "requested_width": 1500,
+    "actual_width": 1500,
+    "height": 900,
+    "current_text": "Projected cutoff: 1:38.227",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected cutoff: 1:38.227 \u00b7 Live limited",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: LIVE_PER_DRIVER\nStatus: LIVE_LIMITED\nHalf of the canonical session-wide live fit; manual override excluded",
+    "current_rect": [
+      1338,
+      41,
+      153,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      1317,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1482,
+      661
+    ]
+  },
+  {
+    "image": "r16_live_q1_limited_narrow.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R16_live_checkpoints.jsonl",
+    "message_index": 4914,
+    "remaining_s": 300.0,
+    "part": "Q1",
+    "status": "LIVE_LIMITED",
+    "requested_width": 1100,
+    "actual_width": 1100,
+    "height": 750,
+    "current_text": "Projected cutoff: 1:38.227",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected cutoff: 1:38.227 \u00b7 Live limited",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: LIVE_PER_DRIVER\nStatus: LIVE_LIMITED\nHalf of the canonical session-wide live fit; manual override excluded",
+    "current_rect": [
+      938,
+      41,
+      153,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      917,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1082,
+      511
+    ]
+  },
+  {
+    "image": "r17_live_q2_fallback_wide.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R17_live_checkpoints.jsonl",
+    "message_index": 947,
+    "remaining_s": 299.955102,
+    "part": "Q2",
+    "status": "FALLBACK",
+    "requested_width": 1500,
+    "actual_width": 1500,
+    "height": 900,
+    "current_text": "Projected cutoff: 1:32.963",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected cutoff: 1:32.963 \u00b7 Fallback \u00b7 FP/default prior",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: CONFIGURED_FP_DEFAULT_PRIOR\nStatus: FALLBACK\nNo live fit; configured fallback unchanged (not a live R&D estimate)",
+    "current_rect": [
+      1337,
+      41,
+      154,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      1317,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1482,
+      661
+    ]
+  },
+  {
+    "image": "r17_live_q2_fallback_narrow.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R17_live_checkpoints.jsonl",
+    "message_index": 947,
+    "remaining_s": 299.955102,
+    "part": "Q2",
+    "status": "FALLBACK",
+    "requested_width": 1100,
+    "actual_width": 1100,
+    "height": 750,
+    "current_text": "Projected cutoff: 1:32.963",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected cutoff: 1:32.963 \u00b7 Fallback \u00b7 FP/default prior",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: CONFIGURED_FP_DEFAULT_PRIOR\nStatus: FALLBACK\nNo live fit; configured fallback unchanged (not a live R&D estimate)",
+    "current_rect": [
+      937,
+      41,
+      154,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      917,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1082,
+      511
+    ]
+  },
+  {
+    "image": "r17_live_q1_unavailable_wide.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R17_live_checkpoints.jsonl",
+    "message_index": 5,
+    "remaining_s": 509.955102,
+    "part": "Q1",
+    "status": "FALLBACK",
+    "requested_width": 1500,
+    "actual_width": 1500,
+    "height": 900,
+    "current_text": "Projected cutoff: \u2014",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected cutoff: \u2014 \u00b7 Unavailable",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: UNAVAILABLE\nStatus: UNAVAILABLE\nNo observed cutoff target",
+    "current_rect": [
+      1378,
+      41,
+      113,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      1317,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1482,
+      661
+    ]
+  },
+  {
+    "image": "r17_live_q1_unavailable_narrow.png",
+    "checkpoint_file": "/Users/zhxutong/.codex/visualizations/2026/10/19/01a155e2-6956-7a51-98a3-b8236305d1f5/track-correction-research/data/replay_R17_live_checkpoints.jsonl",
+    "message_index": 5,
+    "remaining_s": 509.955102,
+    "part": "Q1",
+    "status": "FALLBACK",
+    "requested_width": 1100,
+    "actual_width": 1100,
+    "height": 750,
+    "current_text": "Projected cutoff: \u2014",
+    "experimental_text": "R&D \u00b7 Half-live [Experimental] \u00b7 Projected cutoff: \u2014 \u00b7 Unavailable",
+    "experimental_tooltip": "Candidate: half_live (experimental; limited historical evaluation, not validated prospective performance).\nIndependent of manual overrides: uses half the automatic fitted live rate, or the configured FP/default prior unchanged when no live fit is available.\nSource: UNAVAILABLE\nStatus: UNAVAILABLE\nNo observed cutoff target",
+    "current_rect": [
+      978,
+      41,
+      113,
+      15
+    ],
+    "experimental_rect": [
+      174,
+      58,
+      917,
+      15
+    ],
+    "table_rect": [
+      9,
+      79,
+      1082,
+      511
+    ]
+  }
+]

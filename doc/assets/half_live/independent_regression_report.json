@@ -1,0 +1,124 @@
+{
+  "result": "PASS for completed scope; one long replay test deliberately not completed",
+  "review_completion": "Independent agent executed review and test runs; primary agent collected final results after reviewer usage limit.",
+  "accepted_counts": {
+    "passed": 1003,
+    "skipped": 5
+  },
+  "feature_counts": {
+    "passed": 1139,
+    "skipped": 5
+  },
+  "completed_shared_test_count": 1008,
+  "shared_results_identical": true,
+  "new_tests_passed": 136,
+  "not_completed": [
+    "tests/test_quali_replay_determinism.py::test_r13_canonical_sequences_are_independent_of_batch_speed_and_reads"
+  ],
+  "interruption": "Both broad runs were interrupted in multi-pass R13 replay after R14 and R17 completed; remaining tests ran separately. Unnamed JUnit interruption placeholders are excluded and overlapping tests deduplicated.",
+  "environment_recheck": "One shared-output path test failed identically because research snapshots have no .git metadata. The identical test passed for both versions using real accepted woData/woStrategy worktrees; no code or golden was changed.",
+  "skipped": {
+    "tests.test_quali_historical_cutoffs::test_r16_completed_cutoffs_match_final_rankings_after_reset": "R16 live recording unavailable",
+    "tests.test_quali_historical_cutoffs::test_r16_post_chequered_lin_deletion_moves_historical_cutoff_to_hul": "R16 live recording unavailable",
+    "tests.test_quali_r16_projection_identity::test_r16_projection_uses_real_completed_event_provenance_through_q1_q2_q3": "R16 live recording unavailable",
+    "tests.test_quali_r16_replay::test_r16_traffic_missingness_preserves_promoted_live_fit_without_pooled_fallback": "R16 live recording unavailable",
+    "tests.test_quali_red_line::test_r16_all_rendered_boundaries_are_fixed_and_q3_has_none": "R16 live recording unavailable"
+  },
+  "phases": {
+    "accepted": {
+      "suite": {
+        "xml_statistics": [
+          {
+            "name": "pytest",
+            "errors": "0",
+            "failures": "0",
+            "skipped": "5",
+            "tests": "699",
+            "time": "522.469",
+            "timestamp": "2026-10-19T22:29:42.310560+01:00",
+            "hostname": "MacBookPro.lan"
+          }
+        ],
+        "completed": false
+      },
+      "remainder": {
+        "xml_statistics": [
+          {
+            "name": "pytest",
+            "errors": "0",
+            "failures": "1",
+            "skipped": "1",
+            "tests": "361",
+            "time": "82.666",
+            "timestamp": "2026-10-19T22:33:48.054980+01:00",
+            "hostname": "MacBookPro.lan"
+          }
+        ],
+        "completed": true
+      },
+      "runtime-recheck": {
+        "xml_statistics": [
+          {
+            "name": "pytest",
+            "errors": "0",
+            "failures": "0",
+            "skipped": "0",
+            "tests": "1",
+            "time": "16.035",
+            "timestamp": "2026-10-19T22:38:24.221385+01:00",
+            "hostname": "MacBookPro.lan"
+          }
+        ],
+        "completed": true
+      }
+    },
+    "feature": {
+      "suite": {
+        "xml_statistics": [
+          {
+            "name": "pytest",
+            "errors": "0",
+            "failures": "0",
+            "skipped": "5",
+            "tests": "835",
+            "time": "520.923",
+            "timestamp": "2026-10-19T22:29:43.478362+01:00",
+            "hostname": "MacBookPro.lan"
+          }
+        ],
+        "completed": false
+      },
+      "remainder": {
+        "xml_statistics": [
+          {
+            "name": "pytest",
+            "errors": "0",
+            "failures": "1",
+            "skipped": "1",
+            "tests": "361",
+            "time": "83.734",
+            "timestamp": "2026-10-19T22:33:49.192414+01:00",
+            "hostname": "MacBookPro.lan"
+          }
+        ],
+        "completed": true
+      },
+      "runtime-recheck": {
+        "xml_statistics": [
+          {
+            "name": "pytest",
+            "errors": "0",
+            "failures": "0",
+            "skipped": "0",
+            "tests": "1",
+            "time": "15.999",
+            "timestamp": "2026-10-19T22:38:24.231506+01:00",
+            "hostname": "MacBookPro.lan"
+          }
+        ],
+        "completed": true
+      }
+    }
+  },
+  "deduplicated_test_outcomes": "regression_test_outcomes.json.gz"
+}
