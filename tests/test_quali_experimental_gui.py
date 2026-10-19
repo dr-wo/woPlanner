@@ -119,6 +119,50 @@ def test_part_transitions_and_session_restart_clear_experimental_state(window, m
     assert "not Qualifying" in window.experimental_cutoff.toolTip()
 
 
+@pytest.mark.parametrize("action", ["restart", "reject"])
+def test_new_or_rejected_session_clears_previous_current_clock_and_finish(window, monkeypatch, action):
+    state = replace(snapshot("Q3"), normal_finished=True, normal_finish_source="race_control")
+    window._render_cutoff_predictions(state)
+    window._render_normal_finish(state)
+    window.clock.setText("Q3 0:00")
+    window._presentation_countdown.update(state)
+    window.timer.start()
+    monkeypatch.setattr(window, "_show_non_quali_warning", lambda: None)
+    if action == "restart":
+        window._prepare_session_start()
+    else:
+        window._reject_non_quali_session()
+    assert window.cutoff.text() == "Projected cutoff: —"
+    assert window.clock.text() == "—:—"
+    assert window.normal_finish.text() == ""
+    assert window.normal_finish.toolTip() == ""
+    assert window.experimental_cutoff.text().endswith("Unavailable")
+    assert not window.timer.isActive()
+
+
+@pytest.mark.parametrize("failure_stage", ["configure_event_geometry", "start_replay"])
+def test_failed_replay_restart_cannot_repaint_previous_prediction(window, monkeypatch, tmp_path, failure_stage):
+    path = tmp_path / "replay.jsonl"
+    path.write_text("")
+    window.replay_path.setText(str(path))
+    window._render_cutoff_predictions(snapshot("Q3"))
+    window.clock.setText("Q3 1:00")
+    window.timer.start()
+    errors = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda *args: errors.append(args[-1]))
+    monkeypatch.setattr(window.service, "configure_event_geometry", lambda *args: None)
+    def fail(*args):
+        raise RuntimeError("Replay startup failed")
+    monkeypatch.setattr(window.service, failure_stage, fail)
+    window._start_replay()
+    QtWidgets.QApplication.processEvents()
+    assert errors == ["Replay startup failed"]
+    assert window.cutoff.text() == "Projected cutoff: —"
+    assert window.clock.text() == "—:—"
+    assert window.experimental_cutoff.text().endswith("Unavailable")
+    assert not window.timer.isActive()
+
+
 @pytest.mark.parametrize("width", [1500, 1100])
 @pytest.mark.parametrize("part", ["Q1", "Q2", "Q3"])
 def test_two_lines_fit_above_table_at_wide_and_minimum_window_sizes(window, width, part):

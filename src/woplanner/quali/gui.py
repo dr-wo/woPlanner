@@ -399,6 +399,14 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.experimental_cutoff.setText("R&D · Half-live [Experimental] · Unavailable")
         self.experimental_cutoff.setToolTip(f"Candidate: half_live\n{reason}")
 
+    def _clear_session_prediction_display(self, reason: str) -> None:
+        self.cutoff.setText("Projected cutoff: —")
+        self.clock.setText("—:—")
+        self.normal_finish.clear()
+        self.normal_finish.setToolTip("")
+        self._presentation_countdown = PresentationCountdown()
+        self._clear_experimental_cutoff(reason)
+
     def _render_normal_finish(self, snapshot) -> None:
         self.normal_finish.setText("SESSION CHEQUERED" if snapshot.normal_finished else "")
         self.normal_finish.setToolTip(
@@ -406,7 +414,9 @@ class QualiWindow(QtWidgets.QMainWindow):
         )
 
     def _prepare_session_start(self) -> None:
-        self._clear_experimental_cutoff("Waiting for the new qualifying session.")
+        # A failed restart must not repaint the previous session's prediction.
+        self.timer.stop()
+        self._clear_session_prediction_display("Waiting for the new qualifying session.")
         self._session_metadata_signature = None
         self._non_quali_warning_shown = False
         self.analyze.setEnabled(False)
@@ -465,7 +475,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.plan.setEnabled(False)
         self.table.setRowCount(0)
         self.pit_table.clearContents()
-        self._clear_experimental_cutoff("The received session is not Qualifying.")
+        self._clear_session_prediction_display("The received session is not Qualifying.")
         self._show_non_quali_warning()
 
     def _show_non_quali_warning(self) -> None:
