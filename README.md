@@ -52,6 +52,10 @@ at causal leader-lap cuts. Dashed/solid source styling distinguishes assumed,
 derived and directly Race-informed values; ESS is shown as sampler-adequacy
 diagnostic, not inference confidence.
 
+On main, automatic Race traffic remains unavailable and retains the existing
+tyre model. Live recalculation requires explicit sector-boundary mode and enough
+eligible clean laps; see [live-mode operation](doc/USER_GUIDE.md#live-mode).
+
 ## What to inspect
 
 - [`src/woplanner/quali`](src/woplanner/quali) — qualifying projection, run state
