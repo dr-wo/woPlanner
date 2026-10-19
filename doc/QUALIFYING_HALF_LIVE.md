@@ -141,3 +141,40 @@ See `independent_regression_report.json` and compressed raw logs/JUnit files.
 The independent reviewer completed source, numerical and visual review with
 no blocking findings; the primary agent collected final regression results
 after the reviewer reached its usage limit.
+
+## Release integration replay verification
+
+The final integration run uses the native macOS Qt application, its Replay
+button, background replay source, controller queue, normal timer polling,
+resource loader and GUI rendering. No research snapshot is injected. The
+read-only resource copy contains the original R14/R17 FP artifacts, with file
+hashes recorded separately. Accepted woData/woStrategy worktrees are used.
+
+R14's original live recording has 18,462 messages and covers Q1/Q2/Q3; R17 has
+8,134 messages and starts in Q2, covering Q2/Q3 only. At every established replay
+snapshot the integration observer independently checks the active-field target,
+Q1/Q2 elimination rank or Q3 P1, unfinished count and the two projection
+formulas. Every eligible observed target has a finite Current prediction.
+Unavailable states at segment boundaries clear when that segment has a valid
+observed target. Both labels are checked against the actual rendered texts.
+
+R14 Current changes 19/20/17 times across Q1/Q2/Q3. R17 changes 13/14 times
+across Q2/Q3. Genuine replay covers configured-default fallback, live-limited
+and live-supported states. Representative R17 Q3 predictions are Current
+91.21867592592594 s and Half-live 91.29583796296298 s. The actual Plan dialog's
+manual override changes Current on an unfinished Q2 field while leaving
+Half-live unchanged. Native window captures verify both rows at wide and
+minimum supported widths. Nonzero fallback and invalid/nonfinite inputs remain
+supplementary fixture-based tests, rather than claims about these recordings.
+
+Independent review discovered a pre-existing stale-display edge: restart failure
+or a non-Qualifying session could leave the old Current label visible. The
+integration fix clears both labels, countdown and chequered indication and
+stops the old polling timer on restart. Four regression cases cover restart,
+rejection and both replay startup failure stages. Estimator mathematics, source
+precedence, historical goldens and production publications are unchanged.
+
+The compact release evidence and genuine replay screenshots are kept in the
+local workspace output directory `outputs/quali_half_live_release_20261019`.
+They are distinct from the older injected-checkpoint screenshots above. The
+release completion report records the final merge commit and post-merge tests.
