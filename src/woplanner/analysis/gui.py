@@ -18,8 +18,12 @@ from wodata.artifacts import weekend_model_root
 from wodata.colours import TEAM_COLOURS, get_team_colour
 
 from ..common.visual_styles import COMPOUND_COLOURS
+from ..common.status import fit_status_label
 from ..operational_inputs import load_operational_race_inputs
-from .service import OfflineAnalysisService, leader_lap_snapshots
+from .service import (
+    LIVE_AUTOMATIC_MC_READINESS, OfflineAnalysisService, leader_lap_snapshots,
+    live_traffic_provenance, live_traffic_method_label,
+)
 from .worker import AnalysisQueuePolicy, LiveAnalysisProcessService
 from .p1_reference_widget import P1ReferenceWidget
 from .tyre_inputs import TYRE_PARAMETERS, tyre_snapshot_from_overrides
@@ -308,6 +312,7 @@ class StrategyBarWidget(QtWidgets.QWidget):
 
 class StrategyPredictionWindow(QtWidgets.QDialog):
     session_closing = QtCore.Signal(object, object)
+    traffic_readiness_changed = QtCore.Signal(str)
 
     def __init__(
         self,
@@ -323,6 +328,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         live_operational_controls: bool = False,
         initial_model_summary=None,
         telemetry_worker=None,
+        event_config_path: str | Path | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -339,7 +345,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._operational_race_inputs = None
         if self.strategy_mode is StrategyPredictionMode.CURRENT_EVENT:
             try:
-                operational = load_operational_race_inputs()
+                operational = (load_operational_race_inputs() if event_config_path is None
+                               else load_operational_race_inputs(event_config_path))
             except Exception as exc:
                 self._operational_input_error = (
                     f"Current-event operational config could not be read: {exc}. "
@@ -395,6 +402,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._strategy_request_context: tuple[object, ...] | None = None
         self._reported_analysis_error: str | None = None
         self._current_model_summary = None
+        self._mc_state = "Waiting for required race inputs / live timing"
+        self._mc_processed_lap = 0
+        self._mc_eligible_count = None
+        self._mc_fresh_analysis_id = None
+        self._mc_last_success = None
+        self._mc_feed_status = "Idle / disconnected"
         self._live_snapshot = None
         # A reopened live dialog must not enqueue earlier cuts and replace the
         # restored model with lap-zero/early-lap evidence again.
@@ -438,6 +451,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.resize(980, 680)
         layout = QtWidgets.QVBoxLayout(self)
         self.status_label = QtWidgets.QLabel("Loading model…")
+        # Separate from transient model/queue status and visible on every tab,
+        # including before the first race snapshot has arrived.
+        self.mc_readiness_label = QtWidgets.QLabel()
+        self.mc_readiness_label.setWordWrap(True)
+        self.mc_readiness_label.setVisible(self.live_operational_controls)
+        self.model_traffic_label = QtWidgets.QLabel("Displayed model: unavailable")
+        self.model_traffic_label.setWordWrap(True)
+        self.model_traffic_label.setVisible(self.live_operational_controls)
         self.tabs = QtWidgets.QTabWidget()
         self.model_table = QtWidgets.QTableWidget()
         self.tyre_inputs_tab = self._build_tyre_inputs_tab()
@@ -455,6 +476,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self.tabs.addTab(self.p1_reference, "P1 Pace Reference")
         self.tabs.currentChanged.connect(self._strategy_tab_changed)
         layout.addWidget(self.status_label)
+        layout.addWidget(self.mc_readiness_label)
+        layout.addWidget(self.model_traffic_label)
         self.team_scope_widget = QtWidgets.QWidget(self)
         self.team_scope_widget.setToolTip(self.team_standings_source)
         scope_layout = QtWidgets.QVBoxLayout(self.team_scope_widget)
@@ -1389,9 +1412,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.exclude_stint_end_laps.setRange(0, 10)
         self.traffic_source = QtWidgets.QComboBox()
         self.traffic_source.addItem(
-            "Automatic Race traffic unavailable (model retained)", "automatic"
+            "Automatic — using Sector timing boundaries", "automatic"
         )
-        self.traffic_source.addItem("Force sector-boundary only", "sector")
+        self.traffic_source.addItem("Sector timing boundaries", "sector")
         self.min_gap_ahead = QtWidgets.QDoubleSpinBox()
         self.min_gap_ahead.setRange(0.0, 30.0)
         self.min_gap_ahead.setDecimals(1)
@@ -1418,9 +1441,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         controls.addRow("Clean-lap definition", self.clean_details_button)
         controls.addRow("Traffic source", self.traffic_source)
         self.live_note = QtWidgets.QLabel(
-            "Automatic Race traffic is quarantined: gap decisions are not validated. "
-            "Existing model state is retained without a new Race update. "
-            "Sector-boundary mode remains available only when explicitly selected."
+            "Automatic currently uses Sector timing boundaries. Position-derived traffic "
+            "remains experimental. A new Race fit still requires enough eligible clean laps."
         )
         self.live_note.setWordWrap(True)
         self.calculation_log = QtWidgets.QPlainTextEdit()
@@ -1457,9 +1479,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(dialog)
         fixed = QtWidgets.QLabel(
             "A lap must have a positive completed lap time plus compound, tyre-life, "
-            "and stint metadata. Automatic Race traffic is unavailable while position gaps "
-            "remain unvalidated. Existing model state is retained. "
-            "Sector-boundary traffic requires explicit selection; there is no automatic fallback."
+            "and stint metadata. Automatic currently uses Sector timing boundaries while "
+            "Position-derived traffic remains experimental. The model records the requested "
+            "mode and the effective traffic method separately."
         )
         fixed.setWordWrap(True)
         layout.addWidget(fixed)
@@ -1468,8 +1490,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         form.addRow("Minimum consecutive laps after exclusions", self.min_clean_laps)
         form.addRow("Exclude laps at run start", self.exclude_stint_start_laps)
         form.addRow("Exclude laps at run end", self.exclude_stint_end_laps)
-        form.addRow("Clear ahead by at least", self.min_gap_ahead)
-        form.addRow("Clear behind by at least", self.min_gap_behind)
+        form.addRow("Clear ahead by more than", self.min_gap_ahead)
+        form.addRow("Clear behind by more than", self.min_gap_behind)
         compounds = QtWidgets.QHBoxLayout()
         for checkbox in self.clean_compound_checks.values():
             compounds.addWidget(checkbox)
@@ -1478,10 +1500,10 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         layout.addLayout(form)
         explanation = QtWidgets.QLabel(
             "Filtering order: required metadata → allowed compound → lap-time threshold "
-            "→ selected traffic gaps → consecutive driver/stint run → start/end "
-            "exclusions → minimum run length. Automatic traffic remains quarantined. "
-            "Explicit sector-boundary mode requires "
-            "all four boundaries: lap start, S1, S2 and lap end."
+            "→ green track and non-pit lap → selected traffic gaps → start/end exclusions "
+            "→ minimum driver/stint clean-run length. Sector requires ahead and behind "
+            "crossings at all four boundaries: lap start, S1, S2 and lap end. "
+            "The minimum gap on each side must be strictly above its threshold; equality fails."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
@@ -1500,23 +1522,71 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         return self.traffic_source.currentData() == "sector"
 
     def _update_clean_definition_label(self, *_args) -> None:
+        self._refresh_mc_readiness()
         compounds = "/".join(self._selected_clean_compounds()) or "none"
         self.clean_definition_label.setText(
             f"Current: ≤{self.quick_threshold.value():.3f}× driver fastest; "
             f"minimum run {self.min_clean_laps.value()}; exclude "
             f"{self.exclude_stint_start_laps.value()} at start / "
             f"{self.exclude_stint_end_laps.value()} at end; compounds {compounds}; "
-            + (
-                f"forced sector gaps ≥{self.min_gap_ahead.value():.1f}s ahead / "
-                f"≥{self.min_gap_behind.value():.1f}s behind."
-                if self._force_sector_traffic()
-                else (
-                    "automatic Race traffic unavailable; existing model retained, "
-                    "no new Race update and no automatic fallback."
-                )
-            )
+            f"Sector timing boundaries: >{self.min_gap_ahead.value():.1f}s ahead / "
+            f">{self.min_gap_behind.value():.1f}s behind at all four boundaries."
         )
         self._refresh_observed_undercut()
+
+    def _refresh_mc_readiness(self) -> None:
+        readiness = (
+            "Requested: Sector. Effective: Sector timing boundaries. Live MC runs "
+            "when enough clean laps are available."
+            if self._force_sector_traffic() else LIVE_AUTOMATIC_MC_READINESS
+        )
+        summary = self._current_model_summary
+        manifest = summary.manifest if summary is not None else {}
+        identity = manifest.get("analysis_id")
+        displayed = (
+            "fresh calculation" if identity and identity == self._mc_fresh_analysis_id
+            else "previously saved model" if summary is not None else "no model"
+        )
+        provenance = live_traffic_provenance(manifest)
+        last_success = self._mc_last_success or provenance.get("calculated_at") or "none"
+        count = self._mc_eligible_count if self._mc_eligible_count is not None else "not checked"
+        readiness += (
+            f"\nMC: {self._mc_state}. Latest processed race lap: {self._mc_processed_lap}; "
+            f"eligible observations: {count}; displayed: {displayed}"
+            + (f" (L{manifest.get('as_of_leader_lap', '?')})" if summary is not None else "")
+            + f"; last successful MC update: {last_success}; timing: {self._mc_feed_status}."
+        )
+        self.mc_readiness_label.setText(readiness)
+        fit_status_label(self.mc_readiness_label)
+        self.traffic_readiness_changed.emit(readiness)
+        self.mc_readiness_label.setStyleSheet(
+            "QLabel { background: #fff4ce; color: #302500; padding: 7px; }"
+        )
+
+    def set_live_feed_status(self, status: str) -> None:
+        self._mc_feed_status = status
+        self._refresh_mc_readiness()
+
+    def _mc_failure(self, reason: str) -> None:
+        self._reported_analysis_error = reason
+        state = ("Waiting for required race inputs" if any(
+            token in reason for token in ("model_config", "pre_race_analysis", "tyre input")
+        ) else "Calculation failed")
+        self._mc_state = f"{state}: {reason}; will retry on the next leader lap"
+        self.status_label.setText(self._mc_state)
+        self._append_log(self._mc_state)
+        self._refresh_mc_readiness()
+
+    def _update_model_traffic_label(self, summary) -> None:
+        manifest = summary.manifest
+        provenance = live_traffic_provenance(manifest)
+        identity = str(manifest.get("analysis_id") or "unknown ID")
+        timestamp = provenance.get("calculated_at")
+        self.model_traffic_label.setText(
+            f"Displayed model {identity}: {live_traffic_method_label(manifest)}"
+            + (f"; calculated {timestamp}" if timestamp else "")
+        )
+        self.model_traffic_label.setToolTip(json.dumps(provenance, ensure_ascii=False, default=str))
 
     def _refresh_observed_undercut(self) -> None:
         if not self.live_operational_controls or not hasattr(self, "observed_undercut"):
@@ -1561,9 +1631,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 summary = self.service.load_model(self.year, self.round_number)
         except Exception as exc:
             self.status_label.setText(f"Model unavailable: {exc}")
+            self._mc_state = f"Waiting for required race inputs / first clean-run model: {exc}"
+            self._refresh_mc_readiness()
             self.generate_button.setEnabled(False)
             return
         self._current_model_summary = summary
+        self._update_model_traffic_label(summary)
         self._refresh_strategy_teams(summary)
         columns = [
             "parameter", "compound", "session", "median", "p10", "p90",
@@ -1593,6 +1666,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self.status_label.setText(
             f"Model: {summary.status}" + (f" — {reason}" if reason else "")
         )
+        self._refresh_mc_readiness()
 
     def _load_history(self) -> None:
         selected = (
@@ -1755,6 +1829,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         completed = self._analysis_worker.poll()
         if completed is not None:
             result = completed.result
+            self._mc_processed_lap = completed.prepared_leader_lap or result.leader_lap
+            self._mc_eligible_count = result.eligible_lap_count
             source_text = ", ".join(
                 f"{session}={count}" for session, count in result.clean_lap_sources
             ) or "none"
@@ -1774,6 +1850,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 f"IPC={completed.ipc_elapsed_seconds * 1000.0:.0f}ms"
                 + (f"; runtime={dict(result.runtime_breakdown)}" if result.runtime_breakdown else "")
                 + (f"; model={result.analysis_id}" if result.analysis_id else "")
+                + f"; requested={getattr(result, 'requested_traffic_mode', 'unrecorded')}"
+                + f"; effective={getattr(result, 'effective_traffic_method', 'unrecorded')}"
+                + f"; method_version={getattr(result, 'traffic_method_version', 'unrecorded')}"
             )
             if result.exclusion_diagnostics:
                 self._append_log(
@@ -1785,26 +1864,54 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 )
             if result.status == "traffic-unavailable":
                 self.status_label.setText(
-                    "Automatic Race traffic unavailable; existing model retained (no Race update)."
+                    result.traffic_unavailable_reason or "Traffic evidence unavailable; existing model retained."
                 )
                 self._append_log(result.traffic_unavailable_reason or "Traffic unavailable; model retained.")
-            if result.status == "updated":
-                if self.persistence_mode == "temporary":
-                    self.service.publish_temporary_worker_snapshot(
-                        self.year, self.round_number, completed
-                    )
-                self._load_model(summary=completed.summary, record_history=True)
+            elif result.status == "waiting-for-clean-laps":
                 self.status_label.setText(
-                    f"Current model: V{completed.model_version} (leader lap {result.leader_lap})"
+                    result.traffic_unavailable_reason
+                    or "Waiting for enough eligible clean-run observations — Sector timing boundaries."
                 )
+            elif result.status == "no-new-clean-laps":
+                self.status_label.setText(result.traffic_unavailable_reason or
+                    "No new eligible clean laps; displayed model retained.")
+            if result.status == "updated":
+                previous_summary = self._current_model_summary
+                try:
+                    if self.persistence_mode == "temporary":
+                        self.service.publish_temporary_worker_snapshot(
+                            self.year, self.round_number, completed
+                        )
+                    self._load_model(summary=completed.summary, record_history=True)
+                except Exception as exc:
+                    self._current_model_summary = previous_summary
+                    # Rendering/history can fail after the table has changed.
+                    # Restore the visible model as well as its Python identity.
+                    if previous_summary is not None:
+                        try:
+                            self._load_model(summary=previous_summary)
+                        except Exception:
+                            self.model_table.setRowCount(0)
+                            self.model_traffic_label.setText("Displayed model: publication failed")
+                    else:
+                        self.model_table.setRowCount(0)
+                        self.model_traffic_label.setText("Displayed model: unavailable (publication failed)")
+                    self._mc_failure(f"Result publication failed: {exc}")
+                    return
+                self._mc_fresh_analysis_id = result.analysis_id
+                self._mc_last_success = datetime.now(timezone.utc).isoformat()
+                self.status_label.setText(
+                    f"Current model: V{completed.model_version} (leader lap {result.leader_lap}); "
+                    + live_traffic_method_label(completed.summary.manifest)
+                    )
+            self._mc_state = self.status_label.text()
             self._reported_analysis_error = None
         error = self._analysis_worker.last_error
         if error and error != self._reported_analysis_error:
-            self._reported_analysis_error = error
             current = self._analysis_worker.current_result_version
             current_text = f"; retaining V{current}" if current is not None else ""
-            self.status_label.setText(f"Live analysis failed{current_text}: {error}")
-            self._append_log(f"Live analysis failed{current_text}: {error}")
+            self._mc_failure(f"Live analysis failed{current_text}: {error}")
+            self._reported_analysis_error = error
             self._analysis_worker.cancel_pending()
             self._telemetry_build_options.clear()
             if self._telemetry_worker is not None:
@@ -1835,6 +1942,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 f"{current_text}Analysis: preparing historical inputs; "
                 f"cuts waiting {len(self._telemetry_build_options)}…"
             )
+        if self._analysis_worker.analysis_running or self._telemetry_build_options:
+            self._mc_state = self.status_label.text()
+        self._refresh_mc_readiness()
 
     def _poll_telemetry_inputs(self) -> None:
         if self._telemetry_worker is None:
@@ -1852,19 +1962,23 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 continue
             leader_lap, options = pending
             if prepared.error or prepared.analysis_input is None:
-                self._append_log(
+                self._mc_failure(
                     f"MC input preparation failed at leader lap {leader_lap}: "
                     f"{prepared.error or 'no input'}"
                 )
                 continue
-            version = self._analysis_worker.submit(
-                year=self.year,
-                round_number=self.round_number,
-                snapshot=prepared.analysis_input,
-                options=options,
-                prepared_leader_lap=leader_lap,
-                prepared_cut=prepared.cut,
-            )
+            try:
+                version = self._analysis_worker.submit(
+                    year=self.year,
+                    round_number=self.round_number,
+                    snapshot=prepared.analysis_input,
+                    options=options,
+                    prepared_leader_lap=leader_lap,
+                    prepared_cut=prepared.cut,
+                )
+            except Exception as exc:
+                self._mc_failure(f"MC worker unavailable at leader lap {leader_lap}: {exc}")
+                continue
             self._append_log(
                 f"Prepared V{version}: leader lap {leader_lap}, cut={_cut_text(prepared.cut)}; "
                 f"{prepared.elapsed_seconds * 1000.0:.0f} ms; "
@@ -1941,9 +2055,14 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         self._append_log(f"Leader completed lap {leader_lap}; checking for new clean laps.")
         if not self.auto_recalculate.isChecked():
             self._append_log("Automatic recalculation is disabled.")
+            self._mc_state = "Automatic recalculation is disabled"
+            self._refresh_mc_readiness()
             return
         if self._reported_analysis_error is not None:
-            return
+            # A transient input/process/publication failure must not permanently
+            # disable all later laps. A fresh lane also replaces a broken pool.
+            self._append_log("Retrying Live MC after the previous failure.")
+            self._restart_analysis_worker()
         options = {
             "sample_count": self.sample_count.value(),
             "quick_lap_threshold": self.quick_threshold.value(),
@@ -1957,6 +2076,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             "enforce_compound_order": self.enforce_compound_order.isChecked(),
             "persist": self.persistence_mode == "durable",
         }
+        if self._operational_race_inputs is not None:
+            options["scheduled_total_laps_override"] = self._operational_race_inputs.total_laps
         queued_laps = (
             list(range(max(previous_leader_lap + 1, 1), leader_lap + 1))
             if self._analysis_worker.policy is AnalysisQueuePolicy.FIFO_ALL
@@ -1982,6 +2103,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 f"Queued {len(request_ids)} telemetry-to-MC input build(s) through "
                 f"leader lap {leader_lap}."
             )
+            self._mc_state = f"Calculation queued; preparing inputs through leader lap {leader_lap}"
+            self._refresh_mc_readiness()
             self._poll_timer.start()
             return
         queued_snapshots = (
@@ -1993,15 +2116,19 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             if self._analysis_worker.policy is AnalysisQueuePolicy.FIFO_ALL
             else [(leader_lap, snapshot)]
         )
-        versions = [
-            self._analysis_worker.submit(
-                year=self.year,
-                round_number=self.round_number,
-                snapshot=queued_snapshot,
-                options=options,
-            )
-            for _queued_lap, queued_snapshot in queued_snapshots
-        ]
+        try:
+            versions = [
+                self._analysis_worker.submit(
+                    year=self.year,
+                    round_number=self.round_number,
+                    snapshot=queued_snapshot,
+                    options=options,
+                )
+                for _queued_lap, queued_snapshot in queued_snapshots
+            ]
+        except Exception as exc:
+            self._mc_failure(f"MC worker unavailable at leader lap {leader_lap}: {exc}")
+            return
         if self._analysis_worker.policy is AnalysisQueuePolicy.FIFO_ALL:
             self._append_log(
                 f"MC replay queue: requested V{versions[0]}–V{versions[-1]}; "
@@ -2069,6 +2196,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         else:
             self._restart_analysis_worker()
             self.service.reset_live_tracking()
+            self._last_seen_leader_lap = 0
             self._auto_history_name = (
                 f"Live {self.year} R{self.round_number} "
                 + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -2837,6 +2965,11 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         new_rows = self._plot_rows_from_assumptions(
             assumptions, leader_lap
         )
+        provenance = live_traffic_provenance(summary.manifest)
+        for row in new_rows:
+            # Preserve the producing model's metadata, never the current selector.
+            row["semantics"] = {"live_traffic_provenance": dict(provenance)} if provenance else {}
+            row["analysis_id"] = summary.manifest.get("analysis_id")
         quality = dict(summary.manifest.get("sampler_quality") or {})
         race_delta_count = sum(
             row.get("compound_delta_source") == "race_evidence" for row in assumptions
@@ -2967,7 +3100,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 else "compound_delta_source",
                 "",
             )
-        columns = ["as_of_leader_lap", "parameter", "compound", "median", "source"]
+            row["traffic_method"] = live_traffic_method_label(row)
+        columns = ["as_of_leader_lap", "parameter", "compound", "median", "source", "traffic_method"]
         self._fill_table(self.history_table, self._displayed_history_rows, columns)
         self._plot_parameter_history(self._displayed_history_rows)
 

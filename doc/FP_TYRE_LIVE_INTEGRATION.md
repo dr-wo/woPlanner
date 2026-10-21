@@ -232,14 +232,15 @@ scheduled distance from maximum completed `LapNumber` when `TotalLaps` exists.
 
 ## Traffic assumptions
 
-The old zero-origin telemetry reconstruction is disabled for default live Race
-clean-lap decisions. Default automatic telemetry traffic is currently quarantined.
-First and repeated requests return `traffic-unavailable`, with no new Race update; existing Race
-model state and run/parameter history are retained when no new clean evidence
-can be produced. There is no automatic sector fallback.
+Automatic live Race traffic uses Sector timing boundaries v2 with causally
+bounded sector input recovery. Provenance records requested mode `automatic`,
+effective method `SECTOR_BOUNDARY_FALLBACK` and version
+`sector-boundaries-v2-input-recovery`. New eligible clean laps trigger MC;
+insufficient evidence retains existing model state and history with a waiting
+reason. The old zero-origin telemetry reconstruction remains disabled.
 
-**Force sector-boundary only** remains an explicitly selected existing mode.
-Its crossing gaps are a separate source and are not blended into telemetry
+**Sector timing boundaries** remains available explicitly. Its crossing gaps
+and Automatic's Sector gaps are not blended into telemetry
 means. Position-derived traffic remains diagnostic and is not activated for
 clean-lap decisions. Correct physical neighbours alone do not validate time-gap
 threshold decisions. Position.z history supports the track map and a diagnostic

@@ -1,0 +1,27 @@
+Live MC 比赛日操作清单
+
+生产合同
+- Traffic source 保持 Automatic；有效方法为 Sector timing boundaries，版本 sector-boundaries-v2-input-recovery。
+- Position-derived 仅供研究，未启用生产入口。缺少合格观测时等待，不代表新模型已生成。
+- 比赛距离须来自匹配赛事配置或真实 LapCount；R16/R17 回放分别验证 56/62 圈。
+- woData 的 Sector 输入恢复和重连提交必须与 woPlanner 配套使用；无需新增 woStrategy 算法改动。
+
+常规赛前准备完成后
+1. 核对真实目标赛事、race.json 身份及总圈数；不要为通过预检而借用上一站输入。
+2. 由原有赛前流程生成该站 model_config 与五项必需轮胎参数。
+3. 使用启动 woPlanner 的同一个 Python 环境运行：
+   /Users/zhxutong/dr-wo/.venv/bin/python /Users/zhxutong/dr-wo/woPlanner/scripts/preflight_live_mc.py --year 2026 --round 18
+   若实际目标不是 R18，替换 year/round。使用自定义赛事配置时加 --event-config；录制有独立设置时加 --state-directory。
+4. NOT READY / 退出 2 表示阻断：按每项 detail 修复。CONDITIONAL / 退出 0 仅说明本地检查通过，尚未认证未来现场网络。
+
+比赛日
+1. 重启旧窗口加载当前版本；确认 Live 显示的运行摘要和方法版本。
+2. 确认真实连接、赛事身份、LapCount、司机和轮胎元数据及计时持续更新；留意 disconnected / stale。
+3. 保持 Automatic 与自动重算。等待阶段应有明确原因；计算后核对 fresh calculation、圈数和最后成功时间。
+4. previously saved model 只是已有模型。计算或发布失败会显示原因，并在下一领先圈重试；若持续失败，先检查输入和存储权限。
+5. Strategy 窗口隐藏后仍接收更新。重连后核对状态恢复及新模型；无需在比赛中执行研究脚本。
+
+发布验证
+scripts/verify_live_mc_workflow.py 供离线发布验收，使用原始录制、真实 Qt/controller、独立 MC 进程和隔离保存目录。
+durable 模式验证自动持久化，replay 模式验证临时计算及显式保存；两者都不验证未来网络。
+详细提交、来源哈希、回归与回放证据记录在 outputs/live_mc_release_20261021/。

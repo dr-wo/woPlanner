@@ -52,9 +52,11 @@ at causal leader-lap cuts. Dashed/solid source styling distinguishes assumed,
 derived and directly Race-informed values; ESS is shown as sampler-adequacy
 diagnostic, not inference confidence.
 
-On main, automatic Race traffic remains unavailable and retains the existing
-tyre model. Live recalculation requires explicit sector-boundary mode and enough
-eligible clean laps; see [live-mode operation](doc/USER_GUIDE.md#live-mode).
+Automatic Race traffic uses Sector timing boundaries v2 with bounded input
+recovery. Eligible clean laps trigger live recalculation; insufficient evidence
+retains the existing model with a waiting reason. See
+[live-mode operation](doc/USER_GUIDE.md#live-mode) and the
+[Live MC race-day checklist](doc/LIVE_MC_RACE_DAY.zh-CN.txt).
 
 ## What to inspect
 

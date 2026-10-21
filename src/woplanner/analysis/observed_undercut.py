@@ -187,7 +187,8 @@ def build_observed_undercut_estimates(
     must certify explicit racing pit entry and exit. Old snapshots without that
     evidence are safely unavailable. MC minimum-run and edge rules do not apply.
     """
-    from .service import _live_individual_clean_laps
+    from .service import LIVE_SECTOR_METHOD_VERSION, _live_individual_clean_laps
+    from wostrategy.analysis.traffic import SECTOR_BOUNDARY_FALLBACK
     from wodata.live.session_identity import parse_session_identity
 
     session_name = parse_session_identity(
@@ -204,6 +205,11 @@ def build_observed_undercut_estimates(
         min_gap_behind_seconds=float(min_gap_behind_seconds),
     )
     prepared = _live_individual_clean_laps(snapshot, **settings)
+    settings.update(
+        requested_traffic_mode="sector" if use_sector_boundary_traffic else "automatic",
+        effective_traffic_method=SECTOR_BOUNDARY_FALLBACK,
+        traffic_method_version=LIVE_SECTOR_METHOD_VERSION,
+    )
     clean_keys = set()
     if not prepared.empty:
         clean_keys = {(str(row.Driver), int(row.LapNumber)) for row in
@@ -259,11 +265,14 @@ def build_observed_undercut_estimates(
             available = pre is not None and post is not None
             missing = [name for name, lap in (("pre-stop", pre), ("post-stop", post))
                        if lap is None]
+            pending_reason = None if available else (
+                "Missing clean " + " and ".join(missing) + " reference (Sector timing boundaries)"
+            )
             result.append(ObservedUndercutEstimate(
                 before.driver_code, number, int(stop_id), before.lap_number,
                 after.lap_number, before.stint, after.stint, before.compound, after.compound,
                 "available" if available else "pending",
-                None if available else "Missing clean " + " and ".join(missing) + " reference",
+                pending_reason,
                 pre_lap, post_lap, float(pre.lap_time_s) if pre else None,
                 float(post.lap_time_s) if post else None,
                 post_lap - pre_lap if available else None,

@@ -1112,10 +1112,15 @@ def test_live_strategy_entry_explicitly_enables_team_scope(monkeypatch, source_m
 
     class StrategyDialog(QtWidgets.QDialog):
         session_closing = QtCore.Signal(object, object)
+        traffic_readiness_changed = QtCore.Signal(str)
 
         def __init__(self, **kwargs):
             captured.update(kwargs)
             super().__init__(kwargs.get("parent"))
+            self.mc_readiness_label = QtWidgets.QLabel("Sector timing boundaries")
+
+        def set_live_feed_status(self, status):
+            captured["feed_status"] = status
 
         def consume_live_snapshot(self, snapshot):
             captured["snapshot"] = snapshot

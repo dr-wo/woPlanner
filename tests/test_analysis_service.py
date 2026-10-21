@@ -657,8 +657,8 @@ def test_live_clean_lap_sector_boundary_filter_requires_clear_ahead_and_behind()
 
     automatic = _live_traffic_gaps(snapshot)
     target_traffic = automatic.loc[automatic["Driver"].eq("TARGET")].iloc[0]
-    assert pd.isna(target_traffic["TrafficMethod"])
-    assert target_traffic["TrafficStatus"] == "unknown"
+    assert target_traffic["TrafficMethod"] == "SECTOR_BOUNDARY_FALLBACK"
+    assert target_traffic["TrafficStatus"] == "sector_fallback"
     assert target_traffic["DirectTrafficStatus"] == "unknown"
     assert target_traffic["PhysicalTrafficStatus"] == "unknown"
     assert pd.isna(target_traffic["MeanTimeDeltaToDriverAhead"])
@@ -697,7 +697,7 @@ def test_missing_live_telemetry_and_sector_data_is_explicitly_unknown():
     traffic = _live_traffic_gaps(snapshot)
     assert traffic["TrafficStatus"].tolist() == ["unknown"]
     assert traffic["CoverageFraction"].tolist() == [0.0]
-    assert "zero-origin estimator is disabled" in traffic["TrafficStatusReason"].iloc[0]
+    assert "missing complete four-boundary" in traffic["TrafficStatusReason"].iloc[0]
 
 
 def test_live_zero_origin_gaps_are_unavailable_even_with_speed_coverage():
@@ -1749,7 +1749,7 @@ def test_tyre_history_does_not_fabricate_missing_compound_delta():
     assert ("compound_delta", "HARD") not in segments
 
 
-def test_quarantine_repeats_explicitly_and_retains_model_and_history(tmp_path):
+def test_insufficient_sector_evidence_retains_model_and_history(tmp_path):
     write_model_snapshot(model_snapshot(),year=2026,round_number=5,data_root=tmp_path)
     service=OfflineAnalysisService(tmp_path)
     service._last_live_fingerprint='retained-fingerprint'
@@ -1764,33 +1764,31 @@ def test_quarantine_repeats_explicitly_and_retains_model_and_history(tmp_path):
     ) for lap in range(1,5)))
     for _ in range(2):
         result=service.recalculate_from_live_snapshot(year=2026,round_number=5,snapshot=snapshot,
-            sample_count=100,quick_lap_threshold=1.1,min_clean_laps=3)
-        assert result.status=='traffic-unavailable'
+            sample_count=100,quick_lap_threshold=1.1,min_clean_laps=5)
+        assert result.status in {'waiting-for-clean-laps', 'no-new-clean-laps'}
         assert result.model_state_retained
-        assert 'retained' in result.traffic_unavailable_reason
-        assert result.previous_clean_lap_count==7
-        assert result.clean_lap_sources==(('R',7),)
-        assert service._last_live_fingerprint=='retained-fingerprint'
-        assert service._last_clean_lap_count==7
+        assert 'Insufficient eligible observations' in result.traffic_unavailable_reason
+        assert result.effective_traffic_method == 'SECTOR_BOUNDARY_FALLBACK'
+        assert result.requested_traffic_mode == 'automatic'
         assert service._ephemeral_parameter_rows==[{'parameter':'sentinel'}]
         assert service._ephemeral_run_rows==[{'run':'sentinel'}]
         assert service.load_model(2026,5)==old_model
     assert before=={str(p.relative_to(tmp_path)):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
 
 
-def test_quarantine_first_update_without_a_model_is_explicit(tmp_path):
+def test_automatic_without_observations_waits_without_creating_model(tmp_path):
     service=OfflineAnalysisService(tmp_path)
     snapshot=LiveSessionSnapshot.empty()
     for _ in range(2):
         result=service.recalculate_from_live_snapshot(year=2026,round_number=5,snapshot=snapshot,
             sample_count=100,quick_lap_threshold=1.1,min_clean_laps=3)
-        assert result.status=='traffic-unavailable'
-        assert service._last_live_fingerprint is None
-        assert 'no Race update' in result.traffic_unavailable_reason
+        assert result.status in {'waiting-for-clean-laps', 'no-new-clean-laps'}
+        assert service._last_live_fingerprint is not None
+        assert 'Insufficient eligible observations' in result.traffic_unavailable_reason
     assert list(tmp_path.iterdir())==[]
 
 
-def test_quarantine_ui_explains_retention_without_publishing_history(tmp_path, monkeypatch):
+def test_automatic_ui_explains_sector_and_waits_without_publishing_history(tmp_path, monkeypatch):
     app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     service=OfflineAnalysisService(tmp_path)
     window=StrategyPredictionWindow(year=2026,round_number=5,service=service)
@@ -1804,20 +1802,19 @@ def test_quarantine_ui_explains_retention_without_publishing_history(tmp_path, m
         pytest.fail("Unavailable update must not load or publish a model/history")
     monkeypatch.setattr(window, "_load_model", unexpected_publication)
     monkeypatch.setattr(service, "publish_temporary_worker_snapshot", unexpected_publication)
-    assert 'unavailable' in window.traffic_source.itemText(0)
-    assert 'quarantined' in window.live_note.text()
-    assert 'no automatic fallback' in window.clean_definition_label.text()
+    assert 'Sector timing boundaries' in window.traffic_source.itemText(0)
+    assert 'Sector' in window.live_note.text()
+    assert 'Sector' in window.clean_definition_label.text()
     window._poll_analysis_worker()
-    assert 'model retained' in window.status_label.text()
-    assert 'no Race update' in window.calculation_log.toPlainText()
-    assert 'retained evidence' in window.calculation_log.toPlainText()
+    assert 'Insufficient eligible observations' in window.status_label.text()
+    assert 'waiting-for-clean-laps' in window.calculation_log.toPlainText()
     window.traffic_source.setCurrentIndex(window.traffic_source.findData('sector'))
     assert window._force_sector_traffic()
-    assert 'forced sector gaps' in window.clean_definition_label.text()
+    assert 'Sector' in window.clean_definition_label.text()
     window.close();app.processEvents()
 
 
-def test_quarantine_rejects_prepared_automatic_traffic_rows():
+def test_fallback_rejects_unversioned_automatic_traffic_rows():
     from types import SimpleNamespace
 
     snapshot = SimpleNamespace(
@@ -1831,4 +1828,4 @@ def test_quarantine_rejects_prepared_automatic_traffic_rows():
     assert row.TrafficStatus == "unknown"
     assert pd.isna(row.TrafficGapAheadSeconds)
     assert pd.isna(row.TrafficGapBehindSeconds)
-    assert "not validated" in row.TrafficStatusReason
+    assert "missing complete four-boundary" in row.TrafficStatusReason

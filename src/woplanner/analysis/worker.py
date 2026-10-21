@@ -106,10 +106,13 @@ def _run_request(request: AnalysisRequest) -> ModelSnapshot:
         request.prepared_cut,
     )
     logging.getLogger(__name__).info(
-        "MC worker end: V%d leader=%s status=%s worker=%.3fs ipc=%.3fs runtime=%s",
+        "MC worker end: V%d leader=%s status=%s worker=%.3fs ipc=%.3fs runtime=%s "
+        "requested_traffic=%s effective_traffic=%s method_version=%s",
         request.input_version, request.prepared_leader_lap, result.status,
         time.perf_counter() - started, snapshot.ipc_elapsed_seconds,
         dict(result.runtime_breakdown),
+        result.requested_traffic_mode, result.effective_traffic_method,
+        result.traffic_method_version,
     )
     return snapshot
 
@@ -186,9 +189,9 @@ class LiveAnalysisProcessService:
             _serializable_live_snapshot(
                 snapshot,
                 include_telemetry=not bool(options.get("use_sector_boundary_traffic", False)),
-                # Preserve the standard worker's established race-distance
-                # contract; the independent P1 request carries its own distance.
-                include_race_distance=False,
+                # Both standard MC and the independent P1 lane must preserve
+                # the known race distance across the process boundary.
+                include_race_distance=True,
             ),
             tuple(dict(options).items()),
             prepared_leader_lap=prepared_leader_lap,
@@ -214,7 +217,13 @@ class LiveAnalysisProcessService:
             )
         request = replace(request, ipc_started_at=time.perf_counter())
         self._running_request = request
-        self._future = self._executor.submit(_run_request, request)
+        try:
+            self._future = self._executor.submit(_run_request, request)
+        except Exception:
+            self._running_request = None
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
+            raise
 
     def poll(self) -> ModelSnapshot | None:
         if self._future is None or not self._future.done():
@@ -231,6 +240,11 @@ class LiveAnalysisProcessService:
                 traceback.format_exception_only(type(exc), exc)
             ).strip()
             self._pending_requests.clear()
+            # BrokenProcessPool is permanent for that executor. Retire it so
+            # the next valid lap can spawn a clean process instead of failing forever.
+            if self._executor is not None:
+                self._executor.shutdown(wait=False, cancel_futures=True)
+                self._executor = None
         else:
             # A delayed older result can never replace a newer publication.
             if (

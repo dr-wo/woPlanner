@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import csv
 import json
 import re
@@ -73,11 +74,40 @@ class ModelSummary:
         return str(self.manifest.get("status") or "unavailable")
 
 
-LIVE_TRAFFIC_QUARANTINE_REASON = (
-    "Automatic Race traffic is unavailable: position-derived gap decisions are not validated; "
-    "the zero-origin estimator is disabled. Existing model state is retained; no Race update "
-    "was produced. Sector-boundary mode requires explicit selection."
+LIVE_SECTOR_METHOD_VERSION = "sector-boundaries-v2-input-recovery"
+LIVE_AUTOMATIC_MC_READINESS = (
+    "Automatic — using Sector timing boundaries. "
+    "Position-derived traffic is not certified; clean-run eligibility still applies."
 )
+
+
+def live_traffic_provenance(manifest: Mapping) -> dict[str, object]:
+    """Read recorded semantics, including CSV history; never infer legacy provenance."""
+    semantics = manifest.get("semantics", {})
+    if isinstance(semantics, str):
+        try:
+            semantics = json.loads(semantics)
+        except (ValueError, TypeError):
+            # Existing woData CSV history writes dictionary repr, while JSON
+            # manifests and saved plots use proper JSON. Support both contracts.
+            try:
+                semantics = ast.literal_eval(semantics)
+            except (ValueError, SyntaxError):
+                return {}
+    if not isinstance(semantics, (Mapping, tuple, list)):
+        return {}
+    provenance = dict(semantics).get("live_traffic_provenance", {})
+    return dict(provenance) if isinstance(provenance, Mapping) else {}
+
+
+def live_traffic_method_label(manifest: Mapping) -> str:
+    provenance = live_traffic_provenance(manifest)
+    if not provenance:
+        return "Traffic method unrecorded (legacy model)"
+    effective = provenance.get("effective_traffic_method")
+    label = "Sector timing boundaries" if effective == SECTOR_BOUNDARY_FALLBACK else str(effective)
+    requested = str(provenance.get("requested_traffic_mode", "unrecorded")).title()
+    return f"{label} (requested: {requested})"
 
 
 @dataclass(frozen=True)
@@ -95,6 +125,9 @@ class LiveRecalculationResult:
     exclusion_diagnostics: tuple[tuple[str, int], ...] = ()
     traffic_unavailable_reason: str | None = None
     model_state_retained: bool = False
+    requested_traffic_mode: str | None = None
+    effective_traffic_method: str | None = None
+    traffic_method_version: str | None = None
 
 
 class OfflineAnalysisService:
@@ -1030,6 +1063,15 @@ class OfflineAnalysisService:
         rows: list[dict[str, object]] = list(_read_csv_if_present(path))
         if include_temporary and self._ephemeral_event == (int(year), int(round_number)):
             rows.extend(self._ephemeral_parameter_rows)
+        provenance_by_analysis = {
+            str(run.get("analysis_id")): live_traffic_provenance(run)
+            for run in self.model_history(year, round_number, include_temporary=include_temporary)
+        }
+        rows = [
+            {**row, "semantics": {"live_traffic_provenance": provenance_by_analysis[str(row.get("analysis_id"))]}}
+            if provenance_by_analysis.get(str(row.get("analysis_id"))) else dict(row)
+            for row in rows
+        ]
         return rows
 
     def _live_retro_config(
@@ -1129,18 +1171,12 @@ class OfflineAnalysisService:
     ) -> LiveRecalculationResult:
         started_at = time.perf_counter()
         leader_lap = _leader_lap(snapshot)
-        if not use_sector_boundary_traffic:
-            # Quarantine is an availability state, not a newly fitted empty input.
-            # Do not mutate fingerprints, counts, model/run/parameter history.
-            return LiveRecalculationResult(
-                "traffic-unavailable", leader_lap, 0,
-                previous_clean_lap_count=self._last_clean_lap_count,
-                clean_lap_sources=self._last_clean_lap_sources,
-                elapsed_seconds=time.perf_counter() - started_at,
-                sample_count=int(sample_count),
-                traffic_unavailable_reason=LIVE_TRAFFIC_QUARANTINE_REASON,
-                model_state_retained=True,
-            )
+        # Freeze the decision once per request. Position-derived remains research-only.
+        method = {
+            "requested_traffic_mode": "sector" if use_sector_boundary_traffic else "automatic",
+            "effective_traffic_method": SECTOR_BOUNDARY_FALLBACK,
+            "traffic_method_version": LIVE_SECTOR_METHOD_VERSION,
+        }
         scheduled_total_laps, scheduled_total_laps_source = _resolve_scheduled_total_laps(
             snapshot,
             manual_override=scheduled_total_laps_override,
@@ -1163,11 +1199,17 @@ class OfflineAnalysisService:
             dict(race_laps.attrs.get("exclusion_diagnostics", {})).items()
         )
         clean_lap_seconds = time.perf_counter() - clean_lap_started
-        fingerprint = canonical_hash(
-            race_laps[["Driver", "LapNumber", "LapTimeSeconds", "Compound", "TyreLife"]]
-            .to_dict("records")
-            if not race_laps.empty else []
-        )
+        fingerprint = canonical_hash({
+            "observations": race_laps[
+                ["Driver", "LapNumber", "LapTimeSeconds", "Compound", "TyreLife"]
+            ].to_dict("records") if not race_laps.empty else [],
+            "traffic": method,
+            "event": (year, round_number, scheduled_total_laps),
+            "options": (sample_count, quick_lap_threshold, min_clean_laps,
+                        allowed_compounds, exclude_stint_start_laps, exclude_stint_end_laps,
+                        min_gap_ahead_seconds, min_gap_behind_seconds,
+                        enforce_compound_order, race_baseline_architecture),
+        })
         if fingerprint == self._last_live_fingerprint:
             return LiveRecalculationResult(
                 "no-new-clean-laps", leader_lap, len(race_laps),
@@ -1177,6 +1219,13 @@ class OfflineAnalysisService:
                 sample_count=int(sample_count),
                 runtime_breakdown=(("clean_lap_preparation_seconds", clean_lap_seconds),),
                 exclusion_diagnostics=exclusion_diagnostics,
+                traffic_unavailable_reason=(
+                    "Insufficient eligible observations: waiting for a complete clean run "
+                    "with four-boundary timing evidence and the selected eligibility filters."
+                    if race_laps.empty else None
+                ),
+                model_state_retained=True,
+                **method,
             )
         if race_laps.empty:
             self._last_live_fingerprint = fingerprint
@@ -1190,6 +1239,12 @@ class OfflineAnalysisService:
                 sample_count=int(sample_count),
                 runtime_breakdown=(("clean_lap_preparation_seconds", clean_lap_seconds),),
                 exclusion_diagnostics=exclusion_diagnostics,
+                traffic_unavailable_reason=(
+                    "Insufficient eligible observations: waiting for a complete clean run "
+                    "with four-boundary timing evidence and the selected eligibility filters."
+                ),
+                model_state_retained=True,
+                **method,
             )
 
         stored = self.live_model_config(year, round_number, "R")
@@ -1270,6 +1325,32 @@ class OfflineAnalysisService:
                 race_laps, prior, config, as_of_leader_lap=leader_lap,
                 baseline_architecture=race_baseline_architecture,
             )
+        provenance = {
+            **method,
+            "calculated_at": result.aggregate_snapshot.created_at.isoformat(),
+            "input_snapshot_id": fingerprint,
+            "as_of_leader_lap": leader_lap,
+        }
+        def with_provenance(model_snapshot):
+            # Numerical model IDs omit traffic selection. Namespace this
+            # publication so distinct requests cannot collapse in history.
+            publication_id = model_snapshot.analysis_id + "-traffic-" + fingerprint[:12]
+            return replace(
+                model_snapshot,
+                analysis_id=publication_id,
+                parameters=tuple(replace(row, analysis_id=publication_id)
+                                 for row in model_snapshot.parameters),
+                semantics=tuple({
+                    **dict(model_snapshot.semantics), "live_traffic_provenance": provenance,
+                }.items()),
+            )
+        result = replace(
+            result,
+            aggregate_snapshot=with_provenance(result.aggregate_snapshot),
+            session_snapshots={key: with_provenance(value)
+                               for key, value in result.session_snapshots.items()},
+        )
+        self._last_live_calculation_inputs["input_provenance"].update(method)
         clean_lap_sources = (("R", int(len(race_laps))),)
         persistence_started = time.perf_counter()
         if persist:
@@ -1317,6 +1398,7 @@ class OfflineAnalysisService:
             runtime_breakdown=tuple(runtime.items()),
             sampler_quality=tuple(result.quality.items()),
             exclusion_diagnostics=exclusion_diagnostics,
+            **method,
         )
 
 
@@ -1887,6 +1969,11 @@ def _live_individual_clean_laps(
     laps = laps.sort_values(["Driver", "Stint", "LapNumber"], kind="mergesort")
     laps["StintLapNumber"] = laps.groupby(["Driver", "Stint"]).cumcount() + 1
     normalized_compounds = tuple(str(value).upper() for value in allowed_compounds)
+    # Shared preparation removes disallowed compounds entirely. Count them
+    # before that boundary so wet-race attrition is not incorrectly reported as 0.
+    diagnostics["disallowed_compound"] = int(
+        (~laps["Compound"].isin(normalized_compounds)).sum()
+    )
     traffic = (
         _live_traffic_gaps(snapshot, force_sector=use_sector_boundary_traffic)
         if traffic_override is None else traffic_override
@@ -1905,9 +1992,6 @@ def _live_individual_clean_laps(
         clean_mean_time_delta_behind_seconds=min_gap_behind_seconds,
         quick_lap_threshold=quick_lap_threshold,
         dry_compounds=normalized_compounds,
-    )
-    diagnostics["disallowed_compound"] = int(
-        (~prepared["Compound"].isin(normalized_compounds)).sum()
     )
     prepared.attrs["exclusion_diagnostics"] = diagnostics
     return prepared
@@ -2019,25 +2103,24 @@ def live_position_traffic_shadow(snapshot, *, reference, coordinate_frame, cutof
 
 
 def _live_traffic_gaps(snapshot, *, force_sector: bool = False) -> pd.DataFrame:
-    prepared_rows = getattr(snapshot, "traffic_rows", ())
-    if prepared_rows and force_sector:
-        prepared = pd.DataFrame(list(prepared_rows))
-        if "TrafficMethod" in prepared and prepared["TrafficMethod"].eq(SECTOR_BOUNDARY_FALLBACK).all():
-            return prepared
-    if force_sector:
-        sector = _sector_boundary_traffic_gaps(snapshot)
-        forced = _sector_as_selected_traffic(sector, reason="sector mode forced")
-        return forced if not forced.empty else _unknown_live_traffic(
-            snapshot, reason="sector mode forced but boundary data unavailable"
-        )
+    """Automatic uses Sector boundaries with certified timing-input recovery.
 
-    # Independent lap-labelled speed origins are not a shared track coordinate.
-    # Position geometry/neighbours are validated separately in the shadow path;
-    # its passage headways have not been validated for production decisions.
-    # Never auto-promote missing geometry or diagnostic gaps to clean evidence.
-    return _unknown_live_traffic(
-        snapshot,
-        reason=LIVE_TRAFFIC_QUARANTINE_REASON,
+    Prepared position/legacy rows cannot bypass this effective-method decision.
+    Both modes select identical numerical evidence; the request is recorded by
+    the calculation service and presented separately from the displayed model.
+    """
+    prepared_rows = getattr(snapshot, "traffic_rows", ())
+    if prepared_rows:
+        prepared = pd.DataFrame(list(prepared_rows))
+        if ("TrafficMethod" in prepared and "TrafficMethodVersion" in prepared
+                and prepared["TrafficMethod"].eq(SECTOR_BOUNDARY_FALLBACK).all()
+                and prepared["TrafficMethodVersion"].eq(LIVE_SECTOR_METHOD_VERSION).all()):
+            return prepared
+    reason = "Sector explicitly selected" if force_sector else "Automatic — using Sector timing boundaries"
+    sector = _sector_boundary_traffic_gaps(snapshot)
+    selected = _sector_as_selected_traffic(sector, reason=reason)
+    return selected if not selected.empty else _unknown_live_traffic(
+        snapshot, reason=reason + ": missing complete four-boundary ahead/behind timing evidence"
     )
 
 
@@ -2087,6 +2170,7 @@ def _sector_as_selected_traffic(sector: pd.DataFrame, *, reason: str) -> pd.Data
     output["TrafficGapAheadSeconds"] = output["MinGapAheadSeconds"]
     output["TrafficGapBehindSeconds"] = output["MinGapBehindSeconds"]
     output["TrafficMethod"] = SECTOR_BOUNDARY_FALLBACK
+    output["TrafficMethodVersion"] = LIVE_SECTOR_METHOD_VERSION
     output["TrafficStatus"] = "sector_fallback"
     output["TrafficStatusReason"] = reason
     output["CoverageFraction"] = 1.0
@@ -2145,6 +2229,9 @@ def _sector_boundary_traffic_gaps(
     durations. A lap is returned only when both a preceding (ahead) and following
     (behind) crossing by another driver exist at all four boundaries.
     Manual P1 references may disable rear support only; ahead remains required.
+    A missing sector may also come from the reducer's separately certified
+    same-lap residual evidence. Canonical complete triples always take priority;
+    provisional display sectors and previous-lap durations are never used.
     """
     grouped: dict[tuple[str, int], dict[str, object]] = {}
     for sector in getattr(snapshot, "completed_sectors", ()):
@@ -2158,6 +2245,7 @@ def _sector_boundary_traffic_gaps(
         ] = sector
 
     crossings: list[dict[str, object]] = []
+    complete_keys: set[tuple[str, int]] = set()
     for (driver, lap_number), sectors in grouped.items():
         if not all(name in sectors for name in ("S1", "S2", "S3")):
             continue
@@ -2173,6 +2261,7 @@ def _sector_boundary_traffic_gaps(
             "S2": finish - s3.sector_time_s,
             "END": finish,
         }
+        complete_keys.add((driver, lap_number))
         for boundary, crossing_time in boundary_times.items():
             crossings.append(
                 {
@@ -2182,6 +2271,29 @@ def _sector_boundary_traffic_gaps(
                     "CrossingTime": float(crossing_time),
                 }
             )
+    for lap in snapshot.completed_laps:
+        key = (str(lap.driver_code), int(lap.lap_number))
+        values = getattr(lap, "traffic_sector_times_s", None)
+        finish = _completion_clock(lap)
+        if (key in complete_keys or values is None or len(values) != 3
+                or not bool(getattr(lap, "is_valid", True)) or finish is None
+                or not np.isfinite(finish)
+                or getattr(lap, "traffic_recovered_sector", None) not in ("S1", "S2", "S3")
+                or not all(np.isfinite(value) and value > 0 for value in values)
+                or not np.isclose(sum(values), lap.lap_time_s, rtol=0, atol=1e-9)):
+            continue
+        s1, s2, s3 = values
+        boundary_times = {
+            "START": finish - s1 - s2 - s3,
+            "S1": finish - s2 - s3,
+            "S2": finish - s3,
+            "END": finish,
+        }
+        for boundary, crossing_time in boundary_times.items():
+            crossings.append({
+                "Driver": key[0], "LapNumber": key[1], "Boundary": boundary,
+                "CrossingTime": float(crossing_time),
+            })
     if not crossings:
         return pd.DataFrame(
             columns=["Driver", "LapNumber", "MinGapAheadSeconds", "MinGapBehindSeconds"]
