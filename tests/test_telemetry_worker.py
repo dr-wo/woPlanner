@@ -574,6 +574,8 @@ def test_cut_is_captured_at_lap_crossing_not_later_lap_time_completion():
 
 
 def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
+    from woplanner.analysis.service import LIVE_SECTOR_METHOD_VERSION
+
     def traffic_from_available_telemetry(snapshot, *, force_sector=False):
         has_traffic = bool(snapshot.telemetry_samples)
         return pd.DataFrame(
@@ -585,6 +587,7 @@ def test_unknown_lap_can_become_clean_only_in_a_later_causal_cut(monkeypatch):
                     "TrafficGapBehindSeconds": 2.0 if has_traffic else pd.NA,
                     "TrafficStatus": "sector_fallback" if has_traffic else "unknown",
                     "TrafficMethod": "SECTOR_BOUNDARY_FALLBACK",
+                    "TrafficMethodVersion": LIVE_SECTOR_METHOD_VERSION,
                 }
                 for lap in snapshot.completed_laps
             ]

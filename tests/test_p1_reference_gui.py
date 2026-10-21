@@ -225,7 +225,8 @@ def test_p1_distance_metadata_does_not_change_standard_worker_inputs(tmp_path, m
     reference = worker_module._serializable_live_snapshot(
         observed, include_telemetry=False, include_race_distance=True,
     )
-    assert standard.scheduled_total_laps is None  # Preserve the existing standard worker contract.
+    # Phase 1 established that standard MC also needs the full race distance.
+    assert standard.scheduled_total_laps == observed.scheduled_total_laps
     assert reference.scheduled_total_laps == observed.scheduled_total_laps == 53
     assert standard.completed_laps == reference.completed_laps == observed.completed_laps
     assert standard.completed_sectors == reference.completed_sectors == observed.completed_sectors

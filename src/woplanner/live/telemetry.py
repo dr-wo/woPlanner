@@ -405,7 +405,7 @@ class TelemetryAnalysisWorker:
                 started = time.perf_counter()
                 message_history.append((ingress_sequence, message))
                 try:
-                    store._apply_message(message)
+                    _apply_analysis_message(store, message)
                 except Exception as exc:
                     error = f"{type(exc).__name__}: {exc}"
                     with self._state_lock:
@@ -494,6 +494,7 @@ class TelemetryAnalysisWorker:
                 tuple(snapshot.completed_sectors),
                 (),
                 tuple(traffic.to_dict("records")),
+                scheduled_total_laps=getattr(snapshot, "scheduled_total_laps", None),
             )
             error = None
         except Exception as exc:
@@ -504,8 +505,10 @@ class TelemetryAnalysisWorker:
             traffic_seconds = 0.0
         elapsed = time.perf_counter() - started
         self.logger.info(
-            "Prepared MC input: leader=%d cut=i%d total=%.3fs traffic=%.3fs",
+            "Prepared MC input: leader=%d cut=i%d total=%.3fs traffic=%.3fs "
+            "requested_traffic=%s effective_traffic=Sector timing boundaries",
             int(leader_lap), cut.ingress_sequence, elapsed, traffic_seconds,
+            "sector" if force_sector else "automatic",
         )
         self._results.put(
             PreparedAnalysisResult(
@@ -882,9 +885,21 @@ def _rebuild_snapshot_at_cut(
 
 def _apply_replay_message(store: LiveSessionStore, message: LiveTimingMessage) -> None:
     try:
-        store._apply_message(message)
+        _apply_analysis_message(store, message)
     except Exception:
         pass
+
+
+def _apply_analysis_message(store: LiveSessionStore, message: LiveTimingMessage) -> None:
+    # Carry recovery semantics on each history entry so incremental and rebuilt
+    # causal cuts agree, even after live packets have followed a reconnect.
+    previous = store.allow_retirement_reactivation
+    if getattr(message, "historical_recovery", False):
+        store.allow_retirement_reactivation = True
+    try:
+        store._apply_message(message)
+    finally:
+        store.allow_retirement_reactivation = previous
 
 
 def _analysis_store() -> LiveSessionStore:

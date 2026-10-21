@@ -19,11 +19,12 @@ from .service import (
     LivePlannerService,
 )
 from ..common.plot_widget import RelativeDeltaPlotWidget
+from ..common.status import fit_status_label
 from ..common.axis_controls import AxisRangeControls
 from ..common.pit_window import PitWindowOverlay
 from ..common.windows import resolve_effective_windows
 from ..common.session_info import resolve_session_identity
-from ..analysis.service import OfflineAnalysisService
+from ..analysis.service import LIVE_AUTOMATIC_MC_READINESS, OfflineAnalysisService
 from ..operational_inputs import (
     DEFAULT_EVENT_CONFIG_PATH,
     load_operational_race_inputs,
@@ -114,6 +115,8 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._metadata_warning_shown = False
         self._session_metadata_signature: tuple[object, ...] | None = None
         self._active_source_mode: str | None = None
+        self._feed_state = "Idle / disconnected"
+        self._last_feed_activity = time.monotonic()
         self._final_display = False
         self.custom_ranges = False
         self._applying_plot_ranges = False
@@ -245,6 +248,24 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         visual_splitter.setStretchFactor(1, 2)
         layout.addWidget(self.controls_scroll)
         layout.addLayout(status_row)
+        self.mc_readiness_label = QtWidgets.QLabel(
+            LIVE_AUTOMATIC_MC_READINESS
+            + " Traffic settings and displayed-model provenance: Strategy → Live recalculation."
+        )
+        self.mc_readiness_label.setWordWrap(True)
+        self.mc_readiness_label.setStyleSheet(
+            "QLabel { background: #fff4ce; color: #302500; padding: 7px; }"
+        )
+        layout.addWidget(self.mc_readiness_label)
+        from ..analysis.runtime import live_mc_runtime_identity
+        self.mc_runtime_identity = live_mc_runtime_identity()
+        self.mc_runtime_label = QtWidgets.QLabel(
+            f"MC runtime: PID {self.mc_runtime_identity['pid']} · "
+            f"{self.mc_runtime_identity['source_digest']} · "
+            f"{self.mc_runtime_identity['traffic_method_version']}"
+        )
+        self.mc_runtime_label.setToolTip(str(self.mc_runtime_identity['files']))
+        layout.addWidget(self.mc_runtime_label)
         self.tabs = QtWidgets.QTabWidget()
         live_tab = QtWidgets.QWidget()
         live_layout = QtWidgets.QVBoxLayout(live_tab)
@@ -495,6 +516,8 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._metadata_warning_shown = False
         self._session_metadata_signature = None
         self.connection_status.setText("Starting…")
+        self._feed_state = "Starting"
+        self._last_feed_activity = time.monotonic()
         self.timer.start()
 
     def _show_start_error(self, exc: Exception) -> None:
@@ -528,10 +551,29 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self._final_display |= final_display
         for status in update.statuses:
             self.connection_status.setText(status.message)
+            self._feed_state = f"{status.state}: {status.message}"
             if status.state in {"disconnected", "error"}:
                 self.connect_button.setEnabled(True)
                 self.replay_button.setEnabled(True)
         snapshot = update.snapshot
+        # Resolve the feed identity before routing any observations into MC.
+        self._sync_session_context(snapshot.session_info)
+        if self.strategy_prediction_window is not None and (
+            self.strategy_prediction_window.year != self.year_input.value()
+            or self.strategy_prediction_window.round_number != self.round_input.value()
+        ):
+            self.strategy_prediction_window.close()
+            self.strategy_prediction_window = None
+            self._strategy_resume_context = None
+            self._show_strategy_prediction_window()
+        if update.changed:
+            self._last_feed_activity = time.monotonic()
+        feed_status = self._feed_state
+        if (
+            self._active_source_mode == "live"
+            and time.monotonic() - self._last_feed_activity > 30
+        ):
+            feed_status += "; stale — no timing updates for over 30 seconds"
         # Recovery restores the store before queue draining, so there may be
         # no new topic notification. The widget skips unchanged snapshots.
         self.race_control_events.set_events(snapshot.race_control_events)
@@ -540,11 +582,11 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             and update.changes.intersection({"drivers", "timing", "tyres", "lap_count", "track_status", "session"})
         ):
             try:
-                if self.strategy_prediction_window.isVisible():
-                    self.strategy_prediction_window.consume_live_snapshot(snapshot)
+                self.strategy_prediction_window.consume_live_snapshot(snapshot)
             except RuntimeError:
                 self.strategy_prediction_window = None
-        self._sync_session_context(snapshot.session_info)
+        if self.strategy_prediction_window is not None:
+            self.strategy_prediction_window.set_live_feed_status(feed_status)
         self._warn_for_metadata_mismatch(snapshot.session_info)
         self.session_status.setText(f"Session: {snapshot.session_status or '—'}")
         if snapshot.last_message_at_utc is not None:
@@ -872,6 +914,9 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         self.connect_button.setEnabled(True)
         self.replay_button.setEnabled(True)
         self.connection_status.setText("Disconnected by user")
+        self._feed_state = "Disconnected by user"
+        if self.strategy_prediction_window is not None:
+            self.strategy_prediction_window.set_live_feed_status(self._feed_state)
 
     def _strategy_context_key(self, window=None) -> tuple:
         return (
@@ -880,15 +925,19 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             self._active_source_mode, self._strategy_state_directory(),
         )
 
+    def _set_mc_readiness_text(self, text: str) -> None:
+        self.mc_readiness_label.setText(text)
+        fit_status_label(self.mc_readiness_label)
+
     def _show_strategy_prediction_window(self) -> None:
         from ..analysis.gui import StrategyPredictionMode, StrategyPredictionWindow
 
         if self.strategy_prediction_window is not None:
             try:
-                if self.strategy_prediction_window.isVisible():
-                    self.strategy_prediction_window.raise_()
-                    self.strategy_prediction_window.activateWindow()
-                    return
+                self.strategy_prediction_window.show()
+                self.strategy_prediction_window.raise_()
+                self.strategy_prediction_window.activateWindow()
+                return
             except RuntimeError:
                 self.strategy_prediction_window = None
         context_key = self._strategy_context_key()
@@ -913,9 +962,14 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             team_scope_enabled=True,
             live_operational_controls=True,
             telemetry_worker=self.service.telemetry_worker,
+            event_config_path=self.event_config_path,
             **resume_options,
             parent=self,
         )
+        self.strategy_prediction_window.traffic_readiness_changed.connect(
+            self._set_mc_readiness_text
+        )
+        self._set_mc_readiness_text(self.strategy_prediction_window.mc_readiness_label.text())
         # Closing a dialog does not restart the race/replay. Keep its current
         # model available before saved Team selection is restored on reopening.
         self.strategy_prediction_window._live_context_key = context_key
@@ -925,9 +979,13 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
             )
         )
         self.strategy_prediction_window.destroyed.connect(
-            lambda: setattr(self, "strategy_prediction_window", None)
+            lambda _=None, dialog=self.strategy_prediction_window: (
+                setattr(self, "strategy_prediction_window", None)
+                if self.strategy_prediction_window is dialog else None
+            )
         )
         self.strategy_prediction_window.show()
+        self.strategy_prediction_window.set_live_feed_status(self._feed_state)
         self.strategy_prediction_window.consume_live_snapshot(self.service.snapshot)
 
     def _strategy_state_directory(self) -> Path | None:
