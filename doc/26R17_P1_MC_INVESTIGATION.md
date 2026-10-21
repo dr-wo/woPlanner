@@ -3,6 +3,9 @@
 Follow-up: the user resolved the tactical definition and the manual reference is
 now implemented. See [implementation and validation](26R17_P1_REFERENCE.md).
 The investigation below is retained as the original evidence record.
+For the subsequent Automatic → Sector v2 Live MC contract, see the
+[race-day checklist](LIVE_MC_RACE_DAY.zh-CN.txt); the manual P1 reference retains
+its own explicit Sector-mode requirement.
 
 Original investigation status, 2026-10-18 (**superseded by the implemented manual
 P1 reference**): the domain definition was deferred and no production P1 filter

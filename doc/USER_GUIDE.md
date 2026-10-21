@@ -140,8 +140,9 @@ canonical anchors remain unavailable rather than becoming zero; a provisional
 live comparison does not repair or replace those historical anchors. The
 shared **Strategy Prediction** window consumes the committed portion of the
 live snapshot: when the leader lap advances it requests recalculation.
-Default automatic traffic returns `traffic-unavailable` and retains model state;
-checking newly eligible sector-filtered laps requires explicit sector mode.
+Automatic traffic uses Sector timing boundaries v2 with bounded input recovery.
+New eligible clean laps trigger MC updates; insufficient evidence retains model
+state and reports a waiting reason.
 Replay expands batched leader-lap jumps
 into point-in-time snapshots and processes them through a FIFO recalculation
 queue. Replay-state reduction and Cumulative Delta rendering do not wait for
@@ -150,7 +151,7 @@ preparation while the race view continues to advance. Prepared inputs and the
 process queue are bounded, but lightweight causal cut requests are retained
 until every historical result has been evaluated. Live mode does not queue an
 update received while calculation is active; the newest accumulated data is picked
-up by the next leader-lap trigger. In explicit sector mode, unchanged clean-lap
+up by the next leader-lap trigger. In Automatic and explicit sector modes, unchanged clean-lap
 fingerprints are skipped quickly. Updated models record their version and refresh sequence-level strategy
 predictions after replay's queued model updates drain. Missing internal lap
 timing still invalidates later cumulative deltas
@@ -352,26 +353,30 @@ missing compound delta remains absent rather than becoming zero.
 The Live recalculation page's **Clean-lap details** dialog exposes required
 tyre/stint metadata, allowed compounds, driver-relative quick-lap threshold,
 consecutive-run minimum, run-start/end exclusions, and configurable clear-ahead
-and clear-behind gaps. **Traffic source** defaults to **Automatic Race traffic
-unavailable (model retained)**. Automatic telemetry traffic is quarantined and
-reports `traffic-unavailable`; it produces no new Race update. Existing Race
-model state, evidence counts and run/parameter history are retained. Repeated
-requests report the same availability reason rather than an unexplained lack
-of new clean laps. The old zero-origin telemetry reconstruction is no longer used for default live
-Race clean-lap decisions. Position-derived traffic remains a diagnostic shadow;
-position gaps are **not production-active**. Fresh traffic-derived FP evidence
-requires `unified-traffic-v4` and `compatibility_min` provenance. Saved models and
-calibrations remain historical artefacts, without retroactive v4 certification.
+and clear-behind gaps. **Traffic source** defaults to **Automatic**. Its effective
+method is **Sector timing boundaries**, recorded as `SECTOR_BOUNDARY_FALLBACK`
+with `traffic_method_version=sector-boundaries-v2-input-recovery` and requested
+mode `automatic`. It uses lap-start/S1/S2/lap-end crossing gaps with causally
+bounded recovery of missing sector inputs. **Sector timing boundaries** also
+remains available explicitly. Sector gaps are not blended into telemetry means.
+The old zero-origin telemetry reconstruction is disabled. Position-derived
+traffic remains research-only and is not production-active. Fresh
+traffic-derived FP evidence requires `unified-traffic-v4` and `compatibility_min`
+provenance; saved models remain historical artefacts without retroactive
+certification.
 
-There is **no automatic sector fallback**. **Force sector-boundary only** remains
-an explicitly selected existing mode using lap-start/S1/S2/lap-end crossing gaps,
-marked as `SECTOR_BOUNDARY_FALLBACK`. Sector gaps are not blended into telemetry
-means. Quarantined updates log new eligible laps separately from retained
-evidence. In explicit sector mode, updates log previous and new clean-lap counts
-and the FP/R source breakdown, total wall-clock calculation time, and remaining
-queue length. The elapsed time can be compared directly with a normal lap time
-when tuning the live Monte Carlo sample count. That sample count affects fitting,
-not the number of telemetry traffic comparisons.
+When evidence is insufficient, existing Race model state and run/parameter
+history are retained, with an explicit waiting reason. A fresh calculation
+publishes the new model and its method provenance. Updates log previous and new
+clean-lap counts, the FP/R source breakdown, wall-clock calculation time and
+remaining queue length. Calculation or publication failures retain the last
+successful model and retry on the next eligible leader-lap trigger. Reconnect
+restores accepted timing and driver/tyre history before later calculations.
+Scheduled race distance is propagated from matching configuration or live
+`LapCount.TotalLaps`; it is not inferred from the largest observed lap number.
+See the [race-day checklist](LIVE_MC_RACE_DAY.zh-CN.txt) for offline preflight and
+release verification. MC sample count changes fitting, not the number of traffic
+comparisons.
 
 The **Tyre Inputs** tab separates editable Strategy inputs from read-only FP
 LongRun evidence. Each Selected value is Manual when explicitly supplied and
