@@ -114,6 +114,8 @@ class TrackEvolutionPolicy:
         self.q1_frozen = False
         self._dirty = True
         self._diagnostic = None
+        self._summary_diagnostic = None
+        self._nonmodal_observations = 0
         self._previous_live = None
         self._jump_index = None
         self._jump_delta = None
@@ -280,6 +282,20 @@ class TrackEvolutionPolicy:
         self._previous_live = live
         self._dirty = False
 
+    def _diagnostic_nonmodal_count(self, diagnostic):
+        # Diagnostics contain only frozen samples/series and tuples. refresh()
+        # replaces the diagnostic on every dirty rebuild, including revocation
+        # and traffic updates. Keep one strong identity reference (not id()) so
+        # object-id reuse cannot return a stale summary; reset() clears it.
+        if self._summary_diagnostic is not diagnostic:
+            modal = {driver: dominant_track_compound(
+                s.compound for s in diagnostic.observations if s.driver == driver)
+                for driver in {s.driver for s in diagnostic.observations}}
+            self._nonmodal_observations = sum(
+                s.compound != modal[s.driver] for s in diagnostic.observations)
+            self._summary_diagnostic = diagnostic
+        return self._nonmodal_observations
+
     def payload(self, service=None, *, detailed=True):
         """Versioned production result; full audit ledger on explicit debug export."""
         if service is not None:
@@ -296,9 +312,7 @@ class TrackEvolutionPolicy:
             source, selected = "MANUAL_OVERRIDE", self._override
         active = [s for key, s in self.samples.items() if key not in self.revoked]
         tyre_ok = [s for s in active if tyre_eligible(s)]
-        modal = {driver: dominant_track_compound(s.compound for s in d.observations if s.driver == driver)
-                 for driver in {s.driver for s in d.observations}}
-        nonmodal = sum(s.compound != modal[s.driver] for s in d.observations)
+        nonmodal = self._diagnostic_nonmodal_count(d)
         states = Counter(s.traffic_status for s in active)
         pending = states["pending"]
         unavailable = sum(n for state, n in states.items() if state not in {"pending", "ok"})
