@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from enum import Enum
 import json
@@ -99,6 +100,12 @@ def strategy_team_roster(data_root: Path, year: int, round_number: int) -> tuple
 class StrategyPredictionMode(str, Enum):
     CURRENT_EVENT = "current_event"
     HISTORICAL_WHAT_IF = "historical_what_if"
+
+
+def _is_fp_preparation(manifest) -> bool:
+    semantics = manifest.get("semantics")
+    return (isinstance(semantics, Mapping)
+            and semantics.get("architecture") == "joint-weekend-fp-v1")
 
 
 def _version_text(version: int | None) -> str:
@@ -722,6 +729,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
                 "" if row.manual_value is None else f"{row.manual_value:.6g}",
                 "—" if row.legacy_value is None else f"{row.legacy_value:+.4f}",
             ]
+            if (row.selected_source == "pre_race_prediction"
+                    and self._resolved_tyre_inputs.semantics.get("classification") == "prior_only"):
+                values[2] = "Historical prior (no MC posterior)"
             if parameter in imported:
                 values[2] = f"Manual · woWeekend ({imported[parameter]['source']})"
             for column, value in enumerate(values):
@@ -871,15 +881,26 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             if not row:
                 lines.append(f"{label}: unavailable")
                 continue
-            lines.extend(
-                [
-                    f"{label}: strict {float(row['strict_central']):+.3f} s/lap; "
-                    f"P10–P90 {float(row['strict_p10']):+.3f} … {float(row['strict_p90']):+.3f}",
-                    f"  one-gap {float(row['one_gap_central']):+.3f}; robust variability "
-                    f"{float(row['robust_variability_central']):+.3f}; support "
-                    f"{int(row['supporting_runs'])} runs / {int(row['supporting_teams'])} teams / "
-                    f"{int(row['supporting_clean_laps'])} laps",
-                ]
+            def estimate(value):
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    return "unavailable"
+                return f"{number:+.3f}" if np.isfinite(number) else "unavailable"
+
+            central = estimate(row.get("strict_central"))
+            if central == "unavailable" or row.get("support_status") == "unsupported":
+                reason = row.get("reason") or row.get("unsupported_reason") or "insufficient FP contrast evidence"
+                lines.append(f"{label}: unsupported — {reason}")
+            else:
+                lines.append(f"{label}: strict {central} s/lap; P10–P90 "
+                             f"{estimate(row.get('strict_p10'))} … {estimate(row.get('strict_p90'))}")
+            lines.append(
+                f"  one-gap {estimate(row.get('one_gap_central'))}; robust variability "
+                f"{estimate(row.get('robust_variability_central'))}; support "
+                f"{row.get('supporting_runs', 'unavailable')} runs / "
+                f"{row.get('supporting_teams', 'unavailable')} teams / "
+                f"{row.get('supporting_clean_laps', 'unavailable')} laps"
             )
         for name, label in (
             ("Perf_HARD_vs_MEDIUM", "HARD vs MEDIUM performance"),
@@ -1144,6 +1165,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         layout.addWidget(self.strategy_input_table)
         layout.addWidget(sensitivity_widget)
         layout.addLayout(controls)
+        self.strategy_inventory_label = QtWidgets.QLabel(
+            "Tyre-set inventory and starting ages for future stints are not checked. "
+            "Confirm available sets before using a strategy."
+        )
+        self.strategy_inventory_label.setWordWrap(True)
+        layout.addWidget(self.strategy_inventory_label)
         layout.addWidget(self.strategy_table)
         layout.addWidget(self.pin_button)
         layout.addWidget(self.pinned_label)
@@ -1205,8 +1232,12 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             )
             return
         if reason is None:
+            inputs = self._operational_race_inputs
+            source = inputs.pit_loss_sources.get("green") if inputs is not None else None
             self.operational_status_label.setText(
-                "Mode: Current event — race distance and GREEN pit loss come from race.json."
+                "Mode: Current event — race distance and GREEN pit loss come from "
+                + (inputs.config_path.name if inputs is not None else "race.json") + "."
+                + (f" GREEN source: {source}." if source else "")
             )
             return
         self.operational_status_label.setText(f"Mode: Current event — unavailable: {reason}")
@@ -1544,7 +1575,9 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
         manifest = summary.manifest if summary is not None else {}
         identity = manifest.get("analysis_id")
         displayed = (
-            "fresh calculation" if identity and identity == self._mc_fresh_analysis_id
+            "Selected prior; no MC posterior" if manifest.get("status") == "prior_only"
+            else "pre-race FP model" if _is_fp_preparation(manifest)
+            else "fresh calculation" if identity and identity == self._mc_fresh_analysis_id
             else "previously saved model" if summary is not None else "no model"
         )
         provenance = live_traffic_provenance(manifest)
@@ -1579,6 +1612,16 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
 
     def _update_model_traffic_label(self, summary) -> None:
         manifest = summary.manifest
+        if manifest.get("status") == "prior_only":
+            self.model_traffic_label.setText(
+                "Selected prior — no MC posterior; exact central strategy inputs only"
+            )
+            self.model_traffic_label.setToolTip(str(manifest.get("selected_input_hash", "")))
+            return
+        if _is_fp_preparation(manifest):
+            self.model_traffic_label.setText("Pre-race FP preparation — no Race MC yet")
+            self.model_traffic_label.setToolTip(str(manifest.get("analysis_id") or ""))
+            return
         provenance = live_traffic_provenance(manifest)
         identity = str(manifest.get("analysis_id") or "unknown ID")
         timestamp = provenance.get("calculated_at")
@@ -1628,7 +1671,7 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
     def _load_model(self, *, summary=None, record_history: bool = False) -> None:
         try:
             if summary is None:
-                summary = self.service.load_model(self.year, self.round_number)
+                summary = self.service.load_strategy_summary(self.year, self.round_number)
         except Exception as exc:
             self.status_label.setText(f"Model unavailable: {exc}")
             self._mc_state = f"Waiting for required race inputs / first clean-run model: {exc}"
@@ -1664,6 +1707,8 @@ class StrategyPredictionWindow(QtWidgets.QDialog):
             self._record_history_point(summary)
         reason = summary.manifest.get("stale_reason")
         self.status_label.setText(
+            "Selected prior — no MC posterior; exact central strategy available"
+            if summary.status == "prior_only" else
             f"Model: {summary.status}" + (f" — {reason}" if reason else "")
         )
         self._refresh_mc_readiness()

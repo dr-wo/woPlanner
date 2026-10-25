@@ -217,6 +217,40 @@ class OfflineAnalysisService:
         )
         return ModelSummary(manifest, tuple(rows))
 
+    def load_strategy_summary(
+        self, year: int, round_number: int, source_scope: str = "aggregate"
+    ) -> ModelSummary:
+        """Use complete Selected scalars for exact planning before a model exists.
+
+        This does not publish or stand in for a Race MC posterior. Corrupt model
+        artifacts still fail; only a missing snapshot permits this fallback.
+        """
+        try:
+            return self.load_model(year, round_number, source_scope)
+        except FileNotFoundError:
+            root = weekend_model_root(year, round_number, self.data_root)
+            # A manifest without its parameter table is a broken model, not
+            # an absent pre-race model. Never hide partial publications.
+            if (source_scope.upper() != "AGGREGATE"
+                    or (root / "aggregate" / "manifest.json").exists()
+                    or (root / "manifest.json").exists()):
+                raise
+            resolved = self.resolve_tyre_inputs(year, round_number)
+            selected = resolved.strategy_overrides()
+            for (parameter, compound), value in selected.items():
+                if not np.isfinite(value) or (parameter == "degradation" and value < 0):
+                    raise ValueError(f"Invalid Selected tyre input: {parameter}/{compound}")
+            if selected[("compound_delta", "MEDIUM")] != 0.0:
+                raise ValueError("Selected compound deltas must use MEDIUM=0")
+            return ModelSummary({
+                "status": "prior_only", "analysis_id": "selected-prior-" + resolved.content_hash[:16],
+                "config_hash": resolved.content_hash, "selected_input_hash": resolved.content_hash,
+                "season": int(year), "round_number": int(round_number),
+                "as_of_leader_lap": 0, "source_scope": source_scope,
+                "semantics": {"source": "Selected scalar tyre inputs", "mc_posterior": False,
+                              "uncertainty": "unavailable; exact central strategy only"},
+            }, ())
+
     def build_strategy_model(
         self,
         summary: ModelSummary,
@@ -814,7 +848,18 @@ class OfflineAnalysisService:
         tyre_input_snapshot: Mapping[str, object] | None = None,
         rules_compliant: bool = False,
     ) -> list[StrategyResult]:
-        summary = model_summary or self.load_model(year, round_number, source_scope)
+        summary = model_summary or self.load_strategy_summary(year, round_number, source_scope)
+        if summary.status == "prior_only":
+            # Overrides are a partial mapping throughout the existing API.
+            # Keep every Selected coordinate when applying a single override.
+            selected = self.resolve_tyre_inputs(year, round_number).strategy_overrides()
+            selected.update(overrides or {})
+            for (parameter, compound), value in selected.items():
+                if not np.isfinite(value) or (parameter == "degradation" and value < 0):
+                    raise ValueError(f"Invalid strategy tyre input: {parameter}/{compound}")
+            if selected[("compound_delta", "MEDIUM")] != 0.0:
+                raise ValueError("Strategy compound deltas must use MEDIUM=0")
+            overrides = selected
         model = self.build_strategy_model(summary, overrides)
         strategy_rules = (
             StrategyRules(minimum_distinct_dry_compounds=2)

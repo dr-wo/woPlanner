@@ -357,7 +357,10 @@ class TyreInputService:
                     ),
                     unit=PARAMETER_UNITS[parameter],
                     limitations=limitation,
-                    independent_of_current_fp=(selected_source == "manual"),
+                    independent_of_current_fp=(selected_source == "manual" or (
+                        selected_source == "pre_race_prediction"
+                        and source_semantics.get("independent_of_current_fp") is True
+                    )),
                     default_source=default_sources[parameter],
                 )
             )
@@ -445,13 +448,23 @@ class TyreInputService:
             source_id = prediction.artifact_id
             source_path = prediction_provenance.get("path")
             semantics["source_contract"] = "canonical_pre_race_tyre_prediction"
+            metadata = dict(prediction_provenance.get("prediction_provenance") or {})
+            for key in ("prediction_status", "classification", "independent_of_current_fp"):
+                if key in prediction_provenance:
+                    semantics[key] = prediction_provenance[key]
+                elif key in metadata:
+                    semantics[key] = metadata[key]
             semantics["source_performance"] = dict(
                 prediction_provenance.get("performance_semantics", {})
             )
             semantics["source_degradation"] = dict(
                 prediction_provenance.get("degradation_semantics", {})
             )
-        legacy, legacy_id, legacy_path = self._legacy_values(year, round_number)
+        # Legacy is a fallback, not a dependency of a complete canonical artifact.
+        # In particular, an obsolete legacy file must not reject valid defaults.
+        legacy, legacy_id, legacy_path = ({}, None, None)
+        if any(value is None for value in values.values()):
+            legacy, legacy_id, legacy_path = self._legacy_values(year, round_number)
         for parameter, value in legacy.items():
             if values[parameter] is None:
                 values[parameter] = value

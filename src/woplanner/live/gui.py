@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import argparse
 import logging
 import time
 from collections.abc import Mapping
@@ -1009,11 +1010,37 @@ class LivePlannerWindow(QtWidgets.QMainWindow):
         event.accept()
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="woPlanner live race monitor")
+    parser.add_argument("--event-config", type=Path, default=None,
+                        help="Race configuration; identity is used as the initial event")
+    parser.add_argument("--year", type=int, default=None)
+    parser.add_argument("--round", dest="round_number", type=int, default=None)
+    args, qt_args = parser.parse_known_args(argv)
+    operational = None
+    if args.event_config is not None:
+        try:
+            operational = load_operational_race_inputs(args.event_config)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            parser.error(f"Cannot load --event-config: {exc}")
+        for explicit, configured, label in (
+            (args.year, operational.season, "year"),
+            (args.round_number, operational.round_number, "round"),
+        ):
+            if explicit is not None and explicit != configured:
+                parser.error(f"--{label} conflicts with --event-config")
     pg.setConfigOption("background", "w")
     pg.setConfigOption("foreground", "k")
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
-    window = LivePlannerWindow()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([sys.argv[0], *qt_args])
+    window = LivePlannerWindow(**(
+        {"event_config_path": args.event_config} if args.event_config is not None else {}
+    ))
+    year = operational.season if operational is not None else args.year
+    round_number = operational.round_number if operational is not None else args.round_number
+    if year is not None:
+        window.year_input.setValue(year)
+    if round_number is not None:
+        window.round_input.setValue(round_number)
     window.show()
     return app.exec()
 
