@@ -56,11 +56,17 @@ def test_old_model_objects_keep_service_running_and_clear_projection_reference(
     assert oco.best_lap_s == owner.best_lap_s
     assert oco.last_lap_s == owner.last_lap_s
     assert oco.sectors_s == owner.sectors_s
-    # Publication provenance advances on repeated reads; compare all domain
-    # results while excluding only that new publication envelope.
+    # The new analysis explicitly reports missing exact completion identity.
+    # It must stay conservative, while the original timing/projection contract
+    # below remains identical to the modern producer's ordinary state.
+    if old_event and not warm_cache:
+        assert result.q_only_track_evolution_result["accepted_observation_count"] == 0
+        assert result.q_only_track_evolution_result["rejection_counts"]["COMPLETION_IDENTITY_UNAVAILABLE"] == 1
+    # Publication provenance advances on repeated reads. Compare ordinary domain
+    # state separately from the asserted analysis-capability diagnostics.
     without_projection = lambda state: replace(state, track_evolution_result={
         k: v for k, v in state.track_evolution_result.items() if k != "as_of"
-    }, drivers=tuple(
+    }, q_only_track_evolution_result=None, drivers=tuple(
         replace(driver, projected_lap_s=None, projected_gap_s=None) for driver in state.drivers))
     assert without_projection(result) == without_projection(expected)
 

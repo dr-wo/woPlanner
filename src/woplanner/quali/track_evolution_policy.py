@@ -91,7 +91,8 @@ def quality(diagnostic, q1_bests, *, recent_jump=False, reference_population=())
 
 
 class TrackEvolutionPolicy:
-    def __init__(self):
+    def __init__(self, *, diagnostic_builder=None):
+        self._diagnostic_builder = diagnostic_builder
         self.reset()
 
     def reset(self):
@@ -116,6 +117,8 @@ class TrackEvolutionPolicy:
         self._diagnostic = None
         self._summary_diagnostic = None
         self._nonmodal_observations = 0
+        self._support_diagnostic = None
+        self._observation_support = ()
         self._previous_live = None
         self._jump_index = None
         self._jump_delta = None
@@ -268,7 +271,8 @@ class TrackEvolutionPolicy:
     def refresh(self):
         if not self._dirty:
             return
-        self._diagnostic = build_track_evolution_diagnostic(
+        builder = self._diagnostic_builder or build_track_evolution_diagnostic
+        self._diagnostic = builder(
             tuple(s for key, s in self.samples.items() if key not in self.revoked and tyre_eligible(s)),
             clean_air_gap_s=3.0, require_traffic=False,
         )
@@ -295,6 +299,22 @@ class TrackEvolutionPolicy:
                 s.compound != modal[s.driver] for s in diagnostic.observations)
             self._summary_diagnostic = diagnostic
         return self._nonmodal_observations
+
+    def _diagnostic_observation_support(self, diagnostic):
+        if self._support_diagnostic is not diagnostic:
+            counts = Counter(s.driver for s in diagnostic.observations)
+            compounds = {}
+            for sample in diagnostic.observations:
+                compounds.setdefault(sample.driver, Counter())[sample.compound] += 1
+            fitted = {series.driver: len(series.samples) for series in diagnostic.series}
+            # A modal tie has the same support count whichever compound wins;
+            # describing support needs no new compound-selection decision.
+            self._observation_support = tuple(
+                (driver, count, max(compounds[driver].values()), fitted.get(driver, 0))
+                for driver, count in sorted(counts.items())
+            )
+            self._support_diagnostic = diagnostic
+        return self._observation_support
 
     def payload(self, service=None, *, detailed=True):
         """Versioned production result; full audit ledger on explicit debug export."""
@@ -360,6 +380,18 @@ class TrackEvolutionPolicy:
         provenance = getattr(service, "_track_fallback_provenance", {"kind": "UNKNOWN", "reference": None})
         result["fallback_provenance"] = dict(provenance)
         result["configured_fallback_s_per_global_push"] = self._prior
+        result["attrition"]["non_operational_fast_completions"] = (
+            len(self.decisions) - result["attrition"]["operational_fast_candidates"]
+        )
+        result["observation_support"] = [
+            {"driver": driver, "observations": count,
+             "comparable_observations": comparable, "fit_observations": fitted,
+             "reason": ("INSUFFICIENT_COMPARABLE_OBSERVATIONS" if comparable < 2
+                        else "FIT_UNAVAILABLE" if not fitted else None)}
+            for driver, count, comparable, fitted in self._diagnostic_observation_support(d)
+        ]
+        if service is not None and hasattr(service, "readiness_diagnostics"):
+            result["readiness"] = service.readiness_diagnostics()
         result["automatic_estimate_s_per_global_push"] = live if live is not None else self._prior
         result["automatic_source"] = "LIVE_PER_DRIVER" if live is not None else "CONFIGURED_FP_DEFAULT_PRIOR"
         if detailed:

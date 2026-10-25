@@ -58,7 +58,9 @@ def calculate_half_live(snapshot: QualiSessionSnapshot) -> ExperimentalCutoff:
             return _unavailable("No valid configured fallback")
         status = "FALLBACK"
         source = "CONFIGURED_FP_DEFAULT_PRIOR"
-        reason = "No live fit; configured fallback unchanged (not a live R&D estimate)"
+        reason = ("No live fit; configured fallback is zero, so the R&D cutoff equals the observed target unchanged (not a live R&D estimate)"
+                  if rate == 0 else
+                  "No live fit; configured fallback unchanged (not a live R&D estimate)")
     unfinished = cutoff.unfinished_driver_count
     if not isinstance(unfinished, int) or isinstance(unfinished, bool) or unfinished < 0:
         return _unavailable("Invalid unfinished-driver count")

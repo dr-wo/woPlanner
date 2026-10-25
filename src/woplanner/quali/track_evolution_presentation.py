@@ -27,6 +27,33 @@ def fallback_label(result):
     return {'CONFIGURED_DEFAULT': 'Configured default', 'LOADED_FP_PRIOR': 'Loaded FP prior'}.get(kind, 'Configured fallback')
 
 
+def readiness_messages(result, *, inputs_only=False):
+    """Explain missing inputs and admission/support separately from fit quality."""
+    if not result:
+        return []
+    messages = []
+    readiness = result.get('readiness', {})
+    if readiness and not readiness.get('pace_reference_available'):
+        messages.append('FP pace reference unavailable: initial FAST classification needs a usable FP 5%-distance or S1 reference.')
+    elif readiness.get('drivers_without_pace_reference'):
+        messages.append('FP pace reference unavailable for: ' + ', '.join(readiness['drivers_without_pace_reference']) + '.')
+    if readiness and not readiness.get('cool_duration_available'):
+        messages.append('COOL/PREP duration unavailable: effective finish after a push needs an FP-derived duration or a manual value.')
+    if inputs_only:
+        return messages
+    rejected = result.get('attrition', {}).get('non_operational_fast_completions', 0)
+    if rejected:
+        messages.append(f'{rejected} completed laps ingested but not operational FAST at completion; these laps were not admitted to Track Evolution.')
+    waiting = [row['driver'] for row in result.get('observation_support', ())
+               if row.get('reason') == 'INSUFFICIENT_COMPARABLE_OBSERVATIONS']
+    if waiting:
+        messages.append('Admitted observations awaiting a second comparable tyre installation for a driver slope: ' + ', '.join(waiting) + '.')
+    if (result.get('status') == 'FALLBACK'
+            and result.get('support', {}).get('observations') == 0):
+        messages.append('No admitted observations are available for a live fit; the configured fallback or manual override remains in use.')
+    return messages
+
+
 def display_messages(result):
     """At most two mapped entries; information never gains warning severity."""
     if result['status'] == 'FALLBACK':

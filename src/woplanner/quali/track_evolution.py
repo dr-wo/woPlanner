@@ -174,7 +174,7 @@ def render_track_evolution_diagnostic(diagnostic: TrackEvolutionDiagnostic, path
     axis.set_title(f"Track Evolution — {diagnostic.driver_count} drivers / {diagnostic.lap_count} laps used\n"
                    f"Aggregate {aggregate} · driver spread σ {slope_std}; traffic is auxiliary")
     axis.set_xlabel("Global/session-wide PUSH-lap index")
-    axis.set_ylabel("Completed FAST/PUSH lap time (s)")
+    axis.set_ylabel("Selected qualifying lap time (s)")
     axis.grid(alpha=.25)
     if diagnostic.series:
         axis.legend(loc="upper center", bbox_to_anchor=(.5, -.14), ncol=3, frameon=False)

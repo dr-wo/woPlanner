@@ -22,7 +22,7 @@ from .planning import (
 from .service import QualiLiveService
 from .track_evolution import TrackEvolutionDiagnostic, render_track_evolution_diagnostic
 from .track_evolution_presentation import (
-    display_messages, fallback_label, SOURCE_LABELS, STATUS_LABELS,
+    display_messages, fallback_label, readiness_messages, SOURCE_LABELS, STATUS_LABELS,
 )
 
 
@@ -833,6 +833,10 @@ class QualiPlanDialog(QtWidgets.QDialog):
         self.track_telemetry_warning.setVisible(bool(warning))
         diagnostic = snapshot.track_evolution_diagnostic
         result = snapshot.track_evolution_result
+        q_result = getattr(snapshot, "q_only_track_evolution_result", None)
+        use_q_fit = (q_result is not None
+                     and q_result.get("live_estimate_s_per_global_push") is not None
+                     and (result is None or result.get("live_estimate_s_per_global_push") is None))
         if result is not None:
             import json
             self.track_source.setText(SOURCE_LABELS[result['estimate_source']])
@@ -845,15 +849,38 @@ class QualiPlanDialog(QtWidgets.QDialog):
                 f"{result['support']['drivers']} drivers"
             )
             messages = display_messages(result)
-            self.track_messages.setText("\n".join(
+            self.track_messages.setText("\n".join([
                 ("Information: " if m['severity'] == 'information' else "") +
                 f"{m['category']} — {m['explanation']}" for m in messages
-            ))
+            ] + readiness_messages(result)))
             self.track_result_detail.setPlainText(json.dumps(result, indent=2))
         else:
             self.track_quality.setText("Track-evolution status unavailable")
             self.track_messages.clear()
             self.track_result_detail.clear()
+        if q_result is not None:
+            import json
+            self.track_result_detail.setPlainText(json.dumps({
+                **(result or {}), "q_only_analysis": q_result,
+                "final_cutoff_forecast": getattr(snapshot, "final_cutoff_forecast", None),
+            }, indent=2))
+            if use_q_fit:
+                diagnostic = snapshot.q_only_track_evolution_diagnostic
+                self.track_estimated.setText(
+                    f"{q_result['live_estimate_s_per_global_push']:+.4f} s / field push (Q-only live fit)"
+                )
+                self.track_source.setText("Q-only live per-driver fit; legacy correction shown separately")
+                self.track_quality.setText(
+                    f"{STATUS_LABELS[q_result['status']]} · {q_result['accepted_observation_count']} accepted / "
+                    f"{q_result['fitted_observation_count']} fitted observations"
+                )
+                self.track_messages.setText(q_result["assumption"])
+            elif result is None or result.get("live_estimate_s_per_global_push") is None:
+                self.track_messages.setText(
+                    self.track_messages.text() + "\nQ-only timing analysis: "
+                    f"{q_result['candidate_count']} candidates, {q_result['accepted_observation_count']} accepted; "
+                    "fresh comparable installations and repeated driver observations are needed for a slope."
+                )
         if diagnostic is not None:
             aggregate = (
                 "—" if diagnostic.aggregate_slope_s_per_push is None
@@ -865,7 +892,8 @@ class QualiPlanDialog(QtWidgets.QDialog):
             )
             self.track_diagnostic_summary.setText(
                 f"Aggregate {aggregate} · σ {sigma} · "
-                f"{diagnostic.driver_count} drivers / {diagnostic.lap_count} laps"
+                f"{diagnostic.driver_count} drivers / {diagnostic.lap_count} laps fitted · "
+                f"{len(diagnostic.observations)} admitted observations"
             )
             self.track_diagnostic.set_diagnostic(diagnostic)
 

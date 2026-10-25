@@ -35,6 +35,7 @@ checkpoint information enters the calculation.
 | Live limited | Same half-rate calculation; label `Live limited` |
 | Numeric zero live fit | Valid live estimate, not fallback |
 | No live fit | Full configured fallback, including nonzero values; explicit `Fallback · FP/default prior` |
+| No live fit and fallback prior zero | Same fallback calculation; explicitly says `Zero fallback; target unchanged` |
 | Manual override | Current alone uses the override; experiment uses automatic live or unchanged fallback |
 | Missing observed target or published estimate | `Unavailable`, no inherited Current prediction |
 | Invalid/nonfinite required input | `Unavailable` |
@@ -44,6 +45,9 @@ The tooltip identifies `half_live`, source, support status, manual independence
 and the limited historical evidence. Fallback is not an independent live R&D
 estimate, even if its numerical value equals Current. Limited-support status
 describes the underlying live fit, not prospective validation of Half-live.
+`No observed cutoff target` remains a separate unavailable reason in the tooltip.
+The zero-prior explanation changes presentation only; no formula, rate unit,
+support threshold or manual-override rule changes.
 
 ## Isolation and baseline
 

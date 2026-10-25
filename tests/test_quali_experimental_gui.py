@@ -55,7 +55,7 @@ def test_prediction_labels_preserve_current_and_explain_experimental(
     # Literal accepted Current output: no new mathematics or source selection.
     current_value = "1:29.600" if status.startswith("LIVE") else "1:29.700"
     assert window.cutoff.text() == f"{target}: {current_value}"
-    assert window.current_prediction_label.text() == "Current"
+    assert window.current_prediction_label.text() == "Current (legacy projection)"
     assert window.experimental_cutoff.text() == (
         f"R&D · Half-live [Experimental] · {target}: {expected_value} · {expected_status}"
     )

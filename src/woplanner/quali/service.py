@@ -7,6 +7,9 @@ from collections import OrderedDict, deque
 import math
 from pathlib import Path
 from time import monotonic
+from functools import lru_cache
+import json
+from importlib.resources import files
 
 from .runtime_paths import ArtifactError, RuntimePaths, resolve_runtime_paths
 
@@ -36,9 +39,23 @@ from .track_evolution import (
 )
 from .physical_traffic import PhysicalLapTraffic, RollingQualiPhysicalTraffic
 from .traffic_finalisation import PendingTraffic, TelemetryDelayMonitor
+from .q_only_track import QOnlyTrackEvolution
+from wostrategy.analysis.quali_forecast import (
+    DriverPace, ForecastPrior, forecast_final_cutoff, forecast_partial_field_bounds,
+)
 
 
 QUALI_PARTS = (*STANDARD_QUALI_PARTS, *SPRINT_QUALI_PARTS)
+
+
+@lru_cache(maxsize=1)
+def _packaged_cutoff_prior():
+    """Read the frozen chronological calibration once, outside message work."""
+    try:
+        path = files("wostrategy.analysis").joinpath("quali_forecast_prior_v1.json")
+        return ForecastPrior.from_dict(json.loads(path.read_text(encoding="utf-8"))), None
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return None, f"Calibration prior unavailable: {type(exc).__name__}: {exc}"
 
 
 def _finite_float(value) -> float | None:
@@ -153,6 +170,11 @@ class QualiLiveService:
         self.session_is_qualifying: bool | None = None
         from .track_evolution_policy import TrackEvolutionPolicy
         self.track_evolution_policy = TrackEvolutionPolicy()
+        self.q_only_track_evolution = QOnlyTrackEvolution()
+        self._final_cutoff_prior, self._final_cutoff_prior_error = _packaged_cutoff_prior()
+        self._final_cutoff_key = None
+        self._final_cutoff_result = None
+        self.final_cutoff_calculation_count = 0
         self._track_publication_in_progress = False
         # Deprecated opt-in debug handle aliases the single production state.
         self.shadow_track_evolution = self.track_evolution_policy if shadow_track_evolution else None
@@ -207,6 +229,9 @@ class QualiLiveService:
 
     def reset(self) -> None:
         self.track_evolution_policy.reset()
+        self.q_only_track_evolution.reset()
+        self._final_cutoff_key = None
+        self._final_cutoff_result = None
         self._track_publication_in_progress = False
         self.raw_snapshot = QualiRawSnapshot.empty()
         self.session_part = "Q1"
@@ -491,6 +516,7 @@ class QualiLiveService:
                           receive_time_trusted=raw.receive_time_trusted and receipt is not None)
         self._track_publication_in_progress = True
         self.track_evolution_policy.begin_publication(raw)
+        self.q_only_track_evolution.begin_publication(raw)
         previous_part = self.session_part
         previous_part_established = getattr(self.raw_snapshot, "session_part_established", True)
         if (raw.session_part != previous_part and previous_part_established
@@ -552,6 +578,9 @@ class QualiLiveService:
         for driver in raw.drivers:
             self._reconcile_participation(driver)
             self._consume_driver(driver)
+        self.q_only_track_evolution.consume_new_completions(
+            raw, {number for number, state in self._states.items() if state.active},
+        )
         for key in getattr(self._physical_traffic, "changed_revoked_keys", ()):
             self.telemetry_delays.revoke(key)
         self.telemetry_delays.observe(raw, self._physical_traffic)
@@ -574,6 +603,7 @@ class QualiLiveService:
                 self._states[number] = replace(state, projected_lap_s=projected)
         self._rank_and_project()
         self.track_evolution_policy.finish_publication(self)
+        self.q_only_track_evolution.finish_publication(self)
         self._track_publication_in_progress = False
         self.snapshot = self._build_snapshot()
         return self.snapshot
@@ -973,6 +1003,107 @@ class QualiLiveService:
         """Production quality/source result and optional exact publication ledger."""
         return self.track_evolution_policy.payload(self, detailed=detailed)
 
+    def readiness_diagnostics(self):
+        """Describe current inputs without changing classification or forecasts."""
+        def usable(reference):
+            return reference is not None and any(
+                value is not None and math.isfinite(value) and value > 0
+                for value in (reference.start_to_5pct_s, reference.start_to_s1_s)
+            )
+
+        common_available = usable(self._common_lap_state_reference)
+        missing = tuple(sorted(
+            state.driver for number, state in self._states.items()
+            if state.active and not usable(self.lap_state_references.get(
+                number, self._common_lap_state_reference))
+        ))
+        cool = self.cool_lap_s
+        cool_available = cool is not None and math.isfinite(cool) and cool > 0
+        return {
+            "pace_reference_available": common_available or any(
+                usable(reference) for reference in self.lap_state_references.values()),
+            "common_pace_reference_available": common_available,
+            "drivers_without_pace_reference": missing,
+            "cool_duration_available": cool_available,
+            "cool_duration_s": cool if cool_available else None,
+            "cool_duration_source": self.operational_timing_sources["cool_lap_s"],
+        }
+
+    def set_final_cutoff_prior(self, prior: ForecastPrior | None) -> None:
+        """Explicit calibration selection; never alter legacy correction state."""
+        if prior is not None:
+            prior._validate()
+        self._final_cutoff_prior = prior
+        self._final_cutoff_prior_error = None
+        self._final_cutoff_key = None
+        self.snapshot = replace(self.snapshot, final_cutoff_forecast=self._final_cutoff_payload())
+
+    def _final_cutoff_payload(self):
+        raw = self.raw_snapshot
+        identity = parse_session_identity(raw.session_info)
+        event_id = (f"{identity.year}-R{identity.round_number}"
+                    if identity.year and identity.round_number else None)
+        active = [state for state in self._states.values() if state.active]
+        source = {driver.driver_number: driver for driver in raw.drivers}
+        drivers = []
+        for state in active:
+            driver = source.get(state.driver_number)
+            previous = (dict(driver.historical_results).get("Q1")
+                        if driver is not None and self.session_part == "Q2" else None)
+            no_further_attempt = (
+                raw.normal_finished and driver is not None
+                and (driver.in_pit is True
+                     or state.finished_reason == FinishedReason.FINAL_LAP_COMPLETED)
+            )
+            drivers.append(DriverPace(state.driver, state.best_lap_s, previous,
+                                     False if no_further_attempt else None))
+        # A chequered/zero clock alone does not rule out laps already in flight.
+        finalised = (raw.normal_finished
+                     and str(raw.session_status or "").lower() in {"finalised", "ends"})
+        remaining = raw.remaining_time_s
+        numeric_remaining = _finite_float(remaining)
+        bucket = int(numeric_remaining // 30) if numeric_remaining is not None else None
+        key = (event_id, self.session_part, tuple(drivers), bucket, finalised,
+               self._final_cutoff_prior.revision if self._final_cutoff_prior else None)
+        if key != self._final_cutoff_key:
+            self._final_cutoff_result = forecast_final_cutoff(
+                drivers, event_id=event_id, part=self.session_part,
+                remaining_s=remaining, prior=self._final_cutoff_prior,
+                part_finalised=finalised,
+            )
+            missing_anchor = any(
+                driver.current_best_s is None
+                and (self.session_part != "Q2" or driver.previous_part_best_s is None)
+                for driver in drivers
+            )
+            if (not finalised and self._final_cutoff_prior is not None and missing_anchor
+                    and self._final_cutoff_result.status == "UNAVAILABLE"
+                    and self.session_part in {"Q1", "Q2"}):
+                self._final_cutoff_result = forecast_partial_field_bounds(
+                    drivers, event_id=event_id, part=self.session_part,
+                    remaining_s=remaining, prior=self._final_cutoff_prior,
+                )
+            self._final_cutoff_key = key
+            self.final_cutoff_calculation_count += 1
+        result = self._final_cutoff_result
+        limitations = list(result.limitations)
+        if self._final_cutoff_prior_error:
+            limitations.append(self._final_cutoff_prior_error)
+        return {
+            "status": result.status, "source": result.source,
+            "event_id": result.event_id, "part": result.part,
+            "target_rank": result.target_rank,
+            "estimate_s": result.estimate_s, "lower_s": result.lower_s,
+            "upper_s": result.upper_s, "interval_coverage": result.interval_coverage,
+            "prior_revision": result.prior_revision, "scenario_count": result.scenario_count,
+            "training_events": list(result.training_events),
+            "current_pace_count": result.current_pace_count,
+            "previous_part_pace_count": result.previous_part_pace_count,
+            "driver_count": result.driver_count,
+            "calculated_remaining_s": result.remaining_s,
+            "remaining_bucket_s": 30, "limitations": limitations,
+        }
+
     def track_evolution_diagnostic(self):
         """The promoted policy's one immutable shared per-driver diagnostic."""
         policy = self.track_evolution_policy
@@ -1253,6 +1384,11 @@ class QualiLiveService:
             automatic_track_source=self._automatic_track_source,
             telemetry_delay_warning=self.telemetry_delays.warning,
             telemetry_delayed_lap_count=self.telemetry_delays.count,
+            q_only_track_evolution_result=(self.q_only_track_evolution.payload()
+                                          if not self._track_publication_in_progress else None),
+            q_only_track_evolution_diagnostic=self.q_only_track_evolution.diagnostic,
+            final_cutoff_forecast=(self._final_cutoff_payload()
+                                   if not self._track_publication_in_progress else None),
         )
 
     @staticmethod

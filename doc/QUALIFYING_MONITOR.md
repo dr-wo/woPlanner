@@ -169,6 +169,40 @@ operational Qualifying state. An unavailable individual FP session is skipped;
 if none load, analysis fails.
 Opening Plan alone can read an existing artifact but does not regenerate analysis.
 
+The analysis creates its writable FastF1 raw-cache directory before enabling
+the cache and checks that a temporary file can be written there. Unavailable
+optional reference telemetry keeps the valid FP lap and sector reference; the
+5%-distance checkpoint remains unavailable. Unexpected telemetry errors still
+fail analysis. A successful partial analysis identifies skipped sessions and
+reference warnings in its completion message.
+
+Each analysis attempt saves a separate diagnostic JSON below
+`<Output Root>/woplanner/quali_analysis_diagnostics/year=<year>/round=<round>/`.
+It records event/session identity, execution phase, resource/output/cache roots,
+successful and failed FP sessions, warnings, exception types and tracebacks.
+The failure dialog includes the diagnostic path and context. If the output
+cannot safely store diagnostics, the original analysis error is preserved and
+logged; diagnostic persistence failure does not turn successful analysis into
+failure. These diagnostics do not identify the unrecorded historical R18 error.
+
+### Operational readiness and fit support
+
+The monitor explains missing FP pace references and COOL/PREP duration below
+the cutoff rows. A usable initial pace reference needs a positive finite S1 or
+5%-distance benchmark; S2 alone cannot establish FAST. Missing inputs remain
+unavailable: no default pace, cool duration or automatic promotion to FAST is
+introduced. Pit-based effective finish remains independent of those on-track
+prerequisites.
+
+Plan's Track Correction detail separates completed laps that were not
+operational FAST, admitted observations, and observations used in fitted driver
+slopes. An admitted observation needs a second comparable tyre installation
+before it can define that driver's slope. The published track result retains
+its existing support/status/source fields and adds readiness, per-driver
+observation support and a non-operational-completion count. These are diagnostic
+fields only; selection thresholds, timing rules and auxiliary traffic policy
+are unchanged.
+
 Opening or refreshing Plan only reads current live timing and track state: it
 does not reload different cached values or change existing overrides. Timing
 inputs display to 0.1 s, while calculations retain full precision. An edit is
@@ -189,10 +223,13 @@ presentation countdown at its received value. These fields are presentation
 metadata: the service does not derive rankings, finish markers, or timing
 decisions from local wall-clock time.
 
-## Live track evolution and cutoff projection
+## Legacy live track evolution and cutoff projection
 
 The canonical policy is `production-field7-exact-lifetime-v2`, with result schema
 2 and engineering quality version `engineering-reliability-only-20261011-v2`.
+This section describes the retained legacy correction and Half-live inputs.
+The independent Q-only analysis and final-cutoff forecast below do not require
+its operational FAST gate.
 An active service-owned driver needs a uniquely identified advancing normal
 timed completion, timed eligibility, operational FAST, and a positive finite lap
 time. Pace must be at most the current causal active-field best × 1.07; equality
@@ -282,6 +319,102 @@ context, not its current expected values. Current R13/R14/R16 results are in the
 ```bash
 python scripts/verify_quali_r16_canonical_track.py --output r16_canonical.json
 ```
+
+## FP-independent observations and experimental final-cutoff forecast
+
+The main window retains **Current (legacy projection)** and **R&D · Half-live**
+for comparison. **Final P16/P10 forecast [Experimental]** is a separate field
+model. It uses each driver's observed current best or, in Q2, already known Q1
+best, plus frozen empirical joint-field improvement scenarios from earlier
+events. It does not add the live track slope again: the historical residuals
+already include typical shared evolution and the chance of no further attempt.
+The bundled calibration is trained on 2026 R1–10; same/future-event calibration
+is rejected. Remaining-time opportunity uncertainty comes from those historical
+scenarios, not an invented cool duration or a claim that another push is certain.
+
+The forecast is available before observed P10 when Q1 anchors cover the Q2
+field. If unknown drivers prevent a point estimate but finite rank bounds are
+possible, a **partial-field scenario envelope** is shown without assigning their
+pace or probabilities. Such envelopes are conditional scenarios, not probabilistic
+coverage guarantees. With too little evidence or no supported calibration, the
+model says unavailable instead of copying Current. Zero countdown alone does
+not finalise a part: already-running laps can still finish. The field prior is
+read once; forecasts are cached until pace/roster changes or a 30-second
+remaining-time bucket changes. All of this is independent of legacy overrides.
+
+The **Q-only Track Evolution** path admits exact normal timed completions using
+timing eligibility, complete owned sectors consistent with lap time, and the
+same field+7% gross guard. It never changes UNKNOWN into FAST or changes Effective
+Finish. Late owned-sector updates are held under the exact completion key, with
+original tyre/reference/physical context frozen; they can qualify only when the
+missing sector arrives. Pending work is bounded and does not cross part closure.
+Published invalidations/deletions withdraw observations without renumbering.
+
+Candidate, accepted, tyre-comparable and fitted counts are distinct. Unknown
+freshness/installation leaves credible pace observable but cannot manufacture a
+comparable fresh-tyre slope. The same established per-driver, first-per-fresh-set,
+same-compound regression is used, with at least two observations per fitted
+driver. A positive slope is retained as measured; run effects and driver errors
+can confound it, and limited-support warnings are visible. Auxiliary traffic is
+not a fitting veto. Track Correction displays the Q-only fit when the legacy fit
+is unavailable and keeps both publications in its details.
+
+Both products work before FP preparation and survive later FP loading without
+resetting Q observations. The final-cutoff model remains experimental: the
+five-event holdout shows useful average error reduction but poor early-Q2 range
+calibration and individual worse predictions. The earlier unauthenticated
+FastF1 3.8.3 acquisition returned upstream 401/mirror 404. Authenticated FastF1
+3.9.0 now supplies genuine R18 FP1–3 data and complete preparation; see
+`2026-R18-Q-fp-recovery-and-early-forecast-audit.md`. OpenF1 remains a possible
+independent fallback, with its pit/run timing mapping still unvalidated. See
+`2026-R18-Q-prediction-resilience.md` and `scripts/evaluate_quali_resilience.py`
+for the frozen forecast's provenance, causal evaluation and limitations.
+
+### Authenticated FP preparation and pre-weekend check
+
+The intended interpreter uses FastF1 3.9.0. Its official browser authentication
+stores a reusable local token; fresh archive access requires a locally usable
+token and server acceptance. Tokens normally need another sign-in after about
+four days. Never copy passwords, cookies or token values into chat or diagnostics.
+
+The following status check is passive and returns no credentials or account
+claims:
+
+```bash
+/Users/zhxutong/dr-wo/.venv/bin/python -m woplanner.quali.preflight --year 2026 --round 18
+```
+
+If local authentication is missing/expired, use the official CLI outside the
+monitor, complete the browser companion sign-in, then repeat the status check:
+
+```bash
+/Users/zhxutong/dr-wo/.venv/bin/python -m fastf1 auth f1tv --authenticate --method browser
+```
+
+To test cold acquisition and preparation without replacing the working cache:
+
+```bash
+F1_PREFLIGHT_ROOT=$(mktemp -d /private/tmp/quali-preflight.XXXXXX)
+/Users/zhxutong/dr-wo/.venv/bin/python -m woplanner.quali.preflight \
+  --year 2026 --round 18 --prepare --fresh --run-root "$F1_PREFLIGHT_ROOT"
+```
+
+Use the relevant event year/round. The isolated result belongs below
+`<run-root>/preparation`; `--fresh` refuses a populated raw cache. Confirm all
+three successful sessions, three fresh authenticated timing sessions, artifact
+reload and usable pace/COOL readiness. A warm repeat omits `--fresh` and reports
+parsed/HTTP cache use separately; it is not proof of fresh access. Preflight
+does not silently replace the monitor's normal data location. The monitor's
+Analyse action generates artifacts under its existing configured output root.
+
+Analyse FP1–FP3 now runs in a separate noninteractive process while qualifying
+polling continues. Stored browser tokens work there; missing/rejected tokens
+cannot open a browser or request a password on the polling thread. Failure
+diagnostics distinguish archive 401/403, primary 404, mirror status, local token
+expiry and parsed/HTTP cache provenance. Explicit login remains outside the
+monitor. Duplicate jobs are suppressed, results for a changed event are not
+applied, and a 15-minute limit/window close stops the worker. Successful late
+preparation applies on the GUI thread without resetting Q-only observations.
 
 ## Round 12 replay reference
 

@@ -92,3 +92,8 @@ class QualiSessionSnapshot:
     telemetry_delay_warning: str = ""
     telemetry_delayed_lap_count: int = 0
     track_evolution_result: dict | None = None
+    # Separate analysis products: neither writes operational FAST/finish state
+    # nor replaces the legacy correction/Half-live comparison.
+    q_only_track_evolution_result: dict | None = None
+    q_only_track_evolution_diagnostic: TrackEvolutionDiagnostic | None = None
+    final_cutoff_forecast: dict | None = None

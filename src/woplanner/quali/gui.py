@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from collections.abc import Mapping
@@ -23,6 +24,7 @@ from .experimental_cutoff import calculate_half_live
 from .models import FinishedReason
 from .runtime_paths import ArtifactError, RuntimePaths, resolve_runtime_paths
 from .service import QualiLiveService
+from .track_evolution_presentation import readiness_messages
 from .widgets import CutoffTable, QualiPlanDialog, format_time
 
 
@@ -110,6 +112,10 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.resize(1500, 900)
         self.runtime_paths = paths
         self.analysis_service = QualiAnalysisService(runtime_paths=paths)
+        self._analysis_process = None
+        self._analysis_timeout = QtCore.QTimer(self)
+        self._analysis_timeout.setSingleShot(True)
+        self._analysis_timeout.timeout.connect(self._cancel_fp_analysis)
         self.service = QualiLiveService(runtime_paths=paths)
         self.plan_dialog = None
         self._session_metadata_signature: tuple[object, ...] | None = None
@@ -211,7 +217,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.clock = QtWidgets.QLabel("Q1 —:—")
         self.normal_finish = QtWidgets.QLabel("")
         self.cutoff = QtWidgets.QLabel("Projected cutoff: —")
-        self.current_prediction_label = QtWidgets.QLabel("Current")
+        self.current_prediction_label = QtWidgets.QLabel("Current (legacy projection)")
         self.experimental_cutoff = QtWidgets.QLabel()
         self.experimental_cutoff.setTextFormat(QtCore.Qt.TextFormat.PlainText)
         self.experimental_cutoff.setWordWrap(True)
@@ -227,6 +233,19 @@ class QualiWindow(QtWidgets.QMainWindow):
         current.addWidget(self.cutoff)
         predictions.addLayout(current)
         predictions.addWidget(self.experimental_cutoff)
+        self.final_cutoff_forecast = QtWidgets.QLabel()
+        self.final_cutoff_forecast.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self.final_cutoff_forecast.setWordWrap(True)
+        predictions.addWidget(self.final_cutoff_forecast)
+        self.q_only_track = QtWidgets.QLabel()
+        self.q_only_track.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self.q_only_track.setWordWrap(True)
+        predictions.addWidget(self.q_only_track)
+        self.readiness = QtWidgets.QLabel()
+        self.readiness.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self.readiness.setWordWrap(True)
+        self.readiness.hide()
+        predictions.addWidget(self.readiness)
         status.addWidget(self.connection)
         status.addLayout(predictions, 1)
         return status
@@ -277,32 +296,117 @@ class QualiWindow(QtWidgets.QMainWindow):
         if self.service.session_is_qualifying is False:
             self._show_non_quali_warning()
             return
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        if self._analysis_process is not None:
+            return
+        event = (self.year.value(), self.round.value())
+        paths = self.runtime_paths
+        request = {"year": event[0], "round_number": event[1],
+                   "resource_root": str(paths.resource_root) if paths.resource_root else None,
+                   "output_root": str(paths.output_root) if paths.output_root else None,
+                   "isolated": paths.isolated}
+        process = QtCore.QProcess(self)
+        self._analysis_process = process
+        process.setProgram(sys.executable)
+        process.setArguments(["-m", "woplanner.quali.fp_worker", json.dumps(request)])
+        process.readyReadStandardError.connect(lambda: process.readAllStandardError())
+        process.started.connect(process.closeWriteChannel)
+        process.finished.connect(lambda code, status: self._fp_analysis_finished(process, event, code))
+        process.errorOccurred.connect(lambda error: self._fp_analysis_start_error(process, error))
+        self.analyze.setEnabled(False)
+        self.analyze.setText("Analysing FP…")
+        self._analysis_timeout.start(15 * 60 * 1000)
+        process.start()
+
+    def _fp_analysis_start_error(self, process, error) -> None:
+        if error == QtCore.QProcess.ProcessError.FailedToStart and process is self._analysis_process:
+            self._finish_fp_process(process)
+            QtWidgets.QMessageBox.critical(self, "Pre-qualifying analysis", "Unable to start the FP preparation process.")
+
+    def _finish_fp_process(self, process) -> None:
+        self._analysis_timeout.stop()
+        self._analysis_process = None
+        self.analyze.setText("Analyse FP1–FP3")
+        self.analyze.setEnabled(self.service.session_is_qualifying is not False)
+        if process.state() == QtCore.QProcess.ProcessState.NotRunning:
+            process.deleteLater()
+        else:
+            process.finished.connect(process.deleteLater)
+
+    def _cancel_fp_analysis(self) -> None:
+        process = self._analysis_process
+        if process is not None:
+            process.kill()
+            self._finish_fp_process(process)
+            QtWidgets.QMessageBox.critical(self, "Pre-qualifying analysis",
+                "FP preparation exceeded 15 minutes and was stopped. Qualifying updates continue; authenticate outside this window before retrying fresh acquisition.")
+
+    def _fp_analysis_finished(self, process, event, code) -> None:
+        if process is not self._analysis_process:
+            return
+        contents = bytes(process.readAllStandardOutput()).decode("utf-8")
+        self._finish_fp_process(process)
+        if event != (self.year.value(), self.round.value()):
+            # Saved artifacts retain their requested identity; never apply a
+            # late preparation result to a different active event.
+            return
         try:
-            result = self.analysis_service.analyze(
-                self.year.value(), self.round.value()
-            )
+            reply = json.loads(contents)
+            if not isinstance(reply, dict):
+                raise ValueError("Invalid FP worker reply")
+        except ValueError:
+            QtWidgets.QMessageBox.critical(self, "Pre-qualifying analysis",
+                f"FP worker failed to return a valid result for {event[0]}/R{event[1]} "
+                f"(worker phase; exit {code}). Qualifying updates continue.")
+            return
+        try:
+            self.analysis_service.last_diagnostics = reply.get("diagnostics", {})
+            self.analysis_service.diagnostic_path = (
+                Path(reply["diagnostic_path"]) if reply.get("diagnostic_path") else None)
+            if code != 0 or not reply.get("ok"):
+                QtWidgets.QMessageBox.critical(self, "Pre-qualifying analysis",
+                    reply.get("message", "FP preparation failed; qualifying forecasts remain available."))
+                return
+            result = self.analysis_service.load(*event)
+            self._apply_fp_analysis(result, *event)
+        except (OSError, ValueError, KeyError) as exc:
+            self._show_fp_analysis_failure(exc)
+
+    def _show_fp_analysis_failure(self, exc) -> None:
+        QtWidgets.QMessageBox.critical(self, "Pre-qualifying analysis",
+            self.analysis_service.failure_message(exc)
+            if hasattr(self.analysis_service, "failure_message") else str(exc))
+
+    def _apply_fp_analysis(self, result, year, round_number) -> None:
+        try:
             rate, source, samples = self.analysis_service.effective_fp_track_rate()
             self.service.set_fp_track_rate(
                 rate, loaded_fp=samples > 0,
-                reference=f"{self.year.value()}/R{self.round.value()}: {source}",
+                reference=f"{year}/R{round_number}: {source}",
             )
             self.service.load_operational_analysis(result)
             if self.runtime_paths.isolated:
-                self.service.reload_operational_artifacts(self.year.value(), self.round.value())
+                self.service.reload_operational_artifacts(year, round_number)
             if self.plan_dialog:
                 self.plan_dialog.load_analysis(result)
+            message = f"Analysed {len(result.laps)} FP laps and saved planner artifacts."
+            diagnostics = getattr(self.analysis_service, "last_diagnostics", {}) or {}
+            unavailable = [name for name, detail in diagnostics.get("sessions", {}).items()
+                           if detail.get("error")]
+            if unavailable:
+                message += "\nSessions unavailable: " + ", ".join(unavailable) + ". Available sessions were analysed."
+            warnings = diagnostics.get("warnings", ())
+            if warnings:
+                message += f"\nAnalysis completed with {len(warnings)} reference-detail warnings; see diagnostics for details."
+            diagnostic_path = getattr(self.analysis_service, "diagnostic_path", None)
+            if diagnostic_path:
+                message += f"\nDiagnostics: {diagnostic_path}"
             QtWidgets.QMessageBox.information(
                 self,
                 "Pre-qualifying analysis",
-                f"Analysed {len(result.laps)} FP laps and saved planner artifacts.",
+                message,
             )
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(
-                self, "Pre-qualifying analysis", str(exc)
-            )
-        finally:
-            QtWidgets.QApplication.restoreOverrideCursor()
+            self._show_fp_analysis_failure(exc)
 
     def _show_plan(self) -> None:
         if self.service.session_is_qualifying is False:
@@ -354,7 +458,7 @@ class QualiWindow(QtWidgets.QMainWindow):
             self._reject_non_quali_session()
             return
         if self.service.session_is_qualifying is True:
-            self.analyze.setEnabled(True)
+            self.analyze.setEnabled(self._analysis_process is None)
             self.plan.setEnabled(True)
         remaining_text = format_countdown(self._presentation_countdown.update(snapshot))
         self.clock.setText(f"{snapshot.session_part} {remaining_text}")
@@ -385,6 +489,9 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.experimental_cutoff.setText(
             f"R&D · Half-live [Experimental] · {target_name}: "
             f"{format_time(experimental.projected_cutoff_s)} · {status}"
+            + (" · Zero fallback; target unchanged"
+               if experimental.status == "FALLBACK" and experimental.rate_s_per_field_push == 0
+               else "")
         )
         self.experimental_cutoff.setToolTip(
             "Candidate: half_live (experimental; limited historical evaluation, "
@@ -394,10 +501,65 @@ class QualiWindow(QtWidgets.QMainWindow):
             f"Source: {experimental.source}\nStatus: {experimental.status}\n"
             f"{experimental.reason}"
         )
+        messages = readiness_messages(snapshot.track_evolution_result, inputs_only=True)
+        self.readiness.setText("\n".join(messages))
+        self.readiness.setVisible(bool(messages))
+        self._render_resilient_predictions(snapshot)
+
+    def _render_resilient_predictions(self, snapshot) -> None:
+        """Publish the distinct field forecast and Q-only measurement sources."""
+        forecast = getattr(snapshot, "final_cutoff_forecast", None)
+        self.final_cutoff_forecast.setVisible(snapshot.session_part in {"Q1", "Q2"})
+        def clock(value):
+            minutes, seconds = divmod(round(float(value), 1), 60)
+            return f"{int(minutes)}:{seconds:04.1f}"
+        if forecast and forecast.get("status") == "OBSERVED_FINAL":
+            self.final_cutoff_forecast.setText(
+                f"Final P{forecast['target_rank']}: {clock(forecast['estimate_s'])} · observed final classification"
+            )
+        elif forecast and forecast.get("estimate_s") is not None:
+            self.final_cutoff_forecast.setText(
+                f"Final P{forecast['target_rank']} forecast [Experimental]: "
+                f"{clock(forecast['estimate_s'])} · historical scenario range "
+                f"{clock(forecast['lower_s'])}–{clock(forecast['upper_s'])} · Q pace + historical prior"
+            )
+        elif forecast and forecast.get("status") == "SCENARIO_RANGE":
+            self.final_cutoff_forecast.setText(
+                f"Final P{forecast['target_rank']} forecast [Experimental]: "
+                f"{clock(forecast['lower_s'])}–{clock(forecast['upper_s'])} · "
+                "partial-field scenario envelope; no point estimate"
+            )
+        else:
+            self.final_cutoff_forecast.setText("Final cutoff forecast [Experimental]: unavailable")
+        self.final_cutoff_forecast.setToolTip(
+            "Forward-looking final classification from joint historical field scenarios. "
+            "Independent of FP preparation and the legacy/Half-live correction.\n"
+            + (f"Source: {forecast['source']}\nTraining: {', '.join(forecast['training_events'])}\n"
+               + "\n".join(forecast["limitations"]) if forecast else "Waiting for a qualifying publication.")
+        )
+        result = getattr(snapshot, "q_only_track_evolution_result", None)
+        if result:
+            rate = result["live_estimate_s_per_global_push"]
+            trend = f"{rate:+.4f} s/field push" if rate is not None else "slope not yet identifiable"
+            self.q_only_track.setText(
+                f"Q-only Track Evolution: {trend} · {result['accepted_observation_count']} accepted / "
+                f"{result['fitted_observation_count']} fitted observations"
+                + (" · limited evidence" if result["status"] == "LIVE_LIMITED" else "")
+            )
+            self.q_only_track.setToolTip(result["assumption"])
+        else:
+            self.q_only_track.setText("Q-only Track Evolution: waiting for qualifying observations")
 
     def _clear_experimental_cutoff(self, reason: str) -> None:
         self.experimental_cutoff.setText("R&D · Half-live [Experimental] · Unavailable")
         self.experimental_cutoff.setToolTip(f"Candidate: half_live\n{reason}")
+        if hasattr(self, "readiness"):
+            self.readiness.clear()
+            self.readiness.hide()
+        if hasattr(self, "final_cutoff_forecast"):
+            self.final_cutoff_forecast.setText("Final cutoff forecast [Experimental]: unavailable")
+            self.final_cutoff_forecast.setToolTip(reason)
+            self.q_only_track.setText("Q-only Track Evolution: waiting for qualifying observations")
 
     def _clear_session_prediction_display(self, reason: str) -> None:
         self.cutoff.setText("Projected cutoff: —")
@@ -423,7 +585,7 @@ class QualiWindow(QtWidgets.QMainWindow):
         self.plan.setEnabled(False)
 
     def _restore_offline_controls(self) -> None:
-        self.analyze.setEnabled(True)
+        self.analyze.setEnabled(self._analysis_process is None)
         self.plan.setEnabled(True)
 
     def _sync_session_context(self, session_info) -> None:
@@ -609,6 +771,12 @@ class QualiWindow(QtWidgets.QMainWindow):
             )
 
     def closeEvent(self, event) -> None:
+        if self._analysis_process is not None:
+            process = self._analysis_process
+            self._analysis_process = None
+            process.kill()
+            process.waitForFinished(1000)
+        self._analysis_timeout.stop()
         self.timer.stop()
         self.service.stop()
         event.accept()
